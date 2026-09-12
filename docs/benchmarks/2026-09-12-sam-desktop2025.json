@@ -1,0 +1,92 @@
+{
+  "generated": "2026-09-12T21:45:11.180617Z",
+  "machine": {
+    "host": "sam-desktop2025",
+    "os": "Windows 11 Home x86_64",
+    "cpu": "AMD Ryzen 7 9800X3D 8-Core Processor",
+    "cores": 16,
+    "memory_gb": 61.5560188293457,
+    "build_profile": "debug",
+    "git": "a0d6c92",
+    "app_version": "0.1.0",
+    "tesseract": "5.5.2"
+  },
+  "models": [
+    [
+      "tessdata/best/eng.traineddata",
+      "8280aed0782fe27257a68ea10fe7ef324ca0f8d85bd2fd145d1c2b560bcb66ba"
+    ],
+    [
+      "tessdata/fast/eng.traineddata",
+      "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+    ],
+    [
+      "ocrs/text-detection.rten",
+      "f15cfb56bd02c4bf478a20343986504a1f01e1665c2b3a0ad66340f054b1b5ca"
+    ],
+    [
+      "ocrs/text-recognition.rten",
+      "e484866d4cce403175bd8d00b128feb08ab42e208de30e42cd9889d8f1735a6e"
+    ],
+    [
+      "pdfium.dll",
+      "04100c03e41cac1f979e36e5e26fb860bcb5a7461f53830d3c098716624a27a9"
+    ]
+  ],
+  "fixture": "fixtures/corpus/hough-1839-vol1/pages-001-110.pdf",
+  "fixture_blake3": "b0f4a42bd30e9674d6c588cf641b6fbd96db14ef74ffd79db192ad874a015c60",
+  "cache_state": "cold (fresh project and render cache per run)",
+  "throughput": [
+    {
+      "label": "OCR+layout+text, 1 worker(s)",
+      "pages": 30,
+      "workers": 1,
+      "model": "eng best",
+      "wall_s": 89.2460607,
+      "pages_per_min": 20.168957440605553,
+      "failed": 0,
+      "peak_rss_mb": 210.0703125,
+      "ocr_secs_per_page": 2.97486869
+    },
+    {
+      "label": "OCR+layout+text, 4 worker(s)",
+      "pages": 30,
+      "workers": 4,
+      "model": "eng best",
+      "wall_s": 29.982173500000002,
+      "pages_per_min": 60.03567419820314,
+      "failed": 0,
+      "peak_rss_mb": 505.98046875,
+      "ocr_secs_per_page": 0.9994057833333334
+    }
+  ],
+  "throughput_ratio_4_vs_1": 2.9766374575879233,
+  "interaction": {
+    "summary_ms_p95": 0.3876,
+    "next_issue_ms_p95": 0.10569999999999999,
+    "uncached_preview_ms_p95": 128.7757,
+    "cached_page_ms_p95": 3.8419,
+    "issues": 1187
+  },
+  "export": {
+    "words": 503250,
+    "pages": 500,
+    "wall_s": 7.5599388,
+    "validation_ok": true
+  },
+  "full": {
+    "source": "source-full.pdf",
+    "source_blake3": "7792644310121a5e2808014b7f8b8bc069e1ce04d9705b2ce388f25751fe1153",
+    "pages": 529,
+    "workers": 6,
+    "model": "best",
+    "first_run_wall_s": 37.8775207,
+    "done_at_cancel": 59,
+    "resume_wall_s": 282.8731535,
+    "done_after_resume": 529,
+    "failed": 0,
+    "peak_rss_mb": 977.48046875,
+    "redone_pages": 0
+  },
+  "failures": []
+}

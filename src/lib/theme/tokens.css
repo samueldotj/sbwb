@@ -20,12 +20,12 @@
   --track: #e0d8c9;
   --text: #2a2622;
   --text-2: #5d554b;
-  --muted: #8a8177;
+  --muted: #6a6157; /* 4.8:1 on --chrome, 5.5:1 on --paper (WCAG AA) */
   --disabled: #b3aa9c;
   --accent: #b8702e;
   --accent-bg: #f7e2c6;
   --accent-bg-scan: #f4dfc6;
-  --accent-text: #8a4d14;
+  --accent-text: #7a4210; /* 6.5:1 on --raised */
   --ok: #4f7d4a;
   --ok-bg: #e4eddf;
   --ok-bg-scan: #d6e6cf;

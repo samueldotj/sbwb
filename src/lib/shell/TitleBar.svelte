@@ -38,7 +38,7 @@
   </div>
   <div class="center" data-tauri-drag-region>
     {#if bookTitle}
-      <span class="book">{bookTitle}</span>
+      <h1 class="book">{bookTitle}</h1>
       {#if bookMeta}<span class="meta">{bookMeta}</span>{/if}
     {/if}
   </div>

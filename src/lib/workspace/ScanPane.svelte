@@ -272,6 +272,7 @@
     background: rgba(255, 255, 255, 0.25);
   }
   .placeholder {
+    color: var(--text);
     align-self: center;
     padding: 40px;
   }

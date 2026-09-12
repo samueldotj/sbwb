@@ -469,6 +469,7 @@
     display: flex;
     gap: 6px;
     align-items: center;
+    min-height: 24px; /* 24 px targets (WCAG 2.2 2.5.8) */
   }
   .approve {
     display: grid;

@@ -44,7 +44,7 @@ developer; "week" is a rough unit, not a commitment.
 | M6 | Review workspace | 4 weeks | Done |
 | M7 | Word export | 3 weeks | Done |
 | M8 | Targeted refinement and second engine | 2 weeks | Done |
-| M9 | Hardening and release | 3 weeks | Not started |
+| M9 | Hardening and release | 3 weeks | In progress |
 | Phase 2 | Optional AI, queue, other platforms, Early Modern English | — | Not started |
 
 Status values: Not started · In progress · Blocked · Done. Update the row when work starts, not when it is planned.
@@ -218,16 +218,18 @@ Notes: region OCR is a warm-worker request (`OcrRegion`) so it never waits for t
 
 | ID | Task | References | Status |
 | --- | --- | --- | --- |
-| M9.1 | Benchmark suite on the reference machine with recorded hardware, model versions, hashes | NFR-02, NFR-03, NFR-05, NFR-07 | Not started |
-| M9.2 | Full 529-page run with resource logging; resume after interruption | A-14, NFR-04 | Not started |
-| M9.3 | OCR/coverage quality gates frozen from the annotated corpus | NFR-08 | Not started |
-| M9.4 | Durability matrix: crash, worker exit, disk full, interrupted export | NFR-10 | Not started |
-| M9.5 | Offline installer test on a clean Windows VM with networking disabled | A-01, NFR-12 | Not started |
-| M9.6 | Code signing, license notices, dependency and model inventories | NFR-12 | Not started |
-| M9.7 | Accessibility audit of core flows with axe-core and a screen reader | UX-05 | Not started |
-| M9.8 | User documentation: shortcuts, furniture policies, limitations, release notes listing undelivered SHOULD items | NFR-12, section 12 | Not started |
+| M9.1 | Benchmark suite on the reference machine with recorded hardware, model versions, hashes | NFR-02, NFR-03, NFR-05, NFR-07 | Done (`docs/benchmarks/`: 2.98× with 4 workers vs 1 on 30 pages; next-issue p95 0 ms, uncached preview p95 129 ms; 250k-word export 7.6 s; debug build) |
+| M9.2 | Full 529-page run with resource logging; resume after interruption | A-14, NFR-04 | Done (529 pages with 6 workers: interrupted after 59, resumed to 529 done, 0 recognised twice, 0 failed, peak 977 MB) |
+| M9.3 | OCR/coverage quality gates frozen from the annotated corpus | NFR-08 | Done (`quality_gates.rs`: page 48 body CER 0.31% / WER 0.80% frozen at 1% / 2.5%; footnotes and marginalia WER frozen at 25%; layout recall ≥ 0.9; auto-correction precision ≥ 99%) |
+| M9.4 | Durability matrix: crash, worker exit, disk full, interrupted export | NFR-10 | Done (`docs/durability.md`; pull-the-plug test pending) |
+| M9.5 | Offline installer test on a clean Windows VM with networking disabled | A-01, NFR-12 | In progress (NSIS and MSI installers build and the release binary runs with bundled resources on the development machine; clean-VM offline test pending) |
+| M9.6 | Code signing, license notices, dependency and model inventories | NFR-12 | In progress (`docs/inventory.md`, `THIRD-PARTY-NOTICES.md`, model checksums; code signing needs a certificate) |
+| M9.7 | Accessibility audit of core flows with axe-core and a screen reader | UX-05 | In progress (`docs/accessibility.md`: axe-core clean after fixes; screen-reader walkthrough pending) |
+| M9.8 | User documentation: shortcuts, furniture policies, limitations, release notes listing undelivered SHOULD items | NFR-12, section 12 | Done (`docs/user-guide.md`, `docs/release-notes.md`) |
 
 Exit: all MUST requirements and scenarios A-01 to A-14 have evidence.
+
+Notes: `sbwb-bench` produces the benchmark reports; the release bundle is built with `npm run tauri build` (NSIS and MSI under `target/release/bundle/`). Items that need the user or a clean machine (VM install test, signing certificate, screen-reader walkthrough, ground-truth spot-checks) are listed in `docs/release-notes.md`.
 
 ### Phase 2
 

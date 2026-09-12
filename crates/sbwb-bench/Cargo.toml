@@ -1,0 +1,28 @@
+[package]
+name = "sbwb-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Benchmark and large-book runner with recorded hardware, models, and hashes (M9.1, M9.2)"
+
+[[bin]]
+name = "sbwb-bench"
+path = "src/main.rs"
+
+[dependencies]
+sbwb-core.workspace = true
+sbwb-pdf.workspace = true
+sbwb-ocr.workspace = true
+sbwb-store.workspace = true
+sbwb-pipeline.workspace = true
+sbwb-worker.workspace = true
+sbwb-review.workspace = true
+sbwb-text.workspace = true
+sbwb-export = { workspace = true, features = ["test-support"] }
+serde.workspace = true
+serde_json.workspace = true
+jiff.workspace = true
+blake3.workspace = true
+sha2.workspace = true
+sysinfo.workspace = true
+tempfile.workspace = true

@@ -149,7 +149,7 @@
     font-size: 10.5px;
   }
   .value.running {
-    color: var(--accent);
+    color: var(--accent-text);
     font-weight: 600;
   }
   .value.failed {

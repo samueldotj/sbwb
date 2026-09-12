@@ -4526,6 +4526,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "sbwb-bench"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "jiff",
+ "sbwb-core",
+ "sbwb-export",
+ "sbwb-ocr",
+ "sbwb-pdf",
+ "sbwb-pipeline",
+ "sbwb-review",
+ "sbwb-store",
+ "sbwb-text",
+ "sbwb-worker",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sysinfo",
+ "tempfile",
+]
+
+[[package]]
 name = "sbwb-core"
 version = "0.1.0"
 dependencies = [
