@@ -2,7 +2,7 @@
   // Settings page (design 4.7, UX-06): "this book" vs "app" groups; a
   // processing change states its consequence before applying.
   import { onMount } from "svelte";
-  import { api, errorMessage, formatBytes, type ProcessingSettings, type PackReport, type StorageInfo } from "$lib/api";
+  import { api, errorMessage, formatBytes, type ExportSettings, type ProcessingSettings, type PackReport, type StorageInfo } from "$lib/api";
   import { project } from "$lib/stores/project.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { review } from "$lib/stores/review.svelte";
@@ -76,6 +76,20 @@
   }
   function onkeydown(e: KeyboardEvent) {
     if (e.key === "Escape") onclose();
+  }
+
+  let exportDefaults = $state<ExportSettings | null>(null);
+  $effect(() => {
+    if (!isTauri || !project.isOpen) {
+      exportDefaults = null;
+      return;
+    }
+    api.exportDefaultsGet().then((d) => (exportDefaults = d)).catch(() => (exportDefaults = null));
+  });
+  function setExport(patch: Partial<ExportSettings>) {
+    if (!exportDefaults) return;
+    exportDefaults = { ...exportDefaults, ...patch };
+    void api.exportDefaultsSet(exportDefaults).catch((e) => ui.toast(errorMessage(e), "error"));
   }
 </script>
 
@@ -167,7 +181,42 @@
       </div>
     {:else if section === "export"}
       <div class="title">Export defaults</div>
-      <div class="sub">Page structure, furniture placement, and formatting presets arrive with M7.</div>
+      <div class="sub">Defaults for the Export sheet. Each export records the choices it used in its snapshot.</div>
+      {#if exportDefaults}
+        <div class="rows">
+          <div class="row">
+            <div><div class="name">Page structure</div><div class="hint">Mirror the scan inserts a break after each source page.</div></div>
+            <div class="seg" role="radiogroup" aria-label="Page structure">
+              <button type="button" role="radio" aria-checked={exportDefaults.structure === "mirror"} class:on={exportDefaults.structure === "mirror"} onclick={() => setExport({ structure: "mirror" })}>Mirror</button>
+              <button type="button" role="radio" aria-checked={exportDefaults.structure === "continuous"} class:on={exportDefaults.structure === "continuous"} onclick={() => setExport({ structure: "continuous" })}>Continuous</button>
+            </div>
+          </div>
+          <div class="row">
+            <div><div class="name">Page furniture</div><div class="hint">Styled paragraphs (default) or native Word headers and footers with a section per page.</div></div>
+            <div class="seg" role="radiogroup" aria-label="Page furniture">
+              <button type="button" role="radio" aria-checked={exportDefaults.furniture === "styled_paragraphs"} class:on={exportDefaults.furniture === "styled_paragraphs"} onclick={() => setExport({ furniture: "styled_paragraphs" })}>Styled</button>
+              <button type="button" role="radio" aria-checked={exportDefaults.furniture === "native_headers_footers"} class:on={exportDefaults.furniture === "native_headers_footers"} onclick={() => setExport({ furniture: "native_headers_footers" })}>Native</button>
+            </div>
+          </div>
+          <div class="row">
+            <div><div class="name">Body font and size</div><div class="hint">Unavailable fonts produce a substitution warning at export time.</div></div>
+            <div class="inline"><input type="text" class="text" value={exportDefaults.preset.body_font} onchange={(e) => setExport({ preset: { ...exportDefaults!.preset, body_font: (e.currentTarget as HTMLInputElement).value } })} aria-label="Body font" /><input type="number" class="num" min="8" max="18" step="0.5" value={exportDefaults.preset.body_size_pt} onchange={(e) => setExport({ preset: { ...exportDefaults!.preset, body_size_pt: Number((e.currentTarget as HTMLInputElement).value) } })} aria-label="Body size" /></div>
+          </div>
+          <div class="row">
+            <div><div class="name">Paper</div><div class="hint">A4 or Letter; custom sizes are set in the Export sheet.</div></div>
+            <div class="seg" role="radiogroup" aria-label="Paper">
+              <button type="button" role="radio" aria-checked={exportDefaults.preset.paper === "a4"} class:on={exportDefaults.preset.paper === "a4"} onclick={() => setExport({ preset: { ...exportDefaults!.preset, paper: "a4" } })}>A4</button>
+              <button type="button" role="radio" aria-checked={exportDefaults.preset.paper === "letter"} class:on={exportDefaults.preset.paper === "letter"} onclick={() => setExport({ preset: { ...exportDefaults!.preset, paper: "letter" } })}>Letter</button>
+            </div>
+          </div>
+          <div class="row">
+            <div><div class="name">Archive bundle</div><div class="hint">PAGE XML, JSON transcript with source map, snapshot, and validation report next to the document.</div></div>
+            <label class="toggle"><input type="checkbox" checked={exportDefaults.archive} onchange={(e) => setExport({ archive: (e.currentTarget as HTMLInputElement).checked })} /><span></span></label>
+          </div>
+        </div>
+      {:else}
+        <div class="sub">Open a book to edit its export defaults.</div>
+      {/if}
     {:else if section === "ai"}
       <div class="title">AI providers</div>
       <div class="sub">AI proofreading arrives in a later version. Nothing leaves this computer today.</div>
@@ -369,6 +418,22 @@
   .toggle input:checked + span::after {
     left: 16px;
     background: var(--primary-fg);
+  }
+  .text {
+    width: 140px;
+    padding: 4px 6px;
+    border: 1px solid var(--border-input);
+    border-radius: 5px;
+    background: var(--paper);
+    color: var(--text);
+  }
+  .num {
+    width: 60px;
+    padding: 4px 6px;
+    border: 1px solid var(--border-input);
+    border-radius: 5px;
+    background: var(--paper);
+    color: var(--text);
   }
   .slider {
     display: flex;

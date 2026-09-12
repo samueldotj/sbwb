@@ -48,6 +48,8 @@ class UiState {
   settingsOpen = $state(false);
   /// Inspector tab requested from outside the workspace (rail rows, dev hooks).
   inspectorTab = $state<string | null>(null);
+  /// The Export sheet (design 4.5).
+  exportOpen = $state(false);
   #nextToast = 1;
 
   constructor() {

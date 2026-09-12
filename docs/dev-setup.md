@@ -53,6 +53,8 @@ window opens:
 | `SBWB_DEV_EVAL=<js>` | Then run that JavaScript in the page (after 1.5 s); `window.__sbwb.step/decide/approve` drive the review loop |
 | `SBWB_DEV_LAYOUT_AT=<secs>` | Enter Layout mode for the review page after that many seconds |
 
+`SBWB_PERF=1 cargo test -p sbwb-export large_fixture` enforces the 60 s export budget (NFR-05) instead of only reporting the time.
+
 `scripts/capture-window.ps1 -Out shot.png` grabs the window without taking
 focus. The Vite dev server alone (`npm run dev`, then `/?mock=review`) renders
 the workspace with mock data and no backend.

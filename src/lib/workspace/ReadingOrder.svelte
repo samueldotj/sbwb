@@ -3,7 +3,7 @@
   // words, and the export placement each region will get.
   import { dndzone, type DndEvent } from "svelte-dnd-action";
   import type { OcrWord, Region } from "$lib/api";
-  import { layout, KIND_LABEL, KIND_PLACEMENT } from "$lib/stores/layout.svelte";
+  import { layout, exportPolicy, KIND_LABEL, KIND_PLACEMENT, KIND_PLACEMENT_NATIVE } from "$lib/stores/layout.svelte";
 
   type Props = { words: OcrWord[] };
   let { words }: Props = $props();
@@ -64,7 +64,7 @@
         <span class="grip" aria-hidden="true">⋮⋮</span>
         <span class="kind">{KIND_LABEL[it.region.kind]}</span>
         <span class="text">{it.preview || (it.region.kind === "illustration" ? "(image)" : "(no words)")}</span>
-        <span class="place muted">{it.region.kind === "body" ? `${it.region.line_count || "?"} lines` : KIND_PLACEMENT[it.region.kind]}</span>
+        <span class="place muted">{it.region.kind === "body" ? `${it.region.line_count || "?"} lines` : (exportPolicy.native ? KIND_PLACEMENT_NATIVE : KIND_PLACEMENT)[it.region.kind]}</span>
       </div>
     {/each}
   </div>

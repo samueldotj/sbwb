@@ -47,6 +47,7 @@ pub fn run() {
             tracing::info!(pdfium = %res.pdfium_dir.display(), tessdata = %res.tessdata_dir.display(), lexicons = %res.lexicon_dir.display(), "resources located");
             app.manage(state::AppState::new(res));
             app.manage(commands::pipeline::PipelineSlot::default());
+            app.manage(commands::export::ExportSlot::default());
 
             // Writer-lock heartbeat (PRJ-02).
             let handle = app.handle().clone();
@@ -147,6 +148,13 @@ pub fn run() {
             commands::review::draft_list,
             commands::review::review_prefs_get,
             commands::review::review_prefs_set,
+            commands::export::export_readiness,
+            commands::export::export_preview,
+            commands::export::export_run,
+            commands::export::export_cancel,
+            commands::export::export_defaults_get,
+            commands::export::export_defaults_set,
+            commands::export::open_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SBWB");

@@ -27,7 +27,7 @@
     { id: "import", label: "Import PDF…", accel: "Ctrl+I", disabled: project.isOpen },
     { id: "open", label: "Open project…", accel: "Ctrl+O", disabled: project.isOpen, separatorAfter: true },
     { id: "save_copy", label: "Save a copy…", accel: "Ctrl+Shift+S", disabled: !project.isOpen },
-    { id: "export", label: "Export to Word…", accel: "Ctrl+E", disabled: true, separatorAfter: true },
+    { id: "export", label: "Export to Word…", accel: "Ctrl+E", disabled: !project.isOpen, separatorAfter: true },
     { id: "close", label: "Close book", accel: "Ctrl+W", disabled: !project.isOpen, separatorAfter: true },
     { id: "settings", label: "Settings…", accel: "Ctrl+," },
   ]);
@@ -54,7 +54,7 @@
         await closeBook();
         break;
       case "export":
-        ui.toast("Export arrives in M7.", "info");
+        ui.exportOpen = true;
         break;
       case "settings":
         ui.settingsOpen = true;
@@ -138,6 +138,7 @@
     if (k === "i" && !project.isOpen) void onmenu("import");
     else if (k === "o" && !project.isOpen) void onmenu("open");
     else if (k === "w" && project.isOpen) void onmenu("close");
+    else if (k === "e" && project.isOpen) void onmenu("export");
     else if (k === "s" && e.shiftKey && project.isOpen) void onmenu("save_copy");
     else return;
     e.preventDefault();
@@ -168,6 +169,7 @@
         decide: (d: { kind: string; text?: string }) => review.decide(d as never),
         approve: (i: number, ack = 0) => review.approve(i, ack),
         review_store: review,
+        export_open: () => (ui.exportOpen = true),
         layout: (i: number) => {
           view.open(i);
           view.editLayout();

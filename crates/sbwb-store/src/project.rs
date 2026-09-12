@@ -89,6 +89,17 @@ pub struct StoredProposal {
     pub cross_page: bool,
 }
 
+/// A published export (EXP-04).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportRecord {
+    pub id: String,
+    pub ts: String,
+    pub kind: String,
+    pub path: PathBuf,
+    pub checksum: Option<String>,
+    pub report: Option<serde_json::Value>,
+}
+
 /// Stored layout for one page (M4).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PageLayout {
@@ -1171,6 +1182,48 @@ impl Project {
             .execute("DELETE FROM vocab WHERE word = ?1", params![word.trim()])
             .map_err(db)?;
         Ok(())
+    }
+
+    // ----- exports (EXP-04) -----
+
+    pub fn record_export(
+        &self,
+        id: &str,
+        kind: &str,
+        path: &Path,
+        checksum: Option<&str>,
+        settings: &serde_json::Value,
+        report: &serde_json::Value,
+    ) -> Result<()> {
+        self.require_write()?;
+        self.conn
+            .execute(
+                "INSERT INTO exports(id, ts, kind, path, checksum, settings, report) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![id, Timestamp::now().to_string(), kind, path.to_string_lossy().into_owned(), checksum, serde_json::to_string(settings)?, serde_json::to_string(report)?],
+            )
+            .map_err(db)?;
+        Ok(())
+    }
+
+    pub fn exports(&self) -> Result<Vec<ExportRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, ts, kind, path, checksum, report FROM exports ORDER BY ts DESC")
+            .map_err(db)?;
+        let rows = stmt
+            .query_map([], |r| {
+                let report: Option<String> = r.get(5)?;
+                Ok(ExportRecord {
+                    id: r.get(0)?,
+                    ts: r.get(1)?,
+                    kind: r.get(2)?,
+                    path: PathBuf::from(r.get::<_, String>(3)?),
+                    checksum: r.get(4)?,
+                    report: report.and_then(|t| serde_json::from_str(&t).ok()),
+                })
+            })
+            .map_err(db)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(db)
     }
 
     // ----- history -----

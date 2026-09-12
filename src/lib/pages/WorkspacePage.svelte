@@ -9,6 +9,7 @@
   import IssueInspector from "$lib/workspace/IssueInspector.svelte";
   import WordHighlights from "$lib/workspace/WordHighlights.svelte";
   import GroupSheet from "$lib/workspace/GroupSheet.svelte";
+  import ExportSheet from "$lib/workspace/ExportSheet.svelte";
   import { review } from "$lib/stores/review.svelte";
   import StackedBar from "$lib/workspace/StackedBar.svelte";
   import ScanPane from "$lib/workspace/ScanPane.svelte";
@@ -23,7 +24,7 @@
   import RegionOverlay from "$lib/workspace/RegionOverlay.svelte";
   import ReadingOrder from "$lib/workspace/ReadingOrder.svelte";
   import RegionInspector from "$lib/workspace/RegionInspector.svelte";
-  import { layout } from "$lib/stores/layout.svelte";
+  import { layout, exportPolicy } from "$lib/stores/layout.svelte";
   import { confirmDialog } from "$lib/dialogs";
   import type { OcrWord } from "$lib/api";
   import { pipeline } from "$lib/stores/pipeline.svelte";
@@ -46,6 +47,11 @@
   let settings = $state<ProcessingSettings | null>(null);
   $effect(() => {
     if (isTauri) api.settingsGet().then((s) => (settings = s)).catch(() => {});
+  });
+  $effect(() => {
+    if (!isTauri) return;
+    void summary.meta.settings;
+    api.exportDefaultsGet().then((d) => (exportPolicy.native = d.furniture === "native_headers_footers")).catch(() => {});
   });
   const settingsLine = $derived(settings ? `${settings.model === "eng_best" ? "eng best" : "eng fast"} · ${settings.dpi}dpi · deskew ${settings.deskew ? "on" : "off"}` : "");
 
@@ -190,7 +196,7 @@
       progress: summary.counts.in_scope ? summary.counts.text_done / summary.counts.in_scope : 0,
     },
     { id: "ai", label: "AI proofread", state: "off", value: "off" },
-    { id: "export", label: "Export", state: "off", value: "—" },
+    { id: "export", label: "Export", state: summary.counts.text_done > 0 ? "queued" : "off", value: summary.counts.approved > 0 ? `${summary.counts.approved} approved` : summary.counts.text_done > 0 ? "ready" : "—" },
   ]);
 
   const tabs = $derived(
@@ -216,7 +222,7 @@
 
   function onrail(id: string) {
     if (id === "ai") ui.toast("AI proofreading arrives in a later version.", "info", 4000);
-    else if (id === "export") ui.toast("Export arrives in M7.", "info");
+    else if (id === "export") ui.exportOpen = true;
     else if (id === "text_pass") tab = "text_pass";
     else {
       view.mode = "processing";
@@ -367,6 +373,9 @@
   </Inspector>
   {#if group}
     <GroupSheet open={group !== null} original={group.original} replacement={group.replacement} onclose={() => (group = null)} />
+  {/if}
+  {#if ui.exportOpen}
+    <ExportSheet open={ui.exportOpen} onclose={() => (ui.exportOpen = false)} />
   {/if}
 </div>
 

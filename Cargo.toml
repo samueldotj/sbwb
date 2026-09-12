@@ -54,6 +54,9 @@ rstar = "0.13"
 ndarray = "0.16"
 fast_image_resize = "6"
 sha2 = "0.10"
+docx-rs = "0.4"
+zip = { version = "8", default-features = false, features = ["deflate"] }
+roxmltree = "0.21"
 
 # Dictionary lookups dominate the text pass; keep them fast in dev builds.
 [profile.dev.package.spellbook]

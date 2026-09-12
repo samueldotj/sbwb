@@ -29,3 +29,10 @@ export async function confirmDialog(message: string, title = "SBWB"): Promise<bo
   const { confirm } = await import("@tauri-apps/plugin-dialog");
   return confirm(message, { title, kind: "warning" });
 }
+
+export async function pickSaveDocx(defaultPath?: string): Promise<string | null> {
+  if (!isTauri) return null;
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const r = await save({ title: "Export to Word", defaultPath, filters: [{ name: "Word document", extensions: ["docx"] }] });
+  return r ?? null;
+}

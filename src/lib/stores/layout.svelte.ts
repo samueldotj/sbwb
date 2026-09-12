@@ -37,6 +37,19 @@ export const KIND_PLACEMENT: Record<RegionKind, string> = {
   ignore: "excluded",
 };
 
+/// Placement under the native headers/footers policy (D-12).
+export const KIND_PLACEMENT_NATIVE: Record<RegionKind, string> = {
+  ...KIND_PLACEMENT,
+  header: "→ Word header",
+  page_number: "→ Word header",
+  footer: "→ Word footer",
+  marginalia: "→ Word footer",
+};
+
+/// The furniture policy the book exports with; loaded from the export
+/// defaults so Layout mode previews the effect per page.
+export const exportPolicy = $state({ native: false });
+
 const RANK: Record<RegionKind, number> = {
   header: 0,
   page_number: 1,

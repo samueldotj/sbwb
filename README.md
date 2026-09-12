@@ -42,7 +42,7 @@ developer; "week" is a rough unit, not a commitment.
 | M4 | Layout analysis and Layout mode | 3 weeks | Done (ground truth partial) |
 | M5 | Text reconstruction and provenance | 3 weeks | Done |
 | M6 | Review workspace | 4 weeks | Done |
-| M7 | Word export | 3 weeks | Not started |
+| M7 | Word export | 3 weeks | Done |
 | M8 | Targeted refinement and second engine | 2 weeks | Not started |
 | M9 | Hardening and release | 3 weeks | Not started |
 | Phase 2 | Optional AI, queue, other platforms, Early Modern English | — | Not started |
@@ -186,18 +186,20 @@ Goal: working and clean copies with validated structure and a report.
 
 | ID | Task | References | Status |
 | --- | --- | --- | --- |
-| M7.1 | Export snapshot: immutable selection of text, layout, approvals, mappings, settings | EXP-04 | Not started |
-| M7.2 | DOCX writer with `docx-rs`: styles, logical paragraphs, heading levels, simple tables, page breaks, core properties | EXP-01, EXP-02 | Not started |
-| M7.3 | Furniture policies: styled paragraphs default; native headers/footers with section per page as option; cross-page word boundary rule | EXP-02, EXP-03, D-12 | Not started |
-| M7.4 | Inclusion policies: page numbers, footnotes, catchwords, illustrations as images, uncertain regions, tables as image or text with warning | EXP-03 | Not started |
-| M7.5 | Working copy annotations: highlights and one comment per flag; clean copy gate on approval | EXP-01 | Not started |
-| M7.6 | Validation: read back with `zip` + `roxmltree`, structure, coverage, duplicates, boundary policy, header linkage, text parity; atomic publish with checksum and report | EXP-04 | Not started |
-| M7.7 | Export sheet UI: readiness counters, scope radios, page structure, checkboxes, archive details, progress, previous exports | design 4.5 | Not started |
-| M7.8 | Formatting presets and metadata: page size, margins, fonts with substitution warning, drop caps, PDF metadata view vs document properties | EXP-06 | Not started |
-| M7.9 | Archive bundle: transcript/source map JSON, PAGE XML, manifest, validation report | EXP-05, SHOULD | Not started |
-| M7.10 | Export fixture of 250,000 words with notes and two-column pages; target 60 s | NFR-05 | Not started |
+| M7.1 | Export snapshot: immutable selection of text, layout, approvals, mappings, settings | EXP-04 | Done |
+| M7.2 | DOCX writer with `docx-rs`: styles, logical paragraphs, heading levels, simple tables, page breaks, core properties | EXP-01, EXP-02 | Done (styles, logical paragraphs, Heading 1–3, page breaks, core properties; tables as text/image/skip, not native table cells) |
+| M7.3 | Furniture policies: styled paragraphs default; native headers/footers with section per page as option; cross-page word boundary rule | EXP-02, EXP-03, D-12 | Done |
+| M7.4 | Inclusion policies: page numbers, footnotes, catchwords, illustrations as images, uncertain regions, tables as image or text with warning | EXP-03 | Done |
+| M7.5 | Working copy annotations: highlights and one comment per flag; clean copy gate on approval | EXP-01 | Done |
+| M7.6 | Validation: read back with `zip` + `roxmltree`, structure, coverage, duplicates, boundary policy, header linkage, text parity; atomic publish with checksum and report | EXP-04 | Done (11 checks; Word pagination is reported as unchecked) |
+| M7.7 | Export sheet UI: readiness counters, scope radios, page structure, checkboxes, archive details, progress, previous exports | design 4.5 | Done |
+| M7.8 | Formatting presets and metadata: page size, margins, fonts with substitution warning, drop caps, PDF metadata view vs document properties | EXP-06 | Done (drop cap emulated as a framed first letter; font check is file-name based) |
+| M7.9 | Archive bundle: transcript/source map JSON, PAGE XML, manifest, validation report | EXP-05, SHOULD | Done |
+| M7.10 | Export fixture of 250,000 words with notes and two-column pages; target 60 s | NFR-05 | Done (`large_fixture_exports_within_budget`: 500 pages, 250k words with notes, about 8 s in a debug build) |
 
 Exit: A-12 passes under both furniture policies; A-01 passes end to end.
+
+Notes: the export composes a plan (paragraphs with placement and source mapping) from an immutable snapshot, writes it with `docx-rs`, then patches the package for core properties, uniform page geometry, next-page section types, and per-section footers (D-30). The validator reads the package back and compares it with the plan; the file is renamed into place only after validation passes. Run `cargo test -p sbwb-export` for the A-12 checks.
 
 ### M8 — Targeted refinement and second engine (2 weeks)
 

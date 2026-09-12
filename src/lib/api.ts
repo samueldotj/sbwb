@@ -267,6 +267,73 @@ export const ISSUE_KIND_LABEL: Record<IssueKind, string> = {
   user_flag: "flagged",
 };
 
+// ----- export (M7) -----
+export type CopyKind = "working" | "clean";
+export type PageStructure = "mirror" | "continuous";
+export type FurniturePolicy = "styled_paragraphs" | "native_headers_footers";
+export type TablePolicy = "text" | "image" | "skip";
+export type ExportSettings = {
+  copy: CopyKind;
+  structure: PageStructure;
+  furniture: FurniturePolicy;
+  include: { marginalia: boolean; footnotes: boolean; page_numbers: boolean; catchwords: boolean; illustrations: boolean; uncertain: boolean; tables: TablePolicy };
+  flag_threshold: number;
+  archive: boolean;
+  preset: {
+    name: string;
+    paper: "a4" | "letter" | "custom";
+    custom_width_pt: number;
+    custom_height_pt: number;
+    margin_top_mm: number;
+    margin_bottom_mm: number;
+    margin_left_mm: number;
+    margin_right_mm: number;
+    body_font: string;
+    body_size_pt: number;
+    paragraph_spacing_pt: number;
+    line_spacing: number;
+    heading_font: string;
+    note_size_pt: number;
+    drop_cap: { enabled: boolean; lines: number };
+  };
+  metadata: { title: string | null; author: string | null; subject: string | null };
+};
+export type ExportRecord = { id: string; ts: string; kind: string; path: string; checksum: string | null; report: unknown };
+export type Readiness = {
+  pages_in_scope: number;
+  pages_indexed: number;
+  pages_approved: number;
+  pages_left: number;
+  unresolved_below_threshold: number;
+  deferred: number;
+  ai_pending: number;
+  clean_ready: boolean;
+  previous: ExportRecord[];
+  default_name: string;
+  book_title: string | null;
+  book_author: string | null;
+  pdf_title: string | null;
+  pdf_author: string | null;
+};
+export type Exclusion = { page: number; region: string | null; kind: string; words: number; why: string };
+export type PlanStats = { pages: number; paragraphs: number; words: number; running_heads: number; page_numbers: number; side_notes: number; footer_notes: number; footnotes: number; headings: number; images: number; tables: number; flags: number; cross_page_words: number; unanchored_words: number };
+export type ExportPreview = { explanation: string; exclusions: Exclusion[]; excluded_words: number; warnings: string[]; stats: PlanStats; clean_blockers: number[] };
+export type ExportReport = {
+  id: string;
+  copy: CopyKind;
+  stats: PlanStats;
+  exclusions: Exclusion[];
+  warnings: string[];
+  comments: number;
+  highlights: number;
+  images: number;
+  checksum_blake3: string;
+  docx_path: string;
+  archive_path: string | null;
+  validation: { ok: boolean; checks: { name: string; ok: boolean; detail: string }[] };
+  elapsed_ms: number;
+};
+
 export type CommandError = { code: string; message: string };
 
 export function isCommandError(e: unknown): e is CommandError {
@@ -333,6 +400,13 @@ export const api = {
   draftList: (index?: number) => invoke<Draft[]>("draft_list", { index: index ?? null }),
   reviewPrefsGet: () => invoke<Partial<IssueFilter> & { auto_advance?: boolean; hide_completed?: boolean; hide_auto?: boolean } | null>("review_prefs_get"),
   reviewPrefsSet: (prefs: unknown) => invoke<void>("review_prefs_set", { prefs }),
+  exportReadiness: () => invoke<Readiness>("export_readiness"),
+  exportPreview: (settings: ExportSettings) => invoke<ExportPreview>("export_preview", { settings }),
+  exportRun: (settings: ExportSettings, dest: string) => invoke<void>("export_run", { settings, dest }),
+  exportCancel: () => invoke<void>("export_cancel"),
+  exportDefaultsGet: () => invoke<ExportSettings>("export_defaults_get"),
+  exportDefaultsSet: (settings: ExportSettings) => invoke<void>("export_defaults_set", { settings }),
+  openPath: (path: string) => invoke<void>("open_path", { path }),
 };
 
 /// "1-50, 60-70" -> [[1,50],[60,70]]; returns null when unparsable.

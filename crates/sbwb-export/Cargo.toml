@@ -3,8 +3,26 @@ name = "sbwb-export"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "DOCX export and validation (M7)"
+description = "Word export: snapshot, composition plan, DOCX writer, validation, archive bundle (M7)"
 
 [dependencies]
 sbwb-core.workspace = true
+sbwb-layout.workspace = true
+sbwb-text.workspace = true
+sbwb-review.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+jiff.workspace = true
+blake3.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+docx-rs.workspace = true
+zip.workspace = true
+roxmltree.workspace = true
+
+[features]
+test-support = []
+
+[dev-dependencies]
+tempfile.workspace = true
+zip.workspace = true

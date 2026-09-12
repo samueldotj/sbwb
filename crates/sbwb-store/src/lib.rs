@@ -14,8 +14,8 @@ pub mod schema;
 
 pub use lock::{LockState, WriterLock};
 pub use project::{
-    OpenMode, PageCounts, PageLayout, PageOcr, PageRow, Project, ProjectMeta, ProjectSummary,
-    RunRecord, SourceInfo, StoredProposal,
+    ExportRecord, OpenMode, PageCounts, PageLayout, PageOcr, PageRow, Project, ProjectMeta,
+    ProjectSummary, RunRecord, SourceInfo, StoredProposal,
 };
 pub use review::{
     Decision, DecisionOutcome, Draft, GroupOutcome, HistoryEntry, NextIssue, PageIssueCounts,
