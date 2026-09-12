@@ -805,6 +805,18 @@ impl Project {
         Ok(id)
     }
 
+    /// Replace a run's recorded settings (e.g. the exact region-OCR inputs).
+    pub fn set_run_settings(&self, id: RunId, settings: &serde_json::Value) -> Result<()> {
+        self.require_write()?;
+        self.conn
+            .execute(
+                "UPDATE runs SET settings = ?2 WHERE id = ?1",
+                params![id.to_string(), serde_json::to_string(settings)?],
+            )
+            .map_err(db)?;
+        Ok(())
+    }
+
     pub fn finish_run(
         &self,
         id: RunId,

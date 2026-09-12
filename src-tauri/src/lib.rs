@@ -155,6 +155,8 @@ pub fn run() {
             commands::export::export_defaults_get,
             commands::export::export_defaults_set,
             commands::export::open_path,
+            commands::refine::region_ocr,
+            commands::refine::second_engine_available,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SBWB");

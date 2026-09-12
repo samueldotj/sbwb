@@ -50,6 +50,21 @@ pub enum RequestKind {
         /// Optional path to save the recognition render (evidence).
         save_render: Option<PathBuf>,
     },
+    /// Region OCR (OCR-02): render a crop at `dpi`, enlarge it exactly
+    /// `enlarge`× with Lanczos3, recognise it, and record the inputs.
+    OcrRegion {
+        path: PathBuf,
+        password: Option<String>,
+        page: PageIndex,
+        /// Crop in page points (padding is added and recorded).
+        crop: Rect,
+        dpi: u32,
+        enlarge: u32,
+        settings: sbwb_ocr::OcrSettings,
+        second_engine: bool,
+        /// Optional path to save the exact enlarged input (evidence).
+        save_render: Option<PathBuf>,
+    },
     /// Analyse the page layout from the bitmap plus current OCR evidence.
     LayoutPage {
         path: PathBuf,
@@ -90,6 +105,14 @@ pub enum Response {
         regions: Vec<sbwb_layout::Region>,
         report: sbwb_layout::CoverageReport,
         algorithm: String,
+        elapsed_ms: u64,
+    },
+    RegionOcr {
+        output: sbwb_ocr::OcrOutput,
+        second: Option<sbwb_ocr::SecondOutput>,
+        /// Recorded inputs: crop, padding, dpi, scale, interpolation, sizes.
+        profile: serde_json::Value,
+        render: Option<PathBuf>,
         elapsed_ms: u64,
     },
     Ocr {

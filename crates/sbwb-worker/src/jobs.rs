@@ -167,6 +167,120 @@ pub fn handle(ctx: &mut Context, req: Request, emit: &mut dyn FnMut(Message)) ->
                 elapsed_ms: started.elapsed().as_millis() as u64,
             })
         }
+        RequestKind::OcrRegion {
+            path,
+            password,
+            page,
+            crop,
+            dpi,
+            enlarge,
+            settings,
+            second_engine,
+            save_render,
+        } => {
+            let started = Instant::now();
+            emit(Message::Progress {
+                id,
+                activity: format!("region ocr {page} @ {dpi}dpi ×{enlarge}"),
+            });
+            const PAD_PT: f64 = 3.0;
+            const MAX_INPUT_PX: u32 = 6000;
+            let padded = sbwb_core::Rect::new(
+                (crop.x - PAD_PT).max(0.0),
+                (crop.y - PAD_PT).max(0.0),
+                crop.w + 2.0 * PAD_PT,
+                crop.h + 2.0 * PAD_PT,
+            );
+            let scale = dpi as f64 / 72.0;
+            let enlarge = enlarge.clamp(1, 4);
+            let want_w = (padded.w * scale * enlarge as f64).ceil() as u32;
+            let want_h = (padded.h * scale * enlarge as f64).ceil() as u32;
+            if want_w > MAX_INPUT_PX || want_h > MAX_INPUT_PX {
+                return Err(sbwb_core::SbwbError::ResourceLimit(format!(
+                    "the enlarged crop would be {want_w}×{want_h} px, above the {MAX_INPUT_PX} px limit; draw a smaller region or use 1×"
+                )));
+            }
+            let rendered = {
+                let r = ctx.renderer()?;
+                r.render(
+                    &path,
+                    password.as_deref(),
+                    &sbwb_pdf::RenderRequest {
+                        page,
+                        scale,
+                        crop: Some(padded),
+                        max_dimension: MAX_INPUT_PX,
+                    },
+                )?
+            };
+            let (w0, h0) = rendered.image.dimensions();
+            let input = if enlarge > 1 {
+                image::imageops::resize(
+                    &rendered.image,
+                    w0 * enlarge,
+                    h0 * enlarge,
+                    image::imageops::FilterType::Lanczos3,
+                )
+            } else {
+                rendered.image.clone()
+            };
+            let transform = sbwb_core::Transform {
+                sx: rendered.transform.sx * enlarge as f64,
+                sy: rendered.transform.sy * enlarge as f64,
+                origin: rendered.transform.origin,
+            };
+            if let Some(p) = &save_render {
+                if let Some(parent) = p.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                let tmp = p.with_extension("part");
+                save_image(&input, &tmp, p)?;
+                std::fs::rename(&tmp, p)?;
+            }
+            let engine = sbwb_ocr::Engine::new(&ctx.tessdata());
+            let settings = sbwb_ocr::OcrSettings {
+                dpi: dpi * enlarge,
+                ..settings
+            };
+            let output = engine.recognize(&input, &transform, &settings)?;
+            let second = if second_engine {
+                emit(Message::Progress {
+                    id,
+                    activity: format!("second engine {page}"),
+                });
+                // ocrs models live beside the tessdata packs (models/ocrs, tessdata/ocrs)
+                match sbwb_ocr::second::recognize(&ctx.tessdata(), &input, &transform) {
+                    Ok(o) => Some(o),
+                    Err(e) => {
+                        tracing::warn!("second engine unavailable: {e}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            let profile = serde_json::json!({
+                "crop_pt": crop,
+                "padding_pt": PAD_PT,
+                "padded_crop_pt": padded,
+                "dpi": dpi,
+                "enlarge": enlarge,
+                "interpolation": if enlarge > 1 { "lanczos3" } else { "none" },
+                "render_px": [w0, h0],
+                "input_px": [input.width(), input.height()],
+                "model": settings.model.subdir(),
+                "engine_dpi_hint": settings.dpi,
+                "second_engine": second.as_ref().map(|s| s.engine.clone()),
+                "deterministic": true,
+            });
+            Ok(Response::RegionOcr {
+                output,
+                second,
+                profile,
+                render: save_render,
+                elapsed_ms: started.elapsed().as_millis() as u64,
+            })
+        }
         RequestKind::LayoutPage {
             path,
             password,

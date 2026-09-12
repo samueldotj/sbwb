@@ -14,6 +14,12 @@
   let { page, ongroup }: Props = $props();
 
   const issue = $derived(review.selected);
+  const structural = $derived(issue !== null && issue.bbox !== null && issue.candidates.length === 0);
+  let secondEngine = $state(false);
+  let hasSecond = $state(false);
+  $effect(() => {
+    if (isTauri) api.secondEngineAvailable().then((v) => (hasSecond = v)).catch(() => (hasSecond = false));
+  });
   const span = $derived(issue ? review.spanById(issue.span) : null);
   const position = $derived(review.selectedIndex);
   let chosen = $state<number>(0);
@@ -56,8 +62,9 @@
   // render at a readable scale.
   const CROP_H = 64;
   const crop = $derived.by(() => {
-    if (!span || !span.anchors.length || !page) return null;
-    const a = span.anchors[0]!.bbox;
+    if (!page || !issue) return null;
+    const a = issue.bbox && structural ? issue.bbox : span && span.anchors.length ? span.anchors[0]!.bbox : null;
+    if (!a) return null;
     const pw = page.width_pt ?? 612;
     const padX = Math.max(90, a.w * 2.5);
     const x0 = Math.max(0, a.x - padX);
@@ -66,7 +73,7 @@
     const y1 = a.y + a.h * 1.8;
     const zoom = CROP_H / (y1 - y0);
     const scale = pickScale(zoom, window.devicePixelRatio || 1);
-    return { src: renderUrl(span.page, scale), scale, zoom, x0, y0, w: (x1 - x0) * zoom, h: CROP_H, word: { x: (a.x - x0) * zoom, y: (a.y - y0) * zoom, w: a.w * zoom, h: a.h * zoom } };
+    return { src: renderUrl(issue.page, scale), scale, zoom, x0, y0, w: (x1 - x0) * zoom, h: CROP_H, word: { x: (a.x - x0) * zoom, y: (a.y - y0) * zoom, w: a.w * zoom, h: a.h * zoom } };
   });
 
   function chooseText(): string {
@@ -133,12 +140,21 @@
       if (n < issue.candidates.length) chosen = n;
       return true;
     }
-    if (k === "a" || k === "A") void accept();
+    if (structural && (k === "r" || k === "R")) void recognise();
+    else if (structural && (k === "a" || k === "A" || k === "e" || k === "E")) return false;
+    else if (k === "a" || k === "A") void accept();
     else if (k === "e" || k === "E") startEdit();
     else if (k === "s" || k === "S") void review.decide({ kind: "skip" });
     else if (k === "l" || k === "L") void review.decide({ kind: "later" });
     else return false;
     return true;
+  }
+  async function recognise() {
+    if (!issue?.bbox) return;
+    const bbox = issue.bbox;
+    const pageIdx = issue.page;
+    const r = await review.regionOcr(pageIdx, bbox, { secondEngine, region: issue.region ?? undefined });
+    if (r && r.outcome.words === 0) ui.toast("No text was recognised in that area. Skip marks it as not text.", "info", 5000);
   }
   const unresolvedOnPage = $derived(review.page === view.page ? review.pageUnresolved : 0);
 </script>
@@ -172,7 +188,7 @@
       <div class="crop none muted small">No scan anchor for this word</div>
     {/if}
     <div class="reading">
-      <span class="serif">{span?.text ?? issue.original}</span>
+      <span class="serif">{structural ? ISSUE_KIND_LABEL[issue.kind] : (span?.text ?? issue.original)}</span>
       {#if issue.score !== null}
         <span class="chip" title="Score and its source">{issue.score}% · {issue.score_source}</span>
       {:else}
@@ -182,6 +198,24 @@
     <p class="reason">{issue.reason}</p>
   </div>
 
+  {#if structural}
+    <div class="structural">
+      <p class="small">{issue.kind === "missing_text" ? "Nothing was recognised here although the scan shows a text-like line." : issue.kind === "clipping" ? "The region touches the page edge; check the scan for cut-off text." : "The reading order or class of this region is uncertain."}</p>
+      {#if issue.kind === "missing_text" || issue.kind === "clipping"}
+        <label class="check"><input type="checkbox" bind:checked={secondEngine} disabled={!hasSecond} /> Also run the second engine (ocrs, line-level){hasSecond ? "" : " · not installed"}</label>
+      {/if}
+    </div>
+    <div class="decisions">
+      {#if issue.kind === "missing_text" || issue.kind === "clipping"}
+        <button type="button" class="ctl primary" onclick={recognise} disabled={ui.saveState === "saving"}>Recognise ×3 <kbd>R</kbd></button>
+      {:else}
+        <button type="button" class="ctl primary" onclick={() => { view.editLayout(); }}>Edit layout <kbd>Ctrl+L</kbd></button>
+      {/if}
+      <button type="button" class="ctl" onclick={() => review.decide({ kind: "skip" })} disabled={ui.saveState === "saving"}>{issue.kind === "missing_text" ? "Not text" : "Acknowledge"} <kbd>S</kbd></button>
+      <button type="button" class="ctl" onclick={() => review.decide({ kind: "later" })} disabled={ui.saveState === "saving" || issue.status === "deferred"}>Later <kbd>L</kbd></button>
+    </div>
+    <p class="muted small">Region OCR renders the area at 300 dpi, enlarges it exactly 3× with Lanczos, and keeps the input image with the run. New readings become candidates; nothing is applied automatically.</p>
+  {:else}
   <div>
     <div class="label">Candidates</div>
     <ol class="cands" role="radiogroup" aria-label="Candidate readings">
@@ -214,6 +248,7 @@
       <button type="button" class="ctl" onclick={() => review.decide({ kind: "later" })} disabled={ui.saveState === "saving" || issue.status === "deferred"}>Later <kbd>L</kbd></button>
     </div>
   {/if}
+  {/if}
   <label class="check"><input type="checkbox" bind:checked={review.autoAdvance} onchange={() => review.savePrefs()} /> Auto-advance to next issue</label>
 
   <div>
@@ -239,6 +274,9 @@
 {/if}
 
 <style>
+  .structural p {
+    margin: 0;
+  }
   .empty {
     display: grid;
     gap: 10px;

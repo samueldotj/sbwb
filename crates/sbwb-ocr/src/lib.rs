@@ -6,6 +6,7 @@
 //! Tesseract's own segmentation is retained as extra layout evidence (D-11).
 
 pub mod models;
+pub mod second;
 pub mod tsv;
 
 use std::path::Path;
@@ -13,6 +14,7 @@ use std::path::Path;
 use sbwb_core::{Rect, Result, SbwbError, Transform};
 use serde::{Deserialize, Serialize};
 
+pub use second::{SecondLine, SecondOutput};
 pub use tsv::{parse_tsv, OcrBlock, OcrLine, OcrWord, TsvPage};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

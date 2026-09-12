@@ -216,8 +216,8 @@ class LayoutState {
     this.#renumber();
   }
 
-  async save() {
-    if (this.page === null) return;
+  async save(): Promise<boolean> {
+    if (this.page === null) return false;
     try {
       const l = await api.layoutSave(this.page, $state.snapshot(this.regions));
       this.regions = structuredClone(l.regions);
@@ -226,8 +226,10 @@ class LayoutState {
       this.revision = l.revision;
       this.#undo = [];
       ui.toast("Layout saved", "ok");
+      return true;
     } catch (e) {
       ui.toast(errorMessage(e), "error", 6000);
+      return false;
     }
   }
   revert() {

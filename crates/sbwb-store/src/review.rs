@@ -88,6 +88,8 @@ fn read_issue(r: &rusqlite::Row) -> rusqlite::Result<Issue> {
     let proposal: Option<String> = r.get(9)?;
     let status: String = r.get(13)?;
     let candidates: String = r.get(16)?;
+    let bbox: Option<String> = r.get(17)?;
+    let region: Option<String> = r.get(18)?;
     Ok(Issue {
         id: IssueId::parse(&id).unwrap_or_default(),
         page: PageIndex(r.get::<_, i64>(1)? as u32),
@@ -106,14 +108,16 @@ fn read_issue(r: &rusqlite::Row) -> rusqlite::Result<Issue> {
         decision: r.get(14)?,
         note: r.get(15)?,
         candidates: serde_json::from_str(&candidates).unwrap_or_default(),
+        bbox: bbox.and_then(|b| serde_json::from_str(&b).ok()),
+        region: region.and_then(|r| sbwb_core::RegionId::parse(&r)),
     })
 }
 
-const ISSUE_COLS: &str = "id, page_index, seq, span_id, span_revision, kind, score, score_source, priority, proposal_id, original, replacement, reason, status, decision, note, candidates";
+const ISSUE_COLS: &str = "id, page_index, seq, span_id, span_revision, kind, score, score_source, priority, proposal_id, original, replacement, reason, status, decision, note, candidates, bbox, region_id";
 
 fn insert_issue(tx: &Connection, i: &Issue) -> Result<()> {
     tx.execute(
-        &format!("INSERT INTO issues({ISSUE_COLS}, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"),
+        &format!("INSERT INTO issues({ISSUE_COLS}, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)"),
         params![
             i.id.to_string(),
             i.page.0 as i64,
@@ -132,6 +136,8 @@ fn insert_issue(tx: &Connection, i: &Issue) -> Result<()> {
             i.decision,
             i.note,
             serde_json::to_string(&i.candidates)?,
+            i.bbox.map(|b| serde_json::to_string(&b).unwrap_or_default()),
+            i.region.map(|r| r.to_string()),
             now(),
         ],
     )
@@ -244,6 +250,25 @@ impl Project {
             .collect();
         let previous = self.issues_for_page(page)?;
         let mut fresh = build_issues(page, &spans, &proposals);
+        // Structural issues from the layout (LAY-03, M8.2).
+        if let Some(layout) = self.page_layout(page)? {
+            let regions: Vec<sbwb_layout::Region> =
+                serde_json::from_value(layout.regions).unwrap_or_default();
+            let uncovered: Vec<sbwb_core::Rect> = layout
+                .report
+                .get("uncovered_text")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
+            let row = self.pages()?.into_iter().find(|r| r.index == page);
+            let (pw, ph) = row
+                .map(|r| (r.width_pt.unwrap_or(612.0), r.height_pt.unwrap_or(792.0)))
+                .unwrap_or((612.0, 792.0));
+            let base = spans.len() as u32 + 1000;
+            fresh.extend(sbwb_review::build_structural_issues(
+                page, pw, ph, &regions, &uncovered, &spans, base,
+            ));
+        }
         let tx = self.conn.transaction().map_err(db)?;
         // Decisions to carry over, keyed; each is consumed once.
         let mut carry: Vec<(String, Issue)> = previous
@@ -543,6 +568,9 @@ impl Project {
         if !matches!(issue.status, IssueStatus::Open | IssueStatus::Deferred) {
             return Err(SbwbError::Conflict("this issue was already decided".into()));
         }
+        if issue.bbox.is_some() && issue.candidates.is_empty() {
+            return self.decide_structural(issue, decision);
+        }
         let page = span_page(&self.conn, issue.span)?;
         let old: (String, String, Option<f64>, i64) = self
             .conn
@@ -707,6 +735,68 @@ impl Project {
         })
     }
 
+    /// Structural issues (missing text, clipping, order) have no reading to
+    /// accept: Skip records "not text / acknowledged", Later defers.
+    fn decide_structural(&mut self, issue: Issue, decision: &Decision) -> Result<DecisionOutcome> {
+        let (status, decision_str, label) = match decision {
+            Decision::Skip => (
+                IssueStatus::Resolved,
+                "skip".to_string(),
+                format!(
+                    "Acknowledged {} · page {}",
+                    issue.kind.label(),
+                    issue.page.number()
+                ),
+            ),
+            Decision::Later => (
+                IssueStatus::Deferred,
+                "later".to_string(),
+                format!(
+                    "Deferred {} · page {}",
+                    issue.kind.label(),
+                    issue.page.number()
+                ),
+            ),
+            _ => {
+                return Err(SbwbError::InvalidInput(
+                    "this issue has no reading to accept; recognise the area or skip it".into(),
+                ))
+            }
+        };
+        let history = HistoryId::new();
+        let tx = self.conn.transaction().map_err(db)?;
+        tx.execute(
+            "UPDATE issues SET status = ?2, decision = ?3, decided_at = ?4, history_id = ?5 WHERE id = ?1",
+            params![issue.id.to_string(), status.as_str(), decision_str, now(), history.to_string()],
+        )
+        .map_err(db)?;
+        let payload = serde_json::json!({
+            "kind": "decision", "issue": issue.id, "span": issue.span, "page": issue.page.0,
+            "old_text": "", "new_text": "", "old_origin": "ocr", "old_confidence": null,
+            "old_revision": 0, "new_revision": 0, "old_status": issue.status.as_str(), "proposal": null, "candidates": [], "superseded": [],
+        });
+        tx.execute(
+            "INSERT INTO history(id, ts, kind, label, payload) VALUES (?1, ?2, 'decision', ?3, ?4)",
+            params![
+                history.to_string(),
+                now(),
+                label,
+                serde_json::to_string(&payload)?
+            ],
+        )
+        .map_err(db)?;
+        tx.commit().map_err(db)?;
+        let issue = self
+            .issue(issue.id)?
+            .ok_or_else(|| SbwbError::NotFound("issue vanished".into()))?;
+        Ok(DecisionOutcome {
+            issue,
+            history,
+            span_text: String::new(),
+            span_revision: 0,
+        })
+    }
+
     /// Raise a user flag on a span (REV-01).
     pub fn flag_span(&mut self, span: SpanId, note: Option<&str>) -> Result<Issue> {
         self.require_write()?;
@@ -743,6 +833,8 @@ impl Project {
                 source: "current".into(),
                 proposal: None,
             }],
+            bbox: None,
+            region: None,
         };
         insert_issue(&self.conn, &issue)?;
         self.add_history(

@@ -43,7 +43,7 @@ developer; "week" is a rough unit, not a commitment.
 | M5 | Text reconstruction and provenance | 3 weeks | Done |
 | M6 | Review workspace | 4 weeks | Done |
 | M7 | Word export | 3 weeks | Done |
-| M8 | Targeted refinement and second engine | 2 weeks | Not started |
+| M8 | Targeted refinement and second engine | 2 weeks | Done |
 | M9 | Hardening and release | 3 weeks | Not started |
 | Phase 2 | Optional AI, queue, other platforms, Early Modern English | — | Not started |
 
@@ -205,12 +205,14 @@ Notes: the export composes a plan (paragraphs with placement and source mapping)
 
 | ID | Task | References | Status |
 | --- | --- | --- | --- |
-| M8.1 | Region OCR from a drawn or detected region: 300 DPI crop, fixed 3× Lanczos enlargement, recorded inputs, deterministic profile | OCR-02 | Not started |
-| M8.2 | Coverage-gap detection feeds the issue index as unscored structural issues | LAY-03, REV-01 | Not started |
-| M8.3 | Optional `ocrs` second engine for disagreement evidence; line scores never shown as word scores | OCR-01, OCR-02 | Not started |
-| M8.4 | Candidate merging into the existing review without replacing human-approved text | OCR-02 | Not started |
+| M8.1 | Region OCR from a drawn or detected region: 300 DPI crop, fixed 3× Lanczos enlargement, recorded inputs, deterministic profile | OCR-02 | Done (300 dpi crop, 3 pt padding, exact 3× Lanczos3, input image and profile kept with the run; over-size requests fail explicitly) |
+| M8.2 | Coverage-gap detection feeds the issue index as unscored structural issues | LAY-03, REV-01 | Done (missing text, clipping, and uncertain-order issues with a box; Skip acknowledges, Recognise ×3 runs region OCR) |
+| M8.3 | Optional `ocrs` second engine for disagreement evidence; line scores never shown as word scores | OCR-01, OCR-02 | Done (`ocrs` 0.13 behind the default `ocrs` feature of `sbwb-ocr`; models fetched by `scripts/fetch-deps.ps1`; line-level readings are unscored candidates) |
+| M8.4 | Candidate merging into the existing review without replacing human-approved text | OCR-02 | Done (agreements counted, disagreements become open proposals, words with no span are inserted in reading order; edited text is never replaced) |
 
 Exit: A-04 passes.
+
+Notes: region OCR is a warm-worker request (`OcrRegion`) so it never waits for the pipeline; the merge is one transaction followed by an issue rebuild (D-31).
 
 ### M9 — Hardening and release (3 weeks)
 

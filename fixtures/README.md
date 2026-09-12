@@ -55,6 +55,15 @@ Not yet fetched, listed for later evaluation:
   word frequencies; tens of GB uncompressed.
 - MorphAdorner Early Modern lexicon (NCSA license) for spelling-variant tables.
 
+## models (not in git)
+
+| File | Source | License | Use |
+| --- | --- | --- | --- |
+| `models/best/eng.traineddata`, `models/fast/eng.traineddata` | tesseract-ocr/tessdata_best and tessdata_fast | Apache-2.0 | Primary OCR |
+| `models/ocrs/text-detection.rten`, `models/ocrs/text-recognition.rten` | ocrs-models (Robert Knight), `ocrs-models.s3-accelerate.amazonaws.com` | Apache-2.0 | Second engine for disagreement evidence (OCR-02) |
+
+Checksums are pinned in `scripts/fetch-deps.ps1`.
+
 ## groundtruth/hough-1839-vol1
 
 | File | Content | Status |

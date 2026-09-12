@@ -94,6 +94,13 @@ bundled in the offline installer.
 | `sysinfo` | 0.39 | MIT | Memory and CPU accounting for the 6 GB cap and worker count (NFR-04) |
 | `crossbeam-channel` | 0.5 | MIT/Apache | Progress fan-in from workers |
 
+## Second engine (M8.3)
+
+| Crate | Version | License | Purpose | Risk |
+| --- | --- | --- | --- | --- |
+| `ocrs` | 0.13 | MIT/Apache | Pure-Rust text detection and line recognition for disagreement evidence | Line-level only: no word confidence, so its readings are shown unscored |
+| `rten`, `rten-imageproc` | 0.26 | MIT/Apache | Inference runtime and geometry for `ocrs` models | |
+
 ## Word export and validation
 
 | Crate | Version | License | Purpose | Risk |

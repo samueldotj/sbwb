@@ -31,6 +31,14 @@
         });
       }
     }
+    // structural issues: dashed boxes on the scan
+    for (const i of review.issues) {
+      if (!i.bbox || i.candidates.length > 0) continue;
+      const shown = review.matching.some((m) => m.id === i.id);
+      const focused = selected?.id === i.id;
+      if (!shown && !focused) continue;
+      out.push({ id: i.id, x: i.bbox.x, y: i.bbox.y, w: i.bbox.w, h: i.bbox.h, kind: "structural", focused, hovered: false, title: i.reason });
+    }
     return out;
   });
   const ring = $derived(Math.max(1, 1.5 / zoom));
@@ -63,6 +71,10 @@
   }
   .hl.deferred {
     outline-style: dotted;
+  }
+  .hl.structural {
+    background: transparent;
+    outline: var(--ring) dashed var(--danger);
   }
   .hl.accepted {
     background: var(--ok-bg-scan);

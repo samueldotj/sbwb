@@ -233,6 +233,8 @@ export type Issue = {
   decision: string | null;
   note: string | null;
   candidates: Candidate[];
+  bbox: { x: number; y: number; w: number; h: number } | null;
+  region: string | null;
 };
 export type IssueFilter = { threshold: number; exclude_kinds: IssueKind[]; deferred_view: boolean; by_priority: boolean };
 export type IssueCounts = {
@@ -334,6 +336,19 @@ export type ExportReport = {
   elapsed_ms: number;
 };
 
+// ----- targeted refinement (M8) -----
+export type MergeOutcome = { words: number; proposals_added: number; spans_inserted: number; agreements: number; second_engine_disagreements: number };
+export type RegionOcrResult = {
+  outcome: MergeOutcome;
+  profile: Record<string, unknown>;
+  render: string | null;
+  run: string;
+  elapsed_ms: number;
+  second_engine: string | null;
+  raw_text: string;
+  second_text: string | null;
+};
+
 export type CommandError = { code: string; message: string };
 
 export function isCommandError(e: unknown): e is CommandError {
@@ -407,6 +422,9 @@ export const api = {
   exportDefaultsGet: () => invoke<ExportSettings>("export_defaults_get"),
   exportDefaultsSet: (settings: ExportSettings) => invoke<void>("export_defaults_set", { settings }),
   openPath: (path: string) => invoke<void>("open_path", { path }),
+  regionOcr: (index: number, bbox: { x: number; y: number; w: number; h: number }, opts: { enlarge?: number; secondEngine?: boolean; region?: string } = {}) =>
+    invoke<RegionOcrResult>("region_ocr", { index, bbox, enlarge: opts.enlarge ?? 3, secondEngine: opts.secondEngine ?? false, region: opts.region ?? null }),
+  secondEngineAvailable: () => invoke<boolean>("second_engine_available"),
 };
 
 /// "1-50, 60-70" -> [[1,50],[60,70]]; returns null when unparsable.

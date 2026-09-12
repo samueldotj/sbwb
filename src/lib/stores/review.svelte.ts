@@ -86,6 +86,27 @@ class ReviewState {
     return this.issues.filter((i) => i.status === "open" || i.status === "deferred").length;
   }
 
+  /** Structural issues (no span) matching on this page. */
+  get structural(): Issue[] {
+    return this.matching.filter((i) => i.bbox !== null && i.candidates.length === 0);
+  }
+
+  /** Recognise an area again (OCR-02): 300 dpi crop enlarged 3×. */
+  async regionOcr(page: number, bbox: { x: number; y: number; w: number; h: number }, opts: { secondEngine?: boolean; region?: string } = {}) {
+    if (!isTauri) return null;
+    try {
+      const r = await ui.save(() => api.regionOcr(page, bbox, { enlarge: 3, secondEngine: opts.secondEngine, region: opts.region }));
+      const o = r.outcome;
+      ui.toast(`Region OCR: ${o.words} words · ${o.agreements} agree · ${o.proposals_added} new candidates · ${o.spans_inserted} words added${r.second_engine ? ` · ${o.second_engine_disagreements} second-engine disagreements` : ""}`, "ok", 6000);
+      ui.announce(`Region recognised: ${o.proposals_added} candidates, ${o.spans_inserted} words added`);
+      await this.reload();
+      return r;
+    } catch (e) {
+      ui.toast(errorMessage(e), "error", 7000);
+      return null;
+    }
+  }
+
   spanById(id: string): Span | null {
     return this.spans.find((s) => s.id === id) ?? null;
   }

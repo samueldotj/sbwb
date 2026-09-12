@@ -11,6 +11,21 @@ $models = @(
   @{ dir = "best"; url = "https://github.com/tesseract-ocr/tessdata_best/raw/main/eng.traineddata"; sha = "8280aed0782fe27257a68ea10fe7ef324ca0f8d85bd2fd145d1c2b560bcb66ba" },
   @{ dir = "fast"; url = "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata"; sha = "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2" }
 )
+# ocrs second-engine models (Apache-2.0, Robert Knight), see docs/dev-setup.md
+$ocrsModels = @(
+  @{ file = "ocrs/text-detection.rten"; url = "https://ocrs-models.s3-accelerate.amazonaws.com/text-detection.rten"; sha = "f15cfb56bd02c4bf478a20343986504a1f01e1665c2b3a0ad66340f054b1b5ca" },
+  @{ file = "ocrs/text-recognition.rten"; url = "https://ocrs-models.s3-accelerate.amazonaws.com/text-recognition.rten"; sha = "e484866d4cce403175bd8d00b128feb08ab42e208de30e42cd9889d8f1735a6e" }
+)
+foreach ($m in $ocrsModels) {
+  $file = Join-Path $root "models/$($m.file)"
+  New-Item -ItemType Directory -Force (Split-Path $file -Parent) | Out-Null
+  if (-not (Test-Path $file)) {
+    Write-Host "fetching $($m.url)"
+    Invoke-WebRequest -Uri $m.url -OutFile $file
+  }
+  Assert-Sha256 $file $m.sha
+  Write-Host "model ok: $file"
+}
 
 function Assert-Sha256($path, $expected) {
   $actual = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLower()

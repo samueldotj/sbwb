@@ -54,6 +54,12 @@
     for (const r of review.regions) counts.set(r.kind, (counts.get(r.kind) ?? 0) + 1);
     return [...counts.entries()].map(([k, n]) => `${n} ${KIND_LABEL[k as keyof typeof KIND_LABEL] ?? k}`).join(" · ");
   });
+  const gaps = $derived(onThisPage ? review.issues.filter((i) => i.kind === "missing_text" && (i.status === "open" || i.status === "deferred")) : []);
+  async function recogniseAll() {
+    for (const g of gaps) {
+      if (g.bbox) await review.regionOcr(page!.index, g.bbox, {});
+    }
+  }
   const byKind = $derived.by(() => {
     const m = new Map<string, number>();
     for (const i of open) m.set(i.kind, (m.get(i.kind) ?? 0) + 1);
@@ -116,6 +122,16 @@
     </div>
   {/if}
 
+  {#if gaps.length}
+    <div>
+      <div class="label">Probable missing text</div>
+      <p class="muted small">{gaps.length} area{gaps.length === 1 ? "" : "s"} with ink but no recognised words (LAY-03).</p>
+      <div class="two">
+        <button type="button" class="ctl" onclick={() => review.select(gaps[0]!.id)}>Review the first</button>
+        <button type="button" class="ctl" onclick={recogniseAll} disabled={page.approval === "current"}>Recognise all ×3</button>
+      </div>
+    </div>
+  {/if}
   {#if excluded.length}
     <div>
       <div class="label">Excluded from text</div>

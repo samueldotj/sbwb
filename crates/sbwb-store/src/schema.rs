@@ -4,10 +4,10 @@
 use rusqlite_migration::{Migrations, M};
 
 /// Current project schema version. Bumped by every migration.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 pub fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(V1), M::up(V2), M::up(V3), M::up(V4)])
+    Migrations::new(vec![M::up(V1), M::up(V2), M::up(V3), M::up(V4), M::up(V5)])
 }
 
 const V1: &str = r#"
@@ -201,4 +201,10 @@ CREATE TABLE drafts (
 ALTER TABLE pages ADD COLUMN approved_outstanding INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE pages ADD COLUMN approved_layout_revision INTEGER;
 ALTER TABLE pages ADD COLUMN approved_at TEXT;
+"#;
+
+/// v5: structural issues carry a box and a region (M8.2).
+const V5: &str = r#"
+ALTER TABLE issues ADD COLUMN bbox TEXT;
+ALTER TABLE issues ADD COLUMN region_id TEXT;
 "#;

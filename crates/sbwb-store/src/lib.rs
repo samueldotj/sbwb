@@ -9,6 +9,7 @@
 
 pub mod lock;
 pub mod project;
+pub mod refine;
 pub mod review;
 pub mod schema;
 
@@ -17,6 +18,7 @@ pub use project::{
     ExportRecord, OpenMode, PageCounts, PageLayout, PageOcr, PageRow, Project, ProjectMeta,
     ProjectSummary, RunRecord, SourceInfo, StoredProposal,
 };
+pub use refine::MergeOutcome;
 pub use review::{
     Decision, DecisionOutcome, Draft, GroupOutcome, HistoryEntry, NextIssue, PageIssueCounts,
 };

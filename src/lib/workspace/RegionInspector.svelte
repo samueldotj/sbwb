@@ -3,6 +3,10 @@
   // merge, with the consequence of a body change stated before saving.
   import type { OcrWord, RegionKind, WordStructure } from "$lib/api";
   import { layout, KIND_LABEL } from "$lib/stores/layout.svelte";
+  import { review } from "$lib/stores/review.svelte";
+  import { view } from "$lib/stores/view.svelte";
+  import { api } from "$lib/api";
+  import { isTauri } from "$lib/ipc";
 
   type Props = { pageW: number; pageH: number; words: OcrWord[] };
   let { pageW, pageH, words }: Props = $props();
@@ -30,6 +34,22 @@
     return [...byLine.values()].sort((a, b) => a - b);
   });
   let splitAfter = $state(1);
+  let secondEngine = $state(false);
+  let hasSecond = $state(false);
+  let busy = $state(false);
+  $effect(() => {
+    if (isTauri) api.secondEngineAvailable().then((v) => (hasSecond = v)).catch(() => (hasSecond = false));
+  });
+  async function recognise() {
+    if (!r) return;
+    if (layout.dirty) {
+      const ok = await layout.save();
+      if (!ok) return;
+    }
+    busy = true;
+    await review.regionOcr(view.page, r.bbox, { secondEngine, region: r.id });
+    busy = false;
+  }
   function doSplit() {
     if (!r) return;
     const bottom = lineBottoms[splitAfter - 1];
@@ -79,6 +99,11 @@
     </div>
     <button type="button" class="btn" onclick={() => layout.mergeWithNext(r.id)} disabled={layout.regions[layout.regions.length - 1]?.id === r.id}>Merge with next</button>
   </div>
+  <div class="recog">
+    <button type="button" class="btn" onclick={recognise} disabled={busy}>{busy ? "Recognising…" : "Recognise region · 300 dpi ×3"}</button>
+    <label class="muted small check"><input type="checkbox" bind:checked={secondEngine} disabled={!hasSecond} /> compare with second engine{hasSecond ? "" : " (not installed)"}</label>
+    <div class="hint">Readings become review candidates and words found nowhere else are added; edited text is never replaced.</div>
+  </div>
   <button type="button" class="btn danger" onclick={() => layout.remove(r.id)}>Delete region</button>
   {#if r.kind === "body"}
     <div class="hint">Changing a body region re-runs the text pass for this page and clears its approval.</div>
@@ -100,6 +125,15 @@
 <style>
   .label {
     margin-bottom: 6px;
+  }
+  .recog {
+    display: grid;
+    gap: 6px;
+  }
+  .check {
+    display: flex;
+    gap: 6px;
+    align-items: center;
   }
   .chips {
     display: flex;

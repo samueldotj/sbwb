@@ -137,6 +137,11 @@ pub struct Issue {
     pub decision: Option<String>,
     pub note: Option<String>,
     pub candidates: Vec<Candidate>,
+    /// Page box for structural issues that have no span (LAY-03).
+    #[serde(default)]
+    pub bbox: Option<sbwb_core::Rect>,
+    #[serde(default)]
+    pub region: Option<sbwb_core::RegionId>,
 }
 
 /// Decision key: the same original/replacement pair on the same page is
@@ -196,14 +201,27 @@ pub fn build_issues(page: PageIndex, spans: &[Span], proposals: &[Proposal]) -> 
             let lead = sorted[0];
             let kind = match lead.kind {
                 ProposalKind::HyphenJoin => IssueKind::QuestionableJoin,
+                _ if lead.reason.contains("no word score") => IssueKind::ConflictingReadings,
                 _ => IssueKind::RiskySubstitution,
             };
+            let unscored = lead.reason.contains("no word score");
             let mut candidates: Vec<Candidate> = sorted
                 .iter()
                 .map(|p| Candidate {
                     text: p.replacement.clone(),
-                    score: Some(p.score),
-                    source: "text pass".into(),
+                    // line-level engines have no word score (OCR-02)
+                    score: if p.reason.contains("no word score") {
+                        None
+                    } else {
+                        Some(p.score)
+                    },
+                    source: if p.reason.contains("no word score") {
+                        "second engine".into()
+                    } else if p.reason.contains("region OCR") {
+                        "region OCR".into()
+                    } else {
+                        "text pass".into()
+                    },
                     proposal: Some(p.id),
                 })
                 .collect();
@@ -215,9 +233,19 @@ pub fn build_issues(page: PageIndex, spans: &[Span], proposals: &[Proposal]) -> 
                 span: s.id,
                 span_revision: s.revision,
                 kind,
-                score: Some(lead.score),
-                score_source: "text pass".into(),
-                priority: priority_for(kind, Some(lead.score), &s.text),
+                score: if unscored { None } else { Some(lead.score) },
+                score_source: if unscored {
+                    "second engine".into()
+                } else if lead.reason.contains("region OCR") {
+                    "region OCR".into()
+                } else {
+                    "text pass".into()
+                },
+                priority: priority_for(
+                    kind,
+                    if unscored { None } else { Some(lead.score) },
+                    &s.text,
+                ),
                 proposal: Some(lead.id),
                 original: s.text.clone(),
                 replacement: Some(lead.replacement.clone()),
@@ -226,6 +254,8 @@ pub fn build_issues(page: PageIndex, spans: &[Span], proposals: &[Proposal]) -> 
                 decision: None,
                 note: None,
                 candidates,
+                bbox: None,
+                region: s.region,
             });
             continue;
         }
@@ -251,9 +281,101 @@ pub fn build_issues(page: PageIndex, spans: &[Span], proposals: &[Proposal]) -> 
                         decision: None,
                         note: None,
                         candidates: vec![raw],
+                        bbox: None,
+                        region: s.region,
                     });
                 }
             }
+        }
+    }
+    out
+}
+
+/// Structural issues from the layout (LAY-03, M8.2): probable missing
+/// text, regions touching the page edge, uncertain reading order. They
+/// carry no score and are keyed by their rounded position so a decision
+/// survives a rerun.
+pub fn build_structural_issues(
+    page: PageIndex,
+    page_w: f64,
+    page_h: f64,
+    regions: &[sbwb_layout::Region],
+    uncovered: &[sbwb_core::Rect],
+    spans: &[Span],
+    seq_base: u32,
+) -> Vec<Issue> {
+    let mut out = Vec::new();
+    let mut seq = seq_base;
+    let mut push = |kind: IssueKind,
+                    bbox: sbwb_core::Rect,
+                    region: Option<sbwb_core::RegionId>,
+                    reason: String,
+                    seq: u32| {
+        out.push(Issue {
+            id: IssueId::new(),
+            page,
+            seq,
+            span: SpanId::new(),
+            span_revision: 0,
+            kind,
+            score: None,
+            score_source: "layout".into(),
+            priority: priority_for(kind, None, ""),
+            proposal: None,
+            original: format!("{}@{:.0},{:.0}", kind.as_str(), bbox.x, bbox.y),
+            replacement: None,
+            reason,
+            status: IssueStatus::Open,
+            decision: None,
+            note: None,
+            candidates: vec![],
+            bbox: Some(bbox),
+            region,
+        });
+    };
+    for r in uncovered {
+        // line-like, inside the page (scan-border noise sits at the edges)
+        let line_like = r.h >= 3.0 && r.h <= 40.0 && r.w >= 12.0;
+        let inside =
+            r.x >= 4.0 && r.right() <= page_w - 4.0 && r.y >= 4.0 && r.bottom() <= page_h - 4.0;
+        if !line_like || !inside {
+            continue;
+        }
+        seq += 1;
+        push(IssueKind::MissingText, *r, None, "ink that looks like a text line has no recognised words; recognise this area or mark it as not text".into(), seq);
+    }
+    let edge = 2.0;
+    for r in regions {
+        if matches!(
+            r.kind,
+            sbwb_layout::RegionKind::Ignore | sbwb_layout::RegionKind::Illustration
+        ) {
+            continue;
+        }
+        let b = r.bbox;
+        // Clipping means recognised words sit on the page edge, not that the
+        // region box (which follows ink and scan borders) does.
+        let words_in: Vec<&Span> = spans.iter().filter(|s| s.region == Some(r.id)).collect();
+        let touches = words_in.iter().flat_map(|s| s.anchors.iter()).any(|a| {
+            let w = a.bbox;
+            w.x <= edge || w.y <= edge || w.right() >= page_w - edge || w.bottom() >= page_h - edge
+        });
+        if touches {
+            seq += 1;
+            push(
+                IssueKind::Clipping,
+                b,
+                Some(r.id),
+                format!(
+                    "the {} region touches the page edge; text may be cut off in the scan",
+                    r.kind.label()
+                ),
+                seq,
+            );
+        }
+        if r.kind == sbwb_layout::RegionKind::Uncertain && !words_in.is_empty() {
+            seq += 1;
+            push(IssueKind::OrderAmbiguity, b, Some(r.id), "this region's class and reading-order position are uncertain; set its type in Layout mode".into(), seq);
         }
     }
     out

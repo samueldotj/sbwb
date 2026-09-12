@@ -3,6 +3,7 @@ pub mod layout;
 pub mod page;
 pub mod pipeline;
 pub mod project;
+pub mod refine;
 pub mod review;
 pub mod settings;
 pub mod text;
