@@ -175,6 +175,7 @@
         approve: (i: number, ack = 0) => review.approve(i, ack),
         review_store: review,
         export_open: () => (ui.exportOpen = true),
+        queue_open: () => (ui.queueOpen = true),
         layout: (i: number) => {
           view.open(i);
           view.editLayout();
