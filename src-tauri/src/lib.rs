@@ -73,7 +73,7 @@ pub fn run() {
                         if let Some(secs) = std::env::var("SBWB_DEV_LAYOUT_AT").ok().and_then(|v| v.parse::<u64>().ok()) {
                             let page = std::env::var("SBWB_DEV_REVIEW").ok().and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
                             std::thread::sleep(std::time::Duration::from_secs(secs));
-                            let _ = w.eval(&format!("window.__sbwb && window.__sbwb.layout({page})"));
+                            let _ = w.eval(format!("window.__sbwb && window.__sbwb.layout({page})"));
                         }
                     }
                 });

@@ -1,5 +1,5 @@
 {
-  "note": "Draft produced by sbwb-layout cc-smear/1 on 2026-09-12. Pages listed in adjudicated_pages were checked by a person; the rest are unadjudicated (D-26).",
+  "note": "Draft produced by sbwb-layout cc-smear/1 on 2026-09-12. Known weakness: contents pages (e.g. page 30, 40) classify the right-aligned page-number column and dot leaders as marginalia; a contents heuristic is pending. Pages listed in adjudicated_pages were checked by a person; the rest are unadjudicated (D-26).",
   "adjudicated_pages": [
     47
   ],

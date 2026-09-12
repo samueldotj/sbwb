@@ -232,6 +232,7 @@ fn blobs_from_groups(items: &[Rect], groups: Vec<Vec<usize>>) -> Vec<Blob> {
 /// `min_w` wide whose ink coverage is below `max_cover` of the band height.
 /// Computed from raw components so a continuous gutter between a side-note
 /// column and the body is found even when word gaps are as wide.
+#[allow(clippy::needless_range_loop)]
 fn gutters(items: &[Rect], band: &Rect, min_w: f64, max_cover: f64) -> Vec<(f64, f64)> {
     let w = band.w.max(1.0) as usize;
     let mut cover = vec![0.0f64; w];
@@ -496,14 +497,13 @@ pub fn analyze(
             }
         } else if outside_main_x && r.w < 0.35 * pw {
             RegionKind::Marginalia
-        } else if has_main && inside_main_x && r.y >= main_bottom - h && small_text {
-            RegionKind::Footnote
         } else if has_main
             && inside_main_x
-            && rules
-                .iter()
-                .any(|s| s.y < r.y && s.y > main_top && (r.y - s.y) < 6.0 * h)
             && small_text
+            && (r.y >= main_bottom - h
+                || rules
+                    .iter()
+                    .any(|s| s.y < r.y && s.y > main_top && (r.y - s.y) < 6.0 * h))
         {
             RegionKind::Footnote
         } else if inside_main_x
