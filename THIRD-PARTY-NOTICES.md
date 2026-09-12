@@ -17,6 +17,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | alloc-stdlib | 0.2.4 | BSD-3-Clause | Daniel Reiter Horn <danielrh@dropbox.com> |
 | android_system_properties | 0.1.6 | Apache-2.0 OR MIT | Nicolas Silva <nical@fastmail.com> |
 | anyhow | 1.0.104 | Apache-2.0 OR MIT | David Tolnay <dtolnay@gmail.com> |
+| apple-native-keyring-store | 1.0.2 | Apache-2.0 OR MIT | Daniel Brotsky <dev@brotsky.com> |
 | approx | 0.5.1 | Apache-2.0 | Brendan Zabarauskas <bjzaba@yahoo.com.au> |
 | arbitrary | 1.4.2 | Apache-2.0 OR MIT | The Rust-Fuzz Project Developers, Nick Fitzgerald <fitzgen@gmail.com>, Manish Go |
 | arg_enum_proc_macro | 0.3.4 | MIT | Luca Barbato <lu_zero@gentoo.org> |
@@ -39,6 +40,8 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | av-scenechange | 0.14.1 | MIT | Josh Holmer <jholmer.in@gmail.com> |
 | av1-grain | 0.2.5 | BSD-2-Clause |  |
 | avif-serialize | 0.8.9 | BSD-3-Clause | Kornel Lesiński <kornel@geekhood.net> |
+| aws-lc-rs | 1.18.1 | (Apache-2.0 OR ISC) AND ISC | AWS-LibCrypto |
+| aws-lc-sys | 0.45.0 | (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0) AND (Apache-2.0 OR ISC) AND Apache-2.0 AND BSD-3-Clause AND ISC AND MIT | AWS-LC |
 | base64 | 0.21.7 | Apache-2.0 OR MIT | Alice Maz <alice@alicemaz.com>, Marshall Pierce <marshall@mpierce.org> |
 | base64 | 0.22.1 | Apache-2.0 OR MIT | Marshall Pierce <marshall@mpierce.org> |
 | base64 | 0.23.1 | Apache-2.0 OR MIT | Marshall Pierce <marshall@mpierce.org> |
@@ -77,10 +80,13 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | cfb | 0.7.3 | MIT | Matthew D. Steele <mdsteele@alum.mit.edu> |
 | cfg-expr | 0.15.8 | Apache-2.0 OR MIT | Embark <opensource@embark-studios.com>, Jake Shadle <jake.shadle@embark-studios. |
 | cfg-if | 1.0.4 | Apache-2.0 OR MIT | Alex Crichton <alex@alexcrichton.com> |
+| cfg_aliases | 0.2.2 | MIT | Zicklag <zicklag@katharostech.com> |
 | chacha20 | 0.10.2 | Apache-2.0 OR MIT | RustCrypto Developers |
 | chrono | 0.4.45 | Apache-2.0 OR MIT |  |
 | cipher | 0.5.2 | Apache-2.0 OR MIT | RustCrypto Developers |
 | clang-sys | 1.9.1 | Apache-2.0 | Kyle Mayes <kyle@mayeses.com> |
+| cmake | 0.1.58 | Apache-2.0 OR MIT | Alex Crichton <alex@alexcrichton.com> |
+| cmov | 0.5.4 | Apache-2.0 OR MIT | RustCrypto Developers |
 | color_quant | 1.1.0 | MIT | nwin <nwin@users.noreply.github.com> |
 | combine | 4.6.8 | MIT | Markus Westerlind <marwes91@gmail.com> |
 | concurrent-queue | 2.5.0 | Apache-2.0 OR MIT | Stjepan Glavina <stjepang@gmail.com>, Taiki Endo <te316e89@gmail.com>, John Nunl |
@@ -109,6 +115,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | cssparser-macros | 0.6.1 | MPL-2.0 | Simon Sapin <simon.sapin@exyr.org> |
 | ctor | 0.8.0 | Apache-2.0 OR MIT | Matt Mastracci <matthew@mastracci.com> |
 | ctor-proc-macro | 0.0.7 | Apache-2.0 OR MIT | Matt Mastracci <matthew@mastracci.com> |
+| ctutils | 0.4.2 | Apache-2.0 OR MIT | RustCrypto Developers |
 | darling | 0.24.1 | MIT | Ted Driggs <ted.driggs@outlook.com> |
 | darling_core | 0.24.1 | MIT | Ted Driggs <ted.driggs@outlook.com> |
 | darling_macro | 0.24.1 | MIT | Ted Driggs <ted.driggs@outlook.com> |
@@ -169,6 +176,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | foreign-types-macros | 0.2.4 | Apache-2.0 OR MIT | Steven Fackler <sfackler@gmail.com> |
 | foreign-types-shared | 0.3.1 | Apache-2.0 OR MIT | Steven Fackler <sfackler@gmail.com> |
 | form_urlencoded | 1.2.2 | Apache-2.0 OR MIT | The rust-url developers |
+| fs_extra | 1.3.0 | MIT | Denis Kurilenko <webdesus@gmail.com> |
 | futures-channel | 0.3.34 | Apache-2.0 OR MIT |  |
 | futures-core | 0.3.34 | Apache-2.0 OR MIT |  |
 | futures-executor | 0.3.34 | Apache-2.0 OR MIT |  |
@@ -213,6 +221,8 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | heck | 0.5.0 | Apache-2.0 OR MIT |  |
 | hermit-abi | 0.5.3 | Apache-2.0 OR MIT |  |
 | hex | 0.4.3 | Apache-2.0 OR MIT | KokaKiwi <kokakiwi@kokakiwi.net> |
+| hkdf | 0.13.0 | Apache-2.0 OR MIT | RustCrypto Developers |
+| hmac | 0.13.0 | Apache-2.0 OR MIT | RustCrypto Developers |
 | home | 0.5.12 | Apache-2.0 OR MIT | Brian Anderson <andersrb@gmail.com> |
 | html5ever | 0.38.0 | Apache-2.0 OR MIT | The html5ever Project Developers |
 | http | 1.5.0 | Apache-2.0 OR MIT | Alex Crichton <alex@alexcrichton.com>, Carl Lerche <me@carllerche.com>, Sean McA |
@@ -221,6 +231,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | httparse | 1.10.1 | Apache-2.0 OR MIT | Sean McArthur <sean@seanmonstar.com> |
 | hybrid-array | 0.4.15 | Apache-2.0 OR MIT | RustCrypto Developers |
 | hyper | 1.11.1 | MIT | Sean McArthur <sean@seanmonstar.com> |
+| hyper-rustls | 0.27.9 | Apache-2.0 OR ISC OR MIT |  |
 | hyper-util | 0.1.20 | MIT | Sean McArthur <sean@seanmonstar.com> |
 | iana-time-zone | 0.1.65 | Apache-2.0 OR MIT | Andrew Straw <strawman@astraw.com>, René Kijewski <rene.kijewski@fu-berlin.de>,  |
 | iana-time-zone-haiku | 0.1.2 | Apache-2.0 OR MIT | René Kijewski <crates.io@k6i.de> |
@@ -256,6 +267,8 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | jiff-tzdb | 0.1.8 | MIT OR Unlicense | Andrew Gallant <jamslam@gmail.com> |
 | jiff-tzdb-platform | 0.1.3 | MIT OR Unlicense | Andrew Gallant <jamslam@gmail.com> |
 | jni | 0.21.1 | Apache-2.0 OR MIT | Josh Chase <josh@prevoty.com> |
+| jni | 0.22.4 | Apache-2.0 OR MIT | jni team |
+| jni-macros | 0.22.4 | Apache-2.0 OR MIT |  |
 | jni-sys | 0.3.1 | Apache-2.0 OR MIT | Steven Fackler <sfackler@gmail.com> |
 | jni-sys | 0.4.1 | Apache-2.0 OR MIT | Steven Fackler <sfackler@gmail.com>, Robert Bragg <robert@sixbynine.org> |
 | jni-sys-macros | 0.4.1 | Apache-2.0 OR MIT | Robert Bragg <robert@sixbynine.org> |
@@ -264,6 +277,8 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | json-patch | 3.0.1 | Apache-2.0 OR MIT | Ivan Dubrov <dubrov.ivan@gmail.com> |
 | jsonptr | 0.6.3 | Apache-2.0 OR MIT | chance dinkins, André Sá de Mello <codasm@pm.me> |
 | keyboard-types | 0.7.0 | Apache-2.0 OR MIT | Pyfisch <pyfisch@posteo.org> |
+| keyring | 4.2.0 | Apache-2.0 OR MIT | Daniel Brotsky <dev@brotsky.com> |
+| keyring-core | 1.0.0 | Apache-2.0 OR MIT | Daniel Brotsky <dev@brotsky.com> |
 | lazy_static | 1.5.0 | Apache-2.0 OR MIT | Marvin Löbel <loebel.marvin@gmail.com> |
 | lazycell | 1.3.0 | Apache-2.0 OR MIT | Alex Crichton <alex@alexcrichton.com>, Nikita Pekin <contact@nikitapek.in> |
 | lebe | 0.5.3 | BSD-3-Clause | johannesvollmer <contact@johannesvollmer.com> |
@@ -288,6 +303,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | log | 0.4.34 | Apache-2.0 OR MIT | The Rust Project Developers |
 | loop9 | 0.1.5 | MIT | Kornel <kornel@geekhood.net> |
 | lopdf | 0.45.0 | MIT | Junfeng Liu <china.liujunfeng@gmail.com>, Emulator <emulator@hotmail.it> |
+| lru-slab | 0.1.2 | Apache-2.0 OR MIT OR Zlib | Benjamin Saunders <ben.e.saunders@gmail.com> |
 | markup5ever | 0.38.0 | Apache-2.0 OR MIT | The html5ever Project Developers |
 | matchers | 0.2.0 | MIT | Eliza Weisman <eliza@buoyant.io> |
 | matrixmultiply | 0.3.11 | Apache-2.0 OR MIT | bluss, R. Janis Goldschmidt |
@@ -349,6 +365,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | objc2-web-kit | 0.3.2 | Apache-2.0 OR MIT OR Zlib |  |
 | ocrs | 0.13.0 | Apache-2.0 OR MIT | Robert Knight |
 | once_cell | 1.21.4 | Apache-2.0 OR MIT | Aleksey Kladov <aleksey.kladov@gmail.com> |
+| openssl-probe | 0.2.1 | Apache-2.0 OR MIT | Alex Crichton <alex@alexcrichton.com> |
 | option-ext | 0.2.0 | MPL-2.0 | Simon Ochsenreither <simon@ochsenreither.de> |
 | ordered-stream | 0.2.0 | Apache-2.0 OR MIT | Daniel De Graaf <code@danieldg.net>, Zeeshan Ali Khan <zeeshanak@gnome.org> |
 | owned_ttf_parser | 0.25.1 | Apache-2.0 | Alex Butler <alexheretic@gmail.com> |
@@ -397,6 +414,9 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | quick-error | 2.0.1 | Apache-2.0 OR MIT | Paul Colomiets <paul@colomiets.name>, Colin Kiegel <kiegel@gmx.de> |
 | quick-xml | 0.41.0 | MIT |  |
 | quick-xml | 0.42.0 | MIT |  |
+| quinn | 0.11.11 | Apache-2.0 OR MIT |  |
+| quinn-proto | 0.11.17 | Apache-2.0 OR MIT |  |
+| quinn-udp | 0.5.15 | Apache-2.0 OR MIT |  |
 | quote | 1.0.47 | Apache-2.0 OR MIT | David Tolnay <dtolnay@gmail.com> |
 | r-efi | 5.3.0 | Apache-2.0 OR LGPL-2.1-or-later OR MIT |  |
 | r-efi | 6.0.0 | Apache-2.0 OR LGPL-2.1-or-later OR MIT |  |
@@ -406,6 +426,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | rand_core | 0.10.1 | Apache-2.0 OR MIT | The Rand Project Developers |
 | rand_core | 0.9.5 | Apache-2.0 OR MIT | The Rand Project Developers, The Rust Project Developers |
 | rand_distr | 0.6.0 | Apache-2.0 OR MIT | The Rand Project Developers |
+| rand_pcg | 0.10.2 | Apache-2.0 OR MIT | The Rand Project Developers |
 | rangemap | 1.8.0 | Apache-2.0 OR MIT | Jeff Parsons <jeff@parsons.io> |
 | rav1e | 0.8.1 | BSD-2-Clause | Thomas Daede <tdaede@xiph.org> |
 | ravif | 0.13.0 | BSD-3-Clause | Kornel Lesiński <kornel@geekhood.net> |
@@ -425,6 +446,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | reqwest | 0.13.5 | Apache-2.0 OR MIT | Sean McArthur <sean@seanmonstar.com> |
 | rfd | 0.16.0 | MIT | Poly <marynczak.bartlomiej@gmail.com> |
 | rgb | 0.8.53 | MIT | Kornel Lesiński <kornel@geekhood.net>, James Forster <james.forsterer@gmail.com> |
+| ring | 0.17.14 | Apache-2.0 AND ISC |  |
 | roxmltree | 0.21.1 | Apache-2.0 OR MIT | Yevhenii Reizner <razrfalcon@gmail.com> |
 | rsqlite-vfs | 0.1.1 | MIT |  |
 | rten | 0.26.0 | Apache-2.0 OR MIT | Robert Knight |
@@ -447,9 +469,17 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | rustfft | 6.4.1 | Apache-2.0 OR MIT | Allen Welkie <allen.welkie at gmail>, Elliott Mahler <join.together at gmail> |
 | rustix | 0.38.44 | Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT | Dan Gohman <dev@sunfishcode.online>, Jakub Konka <kubkon@jakubkonka.com> |
 | rustix | 1.1.4 | Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT | Dan Gohman <dev@sunfishcode.online>, Jakub Konka <kubkon@jakubkonka.com> |
+| rustls | 0.23.44 | Apache-2.0 OR ISC OR MIT |  |
+| rustls-native-certs | 0.8.4 | Apache-2.0 OR ISC OR MIT |  |
+| rustls-pki-types | 1.15.1 | Apache-2.0 OR MIT |  |
+| rustls-platform-verifier | 0.7.0 | Apache-2.0 OR MIT |  |
+| rustls-platform-verifier-android | 0.1.1 | Apache-2.0 OR MIT |  |
+| rustls-webpki | 0.103.15 | ISC |  |
 | rustversion | 1.0.23 | Apache-2.0 OR MIT | David Tolnay <dtolnay@gmail.com> |
+| ryu | 1.0.23 | Apache-2.0 OR BSL-1.0 | David Tolnay <dtolnay@gmail.com> |
 | safe_arch | 1.2.0 | Apache-2.0 OR MIT OR Zlib | Lokathor <zefria@gmail.com> |
 | same-file | 1.0.6 | MIT OR Unlicense | Andrew Gallant <jamslam@gmail.com> |
+| sbwb-ai | 0.1.0 | MIT |  |
 | sbwb-app | 0.1.0 | MIT |  |
 | sbwb-bench | 0.1.0 | MIT |  |
 | sbwb-core | 0.1.0 | MIT |  |
@@ -463,11 +493,15 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | sbwb-store | 0.1.0 | MIT |  |
 | sbwb-text | 0.1.0 | MIT |  |
 | sbwb-worker | 0.1.0 | MIT |  |
+| schannel | 0.1.29 | MIT | Steven Fackler <sfackler@gmail.com>, Steffen Butzer <steffen.butzer@outlook.com> |
 | schemars | 0.8.22 | MIT | Graham Esau <gesau@hotmail.co.uk> |
 | schemars | 0.9.0 | MIT | Graham Esau <gesau@hotmail.co.uk> |
 | schemars | 1.2.2 | MIT | Graham Esau <gesau@hotmail.co.uk> |
 | schemars_derive | 0.8.22 | MIT | Graham Esau <gesau@hotmail.co.uk> |
 | scopeguard | 1.2.0 | Apache-2.0 OR MIT | bluss |
+| secret-service | 5.2.0 | Apache-2.0 OR MIT | Walther Chen <walther.chen@gmail.com> |
+| security-framework | 3.7.0 | Apache-2.0 OR MIT | Steven Fackler <sfackler@gmail.com>, Kornel <kornel@geekhood.net> |
+| security-framework-sys | 2.17.0 | Apache-2.0 OR MIT | Steven Fackler <sfackler@gmail.com>, Kornel <kornel@geekhood.net> |
 | selectors | 0.36.1 | MPL-2.0 | The Servo Project Developers |
 | semver | 1.0.28 | Apache-2.0 OR MIT | David Tolnay <dtolnay@gmail.com> |
 | serde | 1.0.229 | Apache-2.0 OR MIT | Erick Tryzelaar <erick.tryzelaar@gmail.com>, David Tolnay <dtolnay@gmail.com> |
@@ -479,6 +513,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | serde_repr | 0.1.21 | Apache-2.0 OR MIT | David Tolnay <dtolnay@gmail.com> |
 | serde_spanned | 0.6.9 | Apache-2.0 OR MIT |  |
 | serde_spanned | 1.1.1 | Apache-2.0 OR MIT |  |
+| serde_urlencoded | 0.7.1 | Apache-2.0 OR MIT | Anthony Ramine <n.oxyde@gmail.com> |
 | serde_with | 3.23.0 | Apache-2.0 OR MIT | Jonas Bushart, Marcin Kaźmierczak |
 | serde_with_macros | 3.23.0 | Apache-2.0 OR MIT | Jonas Bushart |
 | serialize-to-javascript | 0.1.2 | Apache-2.0 OR MIT | Chip Reed <chip@chip.sh> |
@@ -492,6 +527,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | signal-hook-registry | 1.4.8 | Apache-2.0 OR MIT | Michal 'vorner' Vaner <vorner@vorner.cz>, Masaki Hara <ackie.h.gmai@gmail.com> |
 | simba | 0.10.2 | Apache-2.0 | sebcrozet <developer@crozet.re> |
 | simd-adler32 | 0.3.10 | MIT | Marvin Countryman <me@maar.vin> |
+| simd_cesu8 | 1.2.0 | Apache-2.0 OR MIT | Sean C. Roach <me@seancroach.dev> |
 | simd_helpers | 0.1.0 | MIT | Luca Barbato <lu_zero@gentoo.org> |
 | simdutf8 | 0.1.5 | Apache-2.0 OR MIT | Hans Kratz <hans@appfour.com> |
 | siphasher | 1.0.3 | Apache-2.0 OR MIT | Frank Denis <github@pureftpd.org> |
@@ -509,6 +545,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | string_cache_codegen | 0.6.1 | Apache-2.0 OR MIT | The Servo Project Developers |
 | stringprep | 0.1.5 | Apache-2.0 OR MIT | Steven Fackler <sfackler@gmail.com> |
 | strsim | 0.11.1 | MIT | Danny Guo <danny@dannyguo.com>, maxbachmann <oss@maxbachmann.de> |
+| subtle | 2.6.1 | BSD-3-Clause | Isis Lovecruft <isis@patternsinthevoid.net>, Henry de Valence <hdevalence@hdeval |
 | swift-rs | 1.0.8 | Apache-2.0 OR MIT | The swift-rs contributors |
 | symlink | 0.1.0 | Apache-2.0 OR MIT | Chris Morgan <me@chrismorgan.info> |
 | syn | 1.0.109 | Apache-2.0 OR MIT | David Tolnay <dtolnay@gmail.com> |
@@ -554,6 +591,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | tinyvec_macros | 0.1.1 | Apache-2.0 OR MIT OR Zlib | Soveu <marx.tomasz@gmail.com> |
 | tokio | 1.53.1 | MIT | Tokio Contributors <team@tokio.rs> |
 | tokio-macros | 2.7.2 | MIT | Tokio Contributors <team@tokio.rs> |
+| tokio-rustls | 0.26.5 | Apache-2.0 OR MIT |  |
 | tokio-util | 0.7.19 | MIT | Tokio Contributors <team@tokio.rs> |
 | toml | 0.8.2 | Apache-2.0 OR MIT | Alex Crichton <alex@alexcrichton.com> |
 | toml | 0.9.12+spec-1.1.0 | Apache-2.0 OR MIT |  |
@@ -594,6 +632,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | unicode-normalization | 0.1.25 | Apache-2.0 OR MIT | kwantam <kwantam@gmail.com>, Manish Goregaokar <manishsmail@gmail.com> |
 | unicode-properties | 0.1.4 | Apache-2.0 OR MIT | Charles Lew <crlf0710@gmail.com>, Manish Goregaokar <manishsmail@gmail.com> |
 | unicode-segmentation | 1.13.3 | Apache-2.0 OR MIT | kwantam <kwantam@gmail.com>, Manish Goregaokar <manishsmail@gmail.com> |
+| untrusted | 0.9.0 | ISC | Brian Smith <brian@briansmith.org> |
 | url | 2.5.8 | Apache-2.0 OR MIT | The rust-url developers |
 | urlpattern | 0.3.0 | MIT | the Deno authors, crowlKats <crowlkats@toaxl.com> |
 | utf16string | 0.2.0 | Apache-2.0 OR MIT | Floris Bruynooghe <flub@devork.be>, Sentry <oss@sentry.io> |
@@ -618,9 +657,11 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | wasm-bindgen-shared | 0.2.128 | Apache-2.0 OR MIT | The wasm-bindgen Developers |
 | wasm-streams | 0.5.0 | Apache-2.0 OR MIT | Mattias Buelens <mattias@buelens.com> |
 | web-sys | 0.3.105 | Apache-2.0 OR MIT | The wasm-bindgen Developers |
+| web-time | 1.1.0 | Apache-2.0 OR MIT |  |
 | web_atoms | 0.2.6 | Apache-2.0 OR MIT | The html5ever Project Developers |
 | webkit2gtk | 2.0.2 | MIT |  |
 | webkit2gtk-sys | 2.0.2 | MIT |  |
+| webpki-root-certs | 1.0.9 | CDLA-Permissive-2.0 |  |
 | webview2-com | 0.38.2 | MIT |  |
 | webview2-com-macros | 0.8.1 | MIT |  |
 | webview2-com-sys | 0.38.2 | MIT |  |
@@ -645,6 +686,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | windows-interface | 0.59.3 | Apache-2.0 OR MIT |  |
 | windows-link | 0.1.3 | Apache-2.0 OR MIT | Microsoft |
 | windows-link | 0.2.1 | Apache-2.0 OR MIT |  |
+| windows-native-keyring-store | 1.1.0 | Apache-2.0 OR MIT | Daniel Brotsky <dev@brotsky.com> |
 | windows-numerics | 0.2.0 | Apache-2.0 OR MIT |  |
 | windows-numerics | 0.3.1 | Apache-2.0 OR MIT |  |
 | windows-result | 0.3.4 | Apache-2.0 OR MIT | Microsoft |
@@ -652,6 +694,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | windows-strings | 0.4.2 | Apache-2.0 OR MIT | Microsoft |
 | windows-strings | 0.5.1 | Apache-2.0 OR MIT |  |
 | windows-sys | 0.45.0 | Apache-2.0 OR MIT | Microsoft |
+| windows-sys | 0.52.0 | Apache-2.0 OR MIT | Microsoft |
 | windows-sys | 0.59.0 | Apache-2.0 OR MIT | Microsoft |
 | windows-sys | 0.60.2 | Apache-2.0 OR MIT | Microsoft |
 | windows-sys | 0.61.2 | Apache-2.0 OR MIT |  |
@@ -697,6 +740,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | yoke | 0.8.3 | Unicode-3.0 | Manish Goregaokar <manishsmail@gmail.com> |
 | yoke-derive | 0.8.2 | Unicode-3.0 | Manish Goregaokar <manishsmail@gmail.com> |
 | zbus | 5.19.0 | MIT | Zeeshan Ali Khan <zeeshanak@gnome.org> |
+| zbus-secret-service-keyring-store | 1.0.1 | Apache-2.0 OR MIT | Daniel Brotsky <dev@brotsky.com> |
 | zbus_macros | 5.19.0 | MIT | Marc-André Lureau <marcandre.lureau@redhat.com>, Zeeshan Ali Khan <zeeshanak@gno |
 | zbus_names | 4.3.4 | MIT | Zeeshan Ali Khan <zeeshanak@gnome.org> |
 | zcheapstr | 1.1.0 | MIT | Zeeshan Ali Khan <zeeshanak@gnome.org> |
@@ -704,6 +748,7 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | zerocopy-derive | 0.8.57 | Apache-2.0 OR BSD-2-Clause OR MIT |  |
 | zerofrom | 0.1.8 | Unicode-3.0 | The ICU4X Project Developers |
 | zerofrom-derive | 0.1.7 | Unicode-3.0 | Manish Goregaokar <manishsmail@gmail.com> |
+| zeroize | 1.9.0 | Apache-2.0 OR MIT | The RustCrypto Project Developers |
 | zerotrie | 0.2.5 | Unicode-3.0 | The ICU4X Project Developers |
 | zerovec | 0.11.8 | Unicode-3.0 | The ICU4X Project Developers |
 | zerovec-derive | 0.11.6 | Unicode-3.0 | Manish Goregaokar <manishsmail@gmail.com> |

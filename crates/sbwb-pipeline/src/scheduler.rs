@@ -232,7 +232,8 @@ pub fn stage_to_redo(
         return Ok(Some(Stage::Ocr));
     }
     if page.text_done {
-        let same_threshold = last_ok(Stage::TextPass)
+        let last = last_ok(Stage::TextPass);
+        let same_threshold = last
             .and_then(|r| {
                 r.settings
                     .get("auto_apply_threshold")
@@ -240,7 +241,11 @@ pub fn stage_to_redo(
             })
             .map(|t| t == settings.auto_apply_threshold as u64)
             .unwrap_or(true);
-        if !same_threshold {
+        let same_language = last
+            .and_then(|r| r.settings.get("language").cloned())
+            .map(|l| l == serde_json::to_value(settings.language).unwrap_or_default())
+            .unwrap_or(true);
+        if !same_threshold || !same_language {
             return Ok(Some(Stage::TextPass));
         }
     }
@@ -360,6 +365,7 @@ fn coordinate(
             lexicon.add_vocab([word]);
         }
     }
+    lexicon.set_profile(config.settings.language);
     let policy = config.settings.auto_apply_policy();
     log(
         &tx,

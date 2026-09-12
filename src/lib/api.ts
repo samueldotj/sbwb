@@ -118,6 +118,7 @@ export type ProcessingSettings = {
   auto_apply_threshold: number;
   run_stages_automatically: boolean;
   workers: number;
+  language: "modern" | "early_modern";
 };
 
 export type PackReport = {
@@ -349,6 +350,44 @@ export type RegionOcrResult = {
   second_text: string | null;
 };
 
+// ----- AI proofreading (Phase 2) -----
+export type ModelInfo = { id: string; label: string };
+export type AiProviderStatus = { provider: string; label: string; key_help: string; session_key: boolean; remembered: boolean };
+export type AiRunRecord = {
+  id: string;
+  ts: string;
+  provider: string;
+  model: string;
+  pages: number[];
+  consent: unknown;
+  requests: number;
+  chars_sent: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  suggestions: number;
+  rejected: number;
+  status: string;
+  error: string | null;
+  elapsed_ms: number | null;
+};
+export type AiStatus = { providers: AiProviderStatus[]; open_suggestions: number; last_run: AiRunRecord | null };
+export type Estimate = { pages: number[]; words: number; chars: number; approx_tokens: number; requests: number; payload_kinds: string[]; cost: string };
+
+// ----- book queue (PRJ-06) -----
+export type QueueItem = {
+  id: string;
+  source: string;
+  project_path: string;
+  first_pages: number | null;
+  settings: ProcessingSettings;
+  status: "pending" | "running" | "done" | "failed" | "interrupted";
+  error: string | null;
+  done: number;
+  total: number;
+  added_at: string;
+};
+export type QueueView = { items: QueueItem[]; running: boolean };
+
 export type CommandError = { code: string; message: string };
 
 export function isCommandError(e: unknown): e is CommandError {
@@ -425,6 +464,22 @@ export const api = {
   regionOcr: (index: number, bbox: { x: number; y: number; w: number; h: number }, opts: { enlarge?: number; secondEngine?: boolean; region?: string } = {}) =>
     invoke<RegionOcrResult>("region_ocr", { index, bbox, enlarge: opts.enlarge ?? 3, secondEngine: opts.secondEngine ?? false, region: opts.region ?? null }),
   secondEngineAvailable: () => invoke<boolean>("second_engine_available"),
+  aiStatus: () => invoke<AiStatus>("ai_status"),
+  aiKeySet: (provider: string, key: string, remember: boolean) => invoke<boolean>("ai_key_set", { provider, key, remember }),
+  aiKeyForget: (provider: string) => invoke<void>("ai_key_forget", { provider }),
+  aiModels: (provider: string) => invoke<ModelInfo[]>("ai_models", { provider }),
+  aiEstimate: (pages: number[]) => invoke<Estimate>("ai_estimate", { pages }),
+  aiRun: (req: { provider: string; model: string; pages: number[]; max_requests: number; max_input_chars: number; consent: boolean }) => invoke<string>("ai_run", { req }),
+  aiCancel: () => invoke<void>("ai_cancel"),
+  aiRuns: () => invoke<AiRunRecord[]>("ai_runs"),
+  queueList: () => invoke<QueueView>("queue_list"),
+  queueAdd: (req: { sources: string[]; dest_dir: string | null; first_pages: number | null; settings: ProcessingSettings }) => invoke<QueueView>("queue_add", { req }),
+  queueRemove: (id: string) => invoke<QueueView>("queue_remove", { id }),
+  queueMove: (id: string, delta: number) => invoke<QueueView>("queue_move", { id, delta }),
+  queueRetry: (id: string) => invoke<QueueView>("queue_retry", { id }),
+  queueClearFinished: () => invoke<QueueView>("queue_clear_finished"),
+  queueStart: () => invoke<void>("queue_start"),
+  queueStop: () => invoke<void>("queue_stop"),
 };
 
 /// "1-50, 60-70" -> [[1,50],[60,70]]; returns null when unparsable.

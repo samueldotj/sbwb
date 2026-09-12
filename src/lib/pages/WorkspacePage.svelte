@@ -10,6 +10,7 @@
   import WordHighlights from "$lib/workspace/WordHighlights.svelte";
   import GroupSheet from "$lib/workspace/GroupSheet.svelte";
   import ExportSheet from "$lib/workspace/ExportSheet.svelte";
+  import AiTab from "$lib/workspace/AiTab.svelte";
   import { review } from "$lib/stores/review.svelte";
   import StackedBar from "$lib/workspace/StackedBar.svelte";
   import ScanPane from "$lib/workspace/ScanPane.svelte";
@@ -35,6 +36,15 @@
   let { summary }: Props = $props();
 
   let tab = $state("import");
+  let aiEnabled = $state(false);
+  $effect(() => {
+    void tab;
+    try {
+      aiEnabled = !!JSON.parse(localStorage.getItem("sbwb.ai.prefs") ?? "{}").enabled;
+    } catch {
+      aiEnabled = false;
+    }
+  });
   let issueTab = $state<IssueInspector | null>(null);
   let group = $state<{ original: string; replacement: string } | null>(null);
   $effect(() => {
@@ -195,7 +205,7 @@
       value: summary.counts.text_done > 0 ? `${summary.counts.text_done} / ${summary.counts.in_scope}` : "queued",
       progress: summary.counts.in_scope ? summary.counts.text_done / summary.counts.in_scope : 0,
     },
-    { id: "ai", label: "AI proofread", state: "off", value: "off" },
+    { id: "ai", label: "AI proofread", state: aiEnabled ? "queued" : "off", value: aiEnabled ? "on request" : "off" },
     { id: "export", label: "Export", state: summary.counts.text_done > 0 ? "queued" : "off", value: summary.counts.approved > 0 ? `${summary.counts.approved} approved` : summary.counts.text_done > 0 ? "ready" : "—" },
   ]);
 
@@ -210,18 +220,18 @@
             { id: "issue", label: "Issue" },
             { id: "page", label: "Page" },
             { id: "text_pass", label: "Text pass" },
-            { id: "ai", label: "AI", disabled: true },
+            { id: "ai", label: "AI" },
           ]
         : [
             { id: "import", label: "Import" },
             { id: "page", label: "Page", disabled: true },
             { id: "text_pass", label: "Text pass" },
-            { id: "ai", label: "AI", disabled: true },
+            { id: "ai", label: "AI" },
           ],
   );
 
   function onrail(id: string) {
-    if (id === "ai") ui.toast("AI proofreading arrives in a later version.", "info", 4000);
+    if (id === "ai") tab = "ai";
     else if (id === "export") ui.exportOpen = true;
     else if (id === "text_pass") tab = "text_pass";
     else {
@@ -347,6 +357,8 @@
       <PageInspector page={currentPage} />
     {:else if tab === "text_pass"}
       <TextPassInspector {summary} page={currentPage} />
+    {:else if tab === "ai"}
+      <AiTab {summary} />
     {:else}
       <ImportInspector {summary} onstartreview={() => view.open(0)} eta={pipeline.ocr?.eta_ms ?? null} secsPerPage={pipeline.ocr?.secs_per_unit ?? null} pipelineState={pipeline.state} />
     {/if}

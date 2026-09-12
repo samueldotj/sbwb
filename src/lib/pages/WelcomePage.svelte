@@ -72,6 +72,7 @@
       <div class="hint">OCR starts right away. You pick the page range next.</div>
     </div>
     <button type="button" class="secondary" onclick={openProject} disabled={project.busy !== null}>Open a .sbwb project…</button>
+    <button type="button" class="secondary" onclick={() => (ui.queueOpen = true)} disabled={project.busy !== null}>Queue several PDFs…</button>
     <div class="foot">
       <span>Core {version}</span>
       <button type="button" class="link" onclick={() => onsettings?.()}>Settings</button>

@@ -23,6 +23,9 @@ pub struct ProcessingSettings {
     pub run_stages_automatically: bool,
     /// Requested worker processes; capped by hardware (NFR-04, NFR-07).
     pub workers: u32,
+    /// Lexicon profile for the text pass (TXT-01, P2.4).
+    #[serde(default)]
+    pub language: sbwb_text::LanguageProfile,
 }
 
 impl Default for ProcessingSettings {
@@ -35,6 +38,7 @@ impl Default for ProcessingSettings {
             auto_apply_threshold: 90,
             run_stages_automatically: true,
             workers: default_workers(),
+            language: sbwb_text::LanguageProfile::Modern,
         }
     }
 }

@@ -50,6 +50,8 @@ class UiState {
   inspectorTab = $state<string | null>(null);
   /// The Export sheet (design 4.5).
   exportOpen = $state(false);
+  /// The book queue sheet (PRJ-06).
+  queueOpen = $state(false);
   #nextToast = 1;
 
   constructor() {

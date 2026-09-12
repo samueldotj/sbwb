@@ -11,6 +11,7 @@
   import { textPass } from "$lib/stores/text.svelte";
   import { review } from "$lib/stores/review.svelte";
   import ChoiceDialog from "$lib/shell/ChoiceDialog.svelte";
+  import QueueSheet from "$lib/workspace/QueueSheet.svelte";
   import { layout } from "$lib/stores/layout.svelte";
   import { project } from "$lib/stores/project.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -27,7 +28,8 @@
     { id: "import", label: "Import PDF…", accel: "Ctrl+I", disabled: project.isOpen },
     { id: "open", label: "Open project…", accel: "Ctrl+O", disabled: project.isOpen, separatorAfter: true },
     { id: "save_copy", label: "Save a copy…", accel: "Ctrl+Shift+S", disabled: !project.isOpen },
-    { id: "export", label: "Export to Word…", accel: "Ctrl+E", disabled: !project.isOpen, separatorAfter: true },
+    { id: "export", label: "Export to Word…", accel: "Ctrl+E", disabled: !project.isOpen },
+    { id: "queue", label: "Book queue…", separatorAfter: true },
     { id: "close", label: "Close book", accel: "Ctrl+W", disabled: !project.isOpen, separatorAfter: true },
     { id: "settings", label: "Settings…", accel: "Ctrl+," },
   ]);
@@ -55,6 +57,9 @@
         break;
       case "export":
         ui.exportOpen = true;
+        break;
+      case "queue":
+        ui.queueOpen = true;
         break;
       case "settings":
         ui.settingsOpen = true;
@@ -264,6 +269,9 @@
   />
   <Toast />
   <div class="sr-only" aria-live="polite" role="status">{ui.announcement}</div>
+  {#if ui.queueOpen}
+    <div class="queue-host"><QueueSheet open={ui.queueOpen} onclose={() => (ui.queueOpen = false)} /></div>
+  {/if}
   <ChoiceDialog
     open={closeDialog}
     title="Unsaved edit"
@@ -274,6 +282,16 @@
 </div>
 
 <style>
+  .queue-host {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    pointer-events: none;
+  }
+  .queue-host :global(.scrim),
+  .queue-host :global(.sheet) {
+    pointer-events: auto;
+  }
   .sr-only {
     position: absolute;
     width: 1px;

@@ -12,7 +12,7 @@ pub mod reconstruct;
 pub mod rules;
 pub mod span;
 
-pub use lexicon::{Lexicon, LexiconPaths};
+pub use lexicon::{early_modern_variants, LanguageProfile, Lexicon, LexiconPaths};
 pub use reconstruct::{
     reconstruct, AutoApplyPolicy, PageTextInput, PageTextOutput, Proposal, ProposalKind, TextStats,
 };

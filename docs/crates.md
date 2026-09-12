@@ -101,6 +101,13 @@ bundled in the offline installer.
 | `ocrs` | 0.13 | MIT/Apache | Pure-Rust text detection and line recognition for disagreement evidence | Line-level only: no word confidence, so its readings are shown unscored |
 | `rten`, `rten-imageproc` | 0.26 | MIT/Apache | Inference runtime and geometry for `ocrs` models | |
 
+## AI proofreading (Phase 2)
+
+| Crate | Version | License | Purpose | Risk |
+| --- | --- | --- | --- | --- |
+| `reqwest` (blocking, rustls) | 0.13 | MIT/Apache | HTTPS to the three providers; one request per page, no retries | Only used when the user runs a check |
+| `keyring` | 4.2 | MIT/Apache | Remembered API keys in the OS credential store (Windows Credential Manager; macOS keychain and Secret Service via the `v1` feature) | |
+
 ## Word export and validation
 
 | Crate | Version | License | Purpose | Risk |

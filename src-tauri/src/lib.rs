@@ -48,6 +48,9 @@ pub fn run() {
             app.manage(state::AppState::new(res));
             app.manage(commands::pipeline::PipelineSlot::default());
             app.manage(commands::export::ExportSlot::default());
+            app.manage(commands::ai::AiSlot::default());
+            app.manage(commands::queue::QueueSlot::default());
+            commands::queue::load(&app.handle().clone());
 
             // Writer-lock heartbeat (PRJ-02).
             let handle = app.handle().clone();
@@ -72,6 +75,12 @@ pub fn run() {
                             let then = review.map(|i| format!(".then(() => window.__sbwb.review({i})){tab}{eval_js}")).unwrap_or_default();
                             let js = format!("window.__sbwb && window.__sbwb.importPdf({}){then}", serde_json::to_string(&p).unwrap());
                             let _ = w.eval(&js);
+                        }
+                        // Eval alone (no import): drive an already-available book or the Welcome page.
+                        if std::env::var_os("SBWB_DEV_IMPORT").is_none() {
+                            if let Ok(js) = std::env::var("SBWB_DEV_EVAL") {
+                                let _ = w.eval(&js);
+                            }
                         }
                         if let Some(secs) = std::env::var("SBWB_DEV_LAYOUT_AT").ok().and_then(|v| v.parse::<u64>().ok()) {
                             let page = std::env::var("SBWB_DEV_REVIEW").ok().and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
@@ -157,6 +166,22 @@ pub fn run() {
             commands::export::open_path,
             commands::refine::region_ocr,
             commands::refine::second_engine_available,
+            commands::ai::ai_status,
+            commands::ai::ai_key_set,
+            commands::ai::ai_key_forget,
+            commands::ai::ai_models,
+            commands::ai::ai_estimate,
+            commands::ai::ai_run,
+            commands::ai::ai_cancel,
+            commands::ai::ai_runs,
+            commands::queue::queue_list,
+            commands::queue::queue_add,
+            commands::queue::queue_remove,
+            commands::queue::queue_move,
+            commands::queue::queue_retry,
+            commands::queue::queue_clear_finished,
+            commands::queue::queue_start,
+            commands::queue::queue_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SBWB");

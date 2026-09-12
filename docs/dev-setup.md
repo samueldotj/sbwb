@@ -55,6 +55,8 @@ window opens:
 
 `models/ocrs/` holds the `ocrs` second-engine models (Apache-2.0); `cargo build --no-default-features -p sbwb-ocr` drops the engine.
 
+`SBWB_AI_OPENAI_BASE`, `SBWB_AI_ANTHROPIC_BASE`, `SBWB_AI_GOOGLE_BASE` point the AI adapters at a stand-in server (a Python example that answers like OpenAI is in the session scratchpad notes; any server that serves `/models` and `/chat/completions` works).
+
 `SBWB_PERF=1 cargo test -p sbwb-export large_fixture` enforces the 60 s export budget (NFR-05) instead of only reporting the time.
 
 `scripts/capture-window.ps1 -Out shot.png` grabs the window without taking

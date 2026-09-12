@@ -4,7 +4,7 @@
 //! become new spans (a drawn region can recover text initial OCR missed).
 
 use jiff::Timestamp;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use sbwb_core::{PageIndex, ProposalId, Rect, RegionId, Result, RunId, SpanId};
 use sbwb_ocr::{OcrWord, SecondOutput};
 use sbwb_text::{Anchor, Span, SpanOrigin, WordRef};
@@ -125,7 +125,12 @@ impl Project {
                                 s.text.clone(),
                                 text.trim().to_string(),
                                 0,
-                                format!("{} read “{}” in the line “{}” (line-level engine, no word score)", sec.engine, text.trim(), line.text.trim()),
+                                format!(
+                                    "[{} · line-level] read “{}” in the line “{}” (no word score)",
+                                    sec.engine,
+                                    text.trim(),
+                                    line.text.trim()
+                                ),
                                 "second_engine".into(),
                             ));
                         }
@@ -270,6 +275,158 @@ impl Project {
         tx.commit().map_err(db)?;
         self.rebuild_issues(page)?;
         Ok(out)
+    }
+}
+
+/// AI run record (AI-02 run history).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiRunRecord {
+    pub id: String,
+    pub ts: String,
+    pub provider: String,
+    pub model: String,
+    pub pages: Vec<u32>,
+    pub consent: serde_json::Value,
+    pub requests: u32,
+    pub chars_sent: u64,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub suggestions: u32,
+    pub rejected: u32,
+    pub status: String,
+    pub error: Option<String>,
+    pub elapsed_ms: Option<u64>,
+}
+
+impl Project {
+    /// Add validated AI suggestions as open proposals labelled by provider
+    /// and model (AI-03). Never applied; stale spans are skipped.
+    pub fn merge_ai_suggestions(
+        &mut self,
+        page: PageIndex,
+        label: &str,
+        items: &[(SpanId, u64, String, String, String)],
+    ) -> Result<u32> {
+        // (span, revision, before, after, reason)
+        self.require_write()?;
+        let now = Timestamp::now().to_string();
+        let mut added = 0;
+        let tx = self.conn.transaction().map_err(db)?;
+        for (span, revision, before, after, reason) in items {
+            let current: Option<(String, i64)> = tx
+                .query_row(
+                    "SELECT text, revision FROM spans WHERE id = ?1",
+                    params![span.to_string()],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()
+                .map_err(db)?;
+            let Some((text, rev)) = current else { continue };
+            if rev as u64 != *revision || &text != before {
+                continue; // stale: the word changed since it was sent
+            }
+            let dup: i64 = tx
+                .query_row(
+                    "SELECT count(*) FROM proposals WHERE span_id = ?1 AND replacement = ?2 AND status IN ('open', 'deferred')",
+                    params![span.to_string(), after],
+                    |r| r.get(0),
+                )
+                .map_err(db)?;
+            if dup > 0 {
+                continue;
+            }
+            tx.execute(
+                "INSERT INTO proposals(id, page_index, span_id, span_revision, kind, original, replacement, score, reason, source, status, merged_span, cross_page, created_at, run_id)
+                 VALUES (?1, ?2, ?3, ?4, 'spelling', ?5, ?6, 0, ?7, ?8, 'open', NULL, 0, ?9, NULL)",
+                params![ProposalId::new().to_string(), page.0 as i64, span.to_string(), *revision as i64, before, after, format!("[AI · {label}] {reason}"), format!("ai:{label}"), now],
+            )
+            .map_err(db)?;
+            added += 1;
+        }
+        if added > 0 {
+            tx.execute(
+                "UPDATE pages SET text_revision = text_revision + 1 WHERE page_index = ?1",
+                params![page.0 as i64],
+            )
+            .map_err(db)?;
+        }
+        tx.commit().map_err(db)?;
+        if added > 0 {
+            self.rebuild_issues(page)?;
+        }
+        Ok(added)
+    }
+
+    pub fn record_ai_run(&self, r: &AiRunRecord) -> Result<()> {
+        self.require_write()?;
+        self.conn
+            .execute(
+                "INSERT INTO ai_runs(id, ts, provider, model, pages, consent, requests, chars_sent, input_tokens, output_tokens, suggestions, rejected, status, error, elapsed_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                 ON CONFLICT(id) DO UPDATE SET requests = excluded.requests, chars_sent = excluded.chars_sent, input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens, suggestions = excluded.suggestions, rejected = excluded.rejected, status = excluded.status, error = excluded.error, elapsed_ms = excluded.elapsed_ms",
+                params![
+                    r.id,
+                    r.ts,
+                    r.provider,
+                    r.model,
+                    serde_json::to_string(&r.pages)?,
+                    serde_json::to_string(&r.consent)?,
+                    r.requests as i64,
+                    r.chars_sent as i64,
+                    r.input_tokens.map(|t| t as i64),
+                    r.output_tokens.map(|t| t as i64),
+                    r.suggestions as i64,
+                    r.rejected as i64,
+                    r.status,
+                    r.error,
+                    r.elapsed_ms.map(|t| t as i64),
+                ],
+            )
+            .map_err(db)?;
+        Ok(())
+    }
+
+    pub fn ai_runs(&self) -> Result<Vec<AiRunRecord>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, ts, provider, model, pages, consent, requests, chars_sent, input_tokens, output_tokens, suggestions, rejected, status, error, elapsed_ms FROM ai_runs ORDER BY ts DESC LIMIT 50")
+            .map_err(db)?;
+        let rows = stmt
+            .query_map([], |r| {
+                let pages: String = r.get(4)?;
+                let consent: String = r.get(5)?;
+                Ok(AiRunRecord {
+                    id: r.get(0)?,
+                    ts: r.get(1)?,
+                    provider: r.get(2)?,
+                    model: r.get(3)?,
+                    pages: serde_json::from_str(&pages).unwrap_or_default(),
+                    consent: serde_json::from_str(&consent).unwrap_or_default(),
+                    requests: r.get::<_, i64>(6)? as u32,
+                    chars_sent: r.get::<_, i64>(7)? as u64,
+                    input_tokens: r.get::<_, Option<i64>>(8)?.map(|t| t as u64),
+                    output_tokens: r.get::<_, Option<i64>>(9)?.map(|t| t as u64),
+                    suggestions: r.get::<_, i64>(10)? as u32,
+                    rejected: r.get::<_, i64>(11)? as u32,
+                    status: r.get(12)?,
+                    error: r.get(13)?,
+                    elapsed_ms: r.get::<_, Option<i64>>(14)?.map(|t| t as u64),
+                })
+            })
+            .map_err(db)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(db)
+    }
+
+    /// Open AI proposals across the book (for "Review N AI suggestions").
+    pub fn ai_open_suggestions(&self) -> Result<u32> {
+        self.conn
+            .query_row(
+                "SELECT count(*) FROM proposals WHERE source LIKE 'ai:%' AND status = 'open'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|n| n as u32)
+            .map_err(db)
     }
 }
 

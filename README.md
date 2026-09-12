@@ -45,7 +45,7 @@ developer; "week" is a rough unit, not a commitment.
 | M7 | Word export | 3 weeks | Done |
 | M8 | Targeted refinement and second engine | 2 weeks | Done |
 | M9 | Hardening and release | 3 weeks | In progress |
-| Phase 2 | Optional AI, queue, other platforms, Early Modern English | — | Not started |
+| Phase 2 | Optional AI, queue, other platforms, Early Modern English | — | In progress |
 
 Status values: Not started · In progress · Blocked · Done. Update the row when work starts, not when it is planned.
 
@@ -235,10 +235,10 @@ Notes: `sbwb-bench` produces the benchmark reports; the release bundle is built 
 
 | ID | Task | References | Status |
 | --- | --- | --- | --- |
-| P2.1 | AI providers: OpenAI, Anthropic, Google adapters; keys via `keyring`; consent card; budgets; run history; suggestions into the review inbox, never auto-applied | AI-01..03, design 4.6 | Not started |
-| P2.2 | Multiple-book queue | PRJ-06 | Not started |
-| P2.3 | macOS and Linux qualification, notarization, Linux verification info | NFR-01 | Not started |
-| P2.4 | Early Modern English lexicon and evaluation fixture | TXT-01, D-06 | Not started |
+| P2.1 | AI providers: OpenAI, Anthropic, Google adapters; keys via `keyring`; consent card; budgets; run history; suggestions into the review inbox, never auto-applied | AI-01..03, design 4.6 | Done (`sbwb-ai`: OpenAI, Anthropic, Google adapters with model discovery and classified errors; keys session-only or in the Windows credential store via `keyring`; consent card with the exact payload; request and character budgets; one attempt per page, no retries; replies validated against the sent words; suggestions enter the inbox as unscored candidates labelled `AI · provider/model`; run history) |
+| P2.2 | Multiple-book queue | PRJ-06 | Done (book queue sheet: several PDFs with a profile and destination, one project each, ordered processing on a background thread with the app's worker cap, reorder/remove/retry, persisted in the app data folder, resumed only on request; mutually exclusive with interactive processing) |
+| P2.3 | macOS and Linux qualification, notarization, Linux verification info | NFR-01 | Not started (compiles on macOS/Linux only in principle; Windows-only code paths are behind `cfg`; the `keyring` v1 feature set covers the macOS keychain and Secret Service) |
+| P2.4 | Early Modern English lexicon and evaluation fixture | TXT-01, D-06 | Done (Early Modern profile in the lexicon: u/v, i/j, final -e, doubled consonants, -ie, -ck and common vowel rules; `fixtures/lexicons/eme-sample.json` 86 forms, 98% known under the profile vs 12% under Modern; a `language` processing setting that reruns only the text pass) |
 
 ## Working conventions
 

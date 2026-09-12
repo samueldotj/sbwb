@@ -21,17 +21,22 @@ archive bundle.
   the contrast and target-size fixes); screen-reader walkthrough pending.
 - Inventory and notices: `docs/inventory.md`, `THIRD-PARTY-NOTICES.md`.
 
+### Phase 2 additions (2026-09-12)
+
+- Optional AI proofreading with OpenAI, Anthropic, and Google adapters
+  (AI-01..03): consented, budgeted, validated, suggestion-only. Verified
+  against a stand-in server; live provider runs need a key.
+- Book queue (PRJ-06): several PDFs, one project each, processed in order.
+- Early Modern English profile (TXT-01, D-06) with an evaluation fixture.
+
 ### Not delivered in this release (SHOULD items and qualification tasks)
 
 | Item | Requirement | Status |
 | --- | --- | --- |
-| Multiple-book processing queue | PRJ-06 (SHOULD) | Not started; one book at a time |
 | Native Word footnotes with callouts | EXP-03 | Footnotes are labelled paragraphs |
 | Word table cells | EXP-01 | Tables export as text, image, or are skipped |
 | Word pagination check | EXP-04 | Reported as unchecked in every validation report |
-| AI proofreading providers | AI-01..03 | Phase 2; the tab and rail row show "off" |
 | macOS and Linux qualification | NFR-01 | Compile only |
-| Early Modern English lexicon | TXT-01 (D-06) | Phase 2 |
 | Code signing of the Windows installer | NFR-12 | Needs a certificate; unsigned build |
 | Offline install test on a clean VM | A-01, NFR-12 | Pending; `SBWB_0.1.0_x64-setup.exe` (39.6 MB, sha256 525efd5f…) and `SBWB_0.1.0_x64_en-US.msi` (46.7 MB, sha256 78221563…) build and the release binary starts with its bundled resources on the development machine |
 | Screen-reader walkthrough | UX-05 | Pending |

@@ -36,3 +36,17 @@ export async function pickSaveDocx(defaultPath?: string): Promise<string | null>
   const r = await save({ title: "Export to Word", defaultPath, filters: [{ name: "Word document", extensions: ["docx"] }] });
   return r ?? null;
 }
+
+export async function pickPdfs(): Promise<string[]> {
+  if (!isTauri) return [];
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const r = await open({ multiple: true, directory: false, title: "Choose PDFs to queue", filters: [{ name: "PDF", extensions: ["pdf"] }] });
+  return Array.isArray(r) ? r : typeof r === "string" ? [r] : [];
+}
+
+export async function pickFolder(): Promise<string | null> {
+  if (!isTauri) return null;
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const r = await open({ multiple: false, directory: true, title: "Folder for the project files" });
+  return typeof r === "string" ? r : null;
+}

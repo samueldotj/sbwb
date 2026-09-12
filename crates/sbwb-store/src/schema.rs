@@ -4,10 +4,17 @@
 use rusqlite_migration::{Migrations, M};
 
 /// Current project schema version. Bumped by every migration.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 
 pub fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(V1), M::up(V2), M::up(V3), M::up(V4), M::up(V5)])
+    Migrations::new(vec![
+        M::up(V1),
+        M::up(V2),
+        M::up(V3),
+        M::up(V4),
+        M::up(V5),
+        M::up(V6),
+    ])
 }
 
 const V1: &str = r#"
@@ -207,4 +214,25 @@ ALTER TABLE pages ADD COLUMN approved_at TEXT;
 const V5: &str = r#"
 ALTER TABLE issues ADD COLUMN bbox TEXT;
 ALTER TABLE issues ADD COLUMN region_id TEXT;
+"#;
+
+/// v6: AI run history (AI-02); suggestions themselves are proposals.
+const V6: &str = r#"
+CREATE TABLE ai_runs (
+  id TEXT PRIMARY KEY,
+  ts TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  pages TEXT NOT NULL,
+  consent TEXT NOT NULL,
+  requests INTEGER NOT NULL DEFAULT 0,
+  chars_sent INTEGER NOT NULL DEFAULT 0,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  suggestions INTEGER NOT NULL DEFAULT 0,
+  rejected INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL,
+  error TEXT,
+  elapsed_ms INTEGER
+);
 "#;

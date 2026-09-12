@@ -1,0 +1,18 @@
+[package]
+name = "sbwb-ai"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Optional AI proofreading adapters: OpenAI, Anthropic, Google; bounded, validated, suggestion-only (AI-01..03)"
+
+[dependencies]
+sbwb-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "query", "default-tls"] }
+keyring = "4"
+
+[dev-dependencies]
+tempfile.workspace = true

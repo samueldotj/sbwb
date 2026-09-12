@@ -29,8 +29,25 @@ fn slot(app: &AppHandle) -> State<'_, PipelineSlot> {
     app.state::<PipelineSlot>()
 }
 
+/// Whether an interactive pipeline is running (the book queue must not
+/// run at the same time, PRJ-06 resource limits).
+pub fn is_active(app: &AppHandle) -> bool {
+    slot(app)
+        .scheduler
+        .lock()
+        .ok()
+        .map(|g| g.as_ref().map(|s| !s.is_finished()).unwrap_or(false))
+        .unwrap_or(false)
+}
+
 /// Start the plan for every queued page. Returns an error if one is running.
 pub fn start_pipeline(app: &AppHandle) -> CmdResult<Status> {
+    if crate::commands::queue::is_running(app) {
+        return Err(CommandError::new(
+            "conflict",
+            "the book queue is processing; stop it before processing this book",
+        ));
+    }
     let state = app.state::<AppState>();
     let pslot = slot(app);
     let mut guard = pslot

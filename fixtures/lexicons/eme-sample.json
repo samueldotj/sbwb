@@ -1,0 +1,22 @@
+{
+  "note": "Early Modern English (c. 1550-1700) spelling sample for the lexicon evaluation (P2.4, TXT-01). Forms follow the 1611 King James Bible and First Folio conventions: u/v and i/j by position, final -e, doubled consonants, -ie for -y, -ck endings. Each entry pairs the period form with its modern equivalent. Drafted by Claude on 2026-09-12; not an exhaustive orthography.",
+  "words": [
+    ["vnto", "unto"], ["vpon", "upon"], ["vs", "us"], ["vse", "use"], ["vnder", "under"],
+    ["haue", "have"], ["loue", "love"], ["giue", "give"], ["liue", "live"], ["euery", "every"],
+    ["heauen", "heaven"], ["seuen", "seven"], ["euen", "even"], ["ouer", "over"], ["neuer", "never"],
+    ["themselues", "themselves"], ["deliuer", "deliver"], ["saue", "save"], ["moue", "move"], ["euill", "evil"],
+    ["iudge", "judge"], ["iudgement", "judgement"], ["ioy", "joy"], ["Iesus", "Jesus"], ["iust", "just"],
+    ["Ierusalem", "Jerusalem"], ["iourney", "journey"], ["reioyce", "rejoice"], ["maiestie", "majesty"],
+    ["doe", "do"], ["goe", "go"], ["bee", "be"], ["hee", "he"], ["shee", "she"], ["wee", "we"], ["mee", "me"],
+    ["onely", "only"], ["farre", "far"], ["warre", "war"], ["starre", "star"], ["sunne", "sun"], ["runne", "run"],
+    ["wordes", "words"], ["thinges", "things"], ["kinges", "kings"], ["dayes", "days"], ["wayes", "ways"],
+    ["publike", "public"], ["musicke", "music"], ["magicke", "magic"], ["logicke", "logic"],
+    ["citie", "city"], ["mercie", "mercy"], ["glorie", "glory"], ["bodie", "body"], ["holie", "holy"],
+    ["sayd", "said"], ["saide", "said"], ["sayth", "saith"], ["shalbe", "shall be"], ["yeares", "years"],
+    ["feare", "fear"], ["heare", "hear"], ["neere", "near"], ["deere", "dear"], ["poore", "poor"],
+    ["sonne", "son"], ["sinne", "sin"], ["beleeue", "believe"], ["receiue", "receive"], ["conceiue", "conceive"],
+    ["vertue", "virtue"], ["perswade", "persuade"], ["souldier", "soldier"], ["cloath", "cloth"], ["shew", "show"],
+    ["olde", "old"], ["golde", "gold"], ["worlde", "world"], ["lande", "land"], ["hande", "hand"],
+    ["againe", "again"], ["maine", "main"], ["plaine", "plain"], ["raigne", "reign"], ["forraine", "foreign"]
+  ]
+}

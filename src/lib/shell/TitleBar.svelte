@@ -57,6 +57,11 @@
 </header>
 
 <style>
+  .book {
+    margin: 0;
+    font: inherit;
+    display: inline;
+  }
   .titlebar {
     height: var(--titlebar-h);
     display: grid;

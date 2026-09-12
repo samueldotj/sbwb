@@ -71,19 +71,48 @@ and is only offered when every page in scope is currently approved. Every
 export writes a report next to the document and, optionally, an archive
 bundle with PAGE XML and a JSON transcript with the source map.
 
-## 6. Limitations in this release
+## 6. AI proofreading (optional)
+
+The AI tab in the inspector is off until you enable it. Add a developer API
+key for OpenAI, Anthropic, or Google (consumer subscriptions do not include
+API access); keys are kept for the session unless you tick "remember",
+which stores them in the Windows credential store. Pick a model from the
+discovered list or type a model id. Choose the pages, read the "What leaves
+this machine" card (the saved words of those pages with ids and the page
+numbers; never the PDF, images, paths, or metadata), tick the consent box,
+and send. Each page is one request with no retries; a budget caps requests
+and page size; cost is shown as unknown. Suggestions arrive in the review
+inbox labelled with the provider and model, unscored, and are never applied
+automatically.
+
+## 7. Book queue
+
+"Queue several PDFs…" on the Welcome page (or File › Book queue) takes
+several PDFs with a processing profile and a destination folder. Each PDF
+becomes its own project and is processed in order while you keep working;
+pending books can be reordered or removed (the project is never deleted),
+a failed book does not stop the others, and a queue interrupted by closing
+SBWB is only resumed when you press Start again.
+
+## 8. Early Modern English
+
+Settings › Processing › Language profile switches the text pass to an Early
+Modern profile in which period spellings (haue, vnto, iudge, warre, citie)
+count as known words and are never proposed for correction. Changing the
+profile reruns only the text pass.
+
+## 9. Limitations in this release
 
 - Windows 11 x64 only. macOS and Linux builds compile but are not qualified.
-- English (British) lexicons only; Early Modern English is not supported.
+- English (British) lexicons; the Early Modern profile is rule-based, not a period dictionary.
 - Tables are exported as plain text, an image, or skipped, never as Word
   table cells. Footnotes are kept as labelled paragraphs, not Word footnotes.
 - Illustrations are exported at 150 dpi crops.
-- AI proofreading is not available yet (planned for a later version).
-- One book at a time; there is no processing queue.
+- AI proofreading needs a provider key and a network connection; it never runs on its own.
 - Word pagination is not checked; source page boundaries are preserved as
   breaks, not as identical physical pages.
 
-## 7. Where things are
+## 10. Where things are
 
 - Project file: `<book>.sbwb` next to the PDF (or where you chose), with a
   `<book>.sbwb.cache` folder of renders that can be cleared from Settings.

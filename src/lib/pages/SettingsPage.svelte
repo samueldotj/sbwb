@@ -49,7 +49,7 @@
   });
 
   function defaults(): ProcessingSettings {
-    return { model: "eng_best", dpi: 300, deskew: true, despeckle: false, auto_apply_threshold: 90, run_stages_automatically: true, workers: 4 };
+    return { model: "eng_best", dpi: 300, deskew: true, despeckle: false, auto_apply_threshold: 90, run_stages_automatically: true, workers: 4, language: "modern" };
   }
 
   async function apply() {
@@ -91,6 +91,19 @@
     exportDefaults = { ...exportDefaults, ...patch };
     void api.exportDefaultsSet(exportDefaults).catch((e) => ui.toast(errorMessage(e), "error"));
   }
+
+  let aiKeys = $state<Record<string, string>>({ openai: "—", anthropic: "—", google: "—" });
+  $effect(() => {
+    if (!isTauri) return;
+    api
+      .aiStatus()
+      .then((st) => {
+        const next: Record<string, string> = {};
+        for (const p of st.providers) next[p.provider] = p.remembered ? "remembered" : p.session_key ? "session only" : "no key";
+        aiKeys = next;
+      })
+      .catch(() => {});
+  });
 </script>
 
 <svelte:window onkeydown={onkeydown} />
@@ -138,6 +151,13 @@
         <div class="row">
           <div><div class="name">Despeckle</div><div class="hint">3×3 median filter for noisy scans. Can erase faint marks; off by default.</div></div>
           <label class="toggle"><input type="checkbox" bind:checked={settings.despeckle} /><span></span></label>
+        </div>
+        <div class="row">
+          <div><div class="name">Language profile</div><div class="hint">Early Modern English treats period spellings (haue, vnto, iudge, warre) as known words so they are never "corrected".</div></div>
+          <div class="seg" role="radiogroup" aria-label="Language profile">
+            <button type="button" role="radio" aria-checked={settings?.language === "modern"} class:on={settings?.language === "modern"} onclick={() => (settings!.language = "modern")}>Modern</button>
+            <button type="button" role="radio" aria-checked={settings?.language === "early_modern"} class:on={settings?.language === "early_modern"} onclick={() => (settings!.language = "early_modern")}>Early Modern</button>
+          </div>
         </div>
         <div class="row">
           <div><div class="name">Text pass auto-apply threshold</div><div class="hint">Corrections scoring at or above this are applied silently.</div></div>
@@ -219,7 +239,13 @@
       {/if}
     {:else if section === "ai"}
       <div class="title">AI providers</div>
-      <div class="sub">AI proofreading arrives in a later version. Nothing leaves this computer today.</div>
+      <div class="sub">Optional. Keys are entered in the AI tab of an open book; they are kept for the session unless you choose to remember them in the Windows credential store. Nothing is sent without an explicit, consented run.</div>
+      <div class="rows">
+        <div class="row"><div><div class="name">OpenAI</div><div class="hint">Developer API key from platform.openai.com. A ChatGPT subscription does not include API access.</div></div><span class="mono">{aiKeys.openai}</span></div>
+        <div class="row"><div><div class="name">Anthropic</div><div class="hint">API key from console.anthropic.com. A Claude.ai subscription does not include API access.</div></div><span class="mono">{aiKeys.anthropic}</span></div>
+        <div class="row"><div><div class="name">Google</div><div class="hint">API key from aistudio.google.com. Gemini app subscriptions are separate from API access.</div></div><span class="mono">{aiKeys.google}</span></div>
+        <div class="row"><div><div class="name">What is sent</div><div class="hint">The saved words of the pages you select, one per line with an id, plus the page numbers. Never the PDF, scan images, file paths, or project metadata. Responses are validated against the sent words; suggestions are never applied automatically.</div></div><span></span></div>
+      </div>
     {:else if section === "appearance"}
       <div class="title">Appearance</div>
       <div class="rows">

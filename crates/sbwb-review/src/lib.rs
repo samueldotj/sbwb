@@ -179,6 +179,24 @@ fn priority_for(kind: IssueKind, score: Option<u8>, original: &str) -> u8 {
     p.min(100) as u8
 }
 
+/// Source label and whether the proposal carries a word score. A reason
+/// beginning with `[label]` names an external source (second engine, AI);
+/// those are never scored.
+pub fn candidate_meta(reason: &str) -> (String, bool) {
+    if let Some(rest) = reason.strip_prefix('[') {
+        if let Some(end) = rest.find(']') {
+            return (rest[..end].to_string(), false);
+        }
+    }
+    if reason.contains("no word score") {
+        ("second engine".into(), false)
+    } else if reason.contains("region OCR") {
+        ("region OCR".into(), true)
+    } else {
+        ("text pass".into(), true)
+    }
+}
+
 /// Build the open issues for a page from its effective text and the
 /// proposals that were not applied.
 pub fn build_issues(page: PageIndex, spans: &[Span], proposals: &[Proposal]) -> Vec<Issue> {
@@ -199,30 +217,24 @@ pub fn build_issues(page: PageIndex, spans: &[Span], proposals: &[Proposal]) -> 
             let mut sorted = open.clone();
             sorted.sort_by_key(|p| std::cmp::Reverse(p.score));
             let lead = sorted[0];
+            let (lead_source, lead_scored) = candidate_meta(&lead.reason);
+            let unscored = !lead_scored;
             let kind = match lead.kind {
                 ProposalKind::HyphenJoin => IssueKind::QuestionableJoin,
-                _ if lead.reason.contains("no word score") => IssueKind::ConflictingReadings,
+                _ if unscored => IssueKind::ConflictingReadings,
                 _ => IssueKind::RiskySubstitution,
             };
-            let unscored = lead.reason.contains("no word score");
             let mut candidates: Vec<Candidate> = sorted
                 .iter()
-                .map(|p| Candidate {
-                    text: p.replacement.clone(),
-                    // line-level engines have no word score (OCR-02)
-                    score: if p.reason.contains("no word score") {
-                        None
-                    } else {
-                        Some(p.score)
-                    },
-                    source: if p.reason.contains("no word score") {
-                        "second engine".into()
-                    } else if p.reason.contains("region OCR") {
-                        "region OCR".into()
-                    } else {
-                        "text pass".into()
-                    },
-                    proposal: Some(p.id),
+                .map(|p| {
+                    let (source, scored) = candidate_meta(&p.reason);
+                    Candidate {
+                        text: p.replacement.clone(),
+                        // line-level engines and AI have no word score (OCR-02, AI-03)
+                        score: if scored { Some(p.score) } else { None },
+                        source,
+                        proposal: Some(p.id),
+                    }
                 })
                 .collect();
             candidates.push(raw);
@@ -234,13 +246,7 @@ pub fn build_issues(page: PageIndex, spans: &[Span], proposals: &[Proposal]) -> 
                 span_revision: s.revision,
                 kind,
                 score: if unscored { None } else { Some(lead.score) },
-                score_source: if unscored {
-                    "second engine".into()
-                } else if lead.reason.contains("region OCR") {
-                    "region OCR".into()
-                } else {
-                    "text pass".into()
-                },
+                score_source: lead_source,
                 priority: priority_for(
                     kind,
                     if unscored { None } else { Some(lead.score) },

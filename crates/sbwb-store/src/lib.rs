@@ -18,7 +18,7 @@ pub use project::{
     ExportRecord, OpenMode, PageCounts, PageLayout, PageOcr, PageRow, Project, ProjectMeta,
     ProjectSummary, RunRecord, SourceInfo, StoredProposal,
 };
-pub use refine::MergeOutcome;
+pub use refine::{AiRunRecord, MergeOutcome};
 pub use review::{
     Decision, DecisionOutcome, Draft, GroupOutcome, HistoryEntry, NextIssue, PageIssueCounts,
 };

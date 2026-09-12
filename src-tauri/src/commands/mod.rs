@@ -1,8 +1,10 @@
+pub mod ai;
 pub mod export;
 pub mod layout;
 pub mod page;
 pub mod pipeline;
 pub mod project;
+pub mod queue;
 pub mod refine;
 pub mod review;
 pub mod settings;
