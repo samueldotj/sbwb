@@ -19,3 +19,11 @@ target
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# SBWB fixtures: large downloadable inputs are not committed (see fixtures/README.md)
+fixtures/corpus/**/source-full.pdf
+fixtures/lexicons/webster-1913-gutenberg-29765.txt
+fixtures/lexicons/*.tar.gz
+
+# Claude Design mockup exports stay local (D-16); the derived spec lives in docs/design.md
+design/sbwb-redesign/
