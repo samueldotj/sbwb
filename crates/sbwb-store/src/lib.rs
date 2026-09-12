@@ -13,8 +13,8 @@ pub mod schema;
 
 pub use lock::{LockState, WriterLock};
 pub use project::{
-    OpenMode, PageCounts, PageOcr, PageRow, Project, ProjectMeta, ProjectSummary, RunRecord,
-    SourceInfo,
+    OpenMode, PageCounts, PageLayout, PageOcr, PageRow, Project, ProjectMeta, ProjectSummary,
+    RunRecord, SourceInfo,
 };
 pub use schema::SCHEMA_VERSION;
 

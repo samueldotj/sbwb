@@ -125,6 +125,10 @@ function mockSummary(pages: number, scope: number): ProjectSummary {
     printed_label: null,
     error: null,
     approved_revision: i < 3 ? 1 : null,
+    ocr_done: i < 10,
+    layout_done: i < 10,
+    text_done: false,
+    layout_revision: 0,
   }));
   return {
     path: "C:\mock\book.sbwb",
@@ -140,7 +144,7 @@ function mockSummary(pages: number, scope: number): ProjectSummary {
       settings: {},
     },
     pages: rows,
-    counts: { source: pages, in_scope: scope, unprocessed: pages - scope, excluded: 0, queued: scope - 10, running: 0, failed: 0, done: 10, approved: 3 },
+    counts: { source: pages, in_scope: scope, unprocessed: pages - scope, excluded: 0, queued: scope - 10, running: 0, failed: 0, done: 10, approved: 3, ocr_done: 10, layout_done: 10, text_done: 0 },
   };
 }
 

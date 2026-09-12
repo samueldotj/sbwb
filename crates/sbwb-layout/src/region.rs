@@ -54,6 +54,39 @@ impl RegionKind {
     pub fn is_text(self) -> bool {
         !matches!(self, RegionKind::Illustration | RegionKind::Ignore)
     }
+    /// Default export placement label shown in the reading-order list
+    /// (design 4.4); the export policy itself is decided in M7.
+    pub fn placement(self) -> &'static str {
+        match self {
+            RegionKind::Header => "→ running head",
+            RegionKind::Footer => "→ footer",
+            RegionKind::Marginalia => "→ side note",
+            RegionKind::Footnote => "→ footnote",
+            RegionKind::PageNumber => "→ page number",
+            RegionKind::Catchword => "archive only",
+            RegionKind::Illustration => "→ image",
+            RegionKind::Ignore => "excluded",
+            RegionKind::Uncertain => "review",
+            _ => "→ body",
+        }
+    }
+    /// Reading-order rank between classes (lower first).
+    pub fn rank(self) -> u8 {
+        match self {
+            RegionKind::Header => 0,
+            RegionKind::PageNumber => 1,
+            RegionKind::Heading
+            | RegionKind::Body
+            | RegionKind::Table
+            | RegionKind::Illustration => 2,
+            RegionKind::Marginalia => 3,
+            RegionKind::Footnote => 4,
+            RegionKind::Footer => 5,
+            RegionKind::Catchword => 6,
+            RegionKind::Uncertain => 7,
+            RegionKind::Ignore => 8,
+        }
+    }
 }
 
 /// Word structure assigned to a region (LAY-02 "In Word").
@@ -82,6 +115,12 @@ pub struct Region {
     pub score: f32,
     /// Whether a person created or edited this region.
     pub manual: bool,
+    /// Number of detected text lines inside the region.
+    #[serde(default)]
+    pub line_count: u32,
+    /// For side notes: the page-space y of the body line they sit beside.
+    #[serde(default)]
+    pub anchor_y: Option<f64>,
 }
 
 impl Region {
@@ -95,6 +134,8 @@ impl Region {
             column: None,
             score: 1.0,
             manual: false,
+            line_count: 0,
+            anchor_y: None,
         }
     }
 }

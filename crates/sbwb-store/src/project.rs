@@ -51,6 +51,26 @@ pub struct PageRow {
     pub printed_label: Option<String>,
     pub error: Option<String>,
     pub approved_revision: Option<u64>,
+    #[serde(default)]
+    pub ocr_done: bool,
+    #[serde(default)]
+    pub layout_done: bool,
+    #[serde(default)]
+    pub text_done: bool,
+    #[serde(default)]
+    pub layout_revision: u64,
+}
+
+/// Stored layout for one page (M4).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PageLayout {
+    pub page: PageIndex,
+    pub run_id: Option<RunId>,
+    pub regions: serde_json::Value,
+    pub report: serde_json::Value,
+    pub algorithm: Option<String>,
+    pub manual: bool,
+    pub revision: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -89,6 +109,9 @@ pub struct PageCounts {
     pub failed: u32,
     pub done: u32,
     pub approved: u32,
+    pub ocr_done: u32,
+    pub layout_done: u32,
+    pub text_done: u32,
 }
 
 /// Current OCR evidence for a page: run, words, lines, mean confidence.
@@ -445,7 +468,7 @@ impl Project {
     pub fn pages(&self) -> Result<Vec<PageRow>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT page_index, width_pt, height_pt, status, printed_label, error, approved_revision FROM pages ORDER BY page_index")
+            .prepare("SELECT page_index, width_pt, height_pt, status, printed_label, error, approved_revision, ocr_done, layout_done, text_done, layout_revision FROM pages ORDER BY page_index")
             .map_err(db)?;
         let rows = stmt
             .query_map([], |r| {
@@ -457,6 +480,10 @@ impl Project {
                     printed_label: r.get(4)?,
                     error: r.get(5)?,
                     approved_revision: r.get::<_, Option<i64>>(6)?.map(|v| v as u64),
+                    ocr_done: r.get::<_, i64>(7)? != 0,
+                    layout_done: r.get::<_, i64>(8)? != 0,
+                    text_done: r.get::<_, i64>(9)? != 0,
+                    layout_revision: r.get::<_, i64>(10)? as u64,
                 })
             })
             .map_err(db)?;
@@ -513,6 +540,15 @@ impl Project {
             }
             if p.approved_revision.is_some() {
                 c.approved += 1;
+            }
+            if p.ocr_done {
+                c.ocr_done += 1;
+            }
+            if p.layout_done {
+                c.layout_done += 1;
+            }
+            if p.text_done {
+                c.text_done += 1;
             }
         }
         Ok(c)
@@ -590,6 +626,104 @@ impl Project {
         }
         std::fs::rename(&tmp, &target)?;
         Ok(target)
+    }
+
+    /// Mark a stage finished (or not) for a page (PIPE-01 per-stage state).
+    pub fn set_stage_done(&self, page: PageIndex, stage: Stage, done: bool) -> Result<()> {
+        self.require_write()?;
+        let col = match stage {
+            Stage::Ocr => "ocr_done",
+            Stage::Layout => "layout_done",
+            Stage::TextPass => "text_done",
+            _ => return Ok(()),
+        };
+        self.conn
+            .execute(
+                &format!("UPDATE pages SET {col} = ?2, updated_at = ?3 WHERE page_index = ?1"),
+                params![page.0 as i64, done as i64, Timestamp::now().to_string()],
+            )
+            .map_err(db)?;
+        Ok(())
+    }
+
+    /// Store a layout result. Automatic results never overwrite a manual
+    /// layout (LAY-02): they are kept only when `manual` is false and the
+    /// stored layout is not manual, or when `force` is set.
+    #[allow(clippy::too_many_arguments)]
+    pub fn put_page_layout(
+        &self,
+        page: PageIndex,
+        run: Option<RunId>,
+        regions: &serde_json::Value,
+        report: &serde_json::Value,
+        algorithm: Option<&str>,
+        manual: bool,
+        force: bool,
+    ) -> Result<bool> {
+        self.require_write()?;
+        if !manual && !force {
+            if let Some(existing) = self.page_layout(page)? {
+                if existing.manual {
+                    return Ok(false);
+                }
+            }
+        }
+        let revision: i64 = self
+            .conn
+            .query_row(
+                "SELECT COALESCE(MAX(revision), 0) FROM page_layout WHERE page_index = ?1",
+                params![page.0 as i64],
+                |r| r.get(0),
+            )
+            .map_err(db)?;
+        let revision = revision + 1;
+        self.conn
+            .execute(
+                "INSERT INTO page_layout(page_index, run_id, regions, report, algorithm, manual, revision, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(page_index) DO UPDATE SET run_id = excluded.run_id, regions = excluded.regions, report = excluded.report, algorithm = excluded.algorithm, manual = excluded.manual, revision = excluded.revision, updated_at = excluded.updated_at",
+                params![
+                    page.0 as i64,
+                    run.map(|r| r.to_string()),
+                    serde_json::to_string(regions)?,
+                    serde_json::to_string(report)?,
+                    algorithm,
+                    manual as i64,
+                    revision,
+                    Timestamp::now().to_string()
+                ],
+            )
+            .map_err(db)?;
+        self.conn
+            .execute(
+                "UPDATE pages SET layout_revision = ?2 WHERE page_index = ?1",
+                params![page.0 as i64, revision],
+            )
+            .map_err(db)?;
+        Ok(true)
+    }
+
+    pub fn page_layout(&self, page: PageIndex) -> Result<Option<PageLayout>> {
+        self.conn
+            .query_row(
+                "SELECT run_id, regions, report, algorithm, manual, revision FROM page_layout WHERE page_index = ?1",
+                params![page.0 as i64],
+                |r| {
+                    let run: Option<String> = r.get(0)?;
+                    let regions: String = r.get(1)?;
+                    let report: String = r.get(2)?;
+                    Ok(PageLayout {
+                        page,
+                        run_id: run.and_then(|s| RunId::parse(&s)),
+                        regions: serde_json::from_str(&regions).unwrap_or(serde_json::Value::Null),
+                        report: serde_json::from_str(&report).unwrap_or(serde_json::Value::Null),
+                        algorithm: r.get(3)?,
+                        manual: r.get::<_, i64>(4)? != 0,
+                        revision: r.get::<_, i64>(5)? as u64,
+                    })
+                },
+            )
+            .optional()
+            .map_err(db)
     }
 
     // ----- runs and OCR evidence -----
@@ -970,6 +1104,58 @@ mod tests {
             Project::open(&dir.path().join("empty.sbwb"), OpenMode::ReadWrite),
             Err(SbwbError::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn layout_roundtrip_and_manual_protection() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = create_in(dir.path());
+        let regions = serde_json::json!([{ "kind": "body" }]);
+        let report = serde_json::json!({ "words_total": 10 });
+        assert!(p
+            .put_page_layout(
+                PageIndex(2),
+                None,
+                &regions,
+                &report,
+                Some("cc/1"),
+                false,
+                false
+            )
+            .unwrap());
+        let l = p.page_layout(PageIndex(2)).unwrap().unwrap();
+        assert_eq!(l.revision, 1);
+        assert!(!l.manual);
+        // a manual save bumps the revision and protects against automatic overwrite
+        assert!(p
+            .put_page_layout(PageIndex(2), None, &regions, &report, None, true, false)
+            .unwrap());
+        assert!(!p
+            .put_page_layout(
+                PageIndex(2),
+                None,
+                &regions,
+                &report,
+                Some("cc/2"),
+                false,
+                false
+            )
+            .unwrap());
+        assert!(p
+            .put_page_layout(
+                PageIndex(2),
+                None,
+                &regions,
+                &report,
+                Some("cc/2"),
+                false,
+                true
+            )
+            .unwrap());
+        assert_eq!(p.page_layout(PageIndex(2)).unwrap().unwrap().revision, 3);
+        p.set_stage_done(PageIndex(2), Stage::Layout, true).unwrap();
+        assert_eq!(p.counts().unwrap().layout_done, 1);
+        assert_eq!(p.pages().unwrap()[2].layout_revision, 3);
     }
 
     #[test]

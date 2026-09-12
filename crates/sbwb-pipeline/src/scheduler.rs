@@ -1,5 +1,10 @@
 //! Scheduler: coordinator thread plus a pool of worker-owning threads.
+//!
+//! Each page flows OCR then Layout (then Text pass in M5). A finished OCR
+//! unit queues that page for Layout at the front so pages complete end to
+//! end while later pages are still being recognized.
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -37,9 +42,31 @@ pub struct Status {
     pub workers: u32,
 }
 
+type OcrEvidence = (
+    Vec<sbwb_ocr::OcrWord>,
+    Vec<sbwb_ocr::OcrLine>,
+    Vec<sbwb_ocr::OcrBlock>,
+);
+
 struct Unit {
     stage: Stage,
     page: PageIndex,
+    /// OCR evidence attached to Layout units.
+    ocr: Option<OcrEvidence>,
+}
+
+enum UnitOk {
+    Ocr {
+        output: sbwb_ocr::OcrOutput,
+        page_w: f64,
+        page_h: f64,
+        prep_warnings: Vec<String>,
+    },
+    Layout {
+        regions: Vec<sbwb_layout::Region>,
+        report: sbwb_layout::CoverageReport,
+        algorithm: String,
+    },
 }
 
 struct UnitResult {
@@ -48,14 +75,6 @@ struct UnitResult {
     result: Result<UnitOk>,
     elapsed_ms: u64,
     worker_died: bool,
-}
-
-struct UnitOk {
-    output: sbwb_ocr::OcrOutput,
-    page_w: f64,
-    page_h: f64,
-    prep_warnings: Vec<String>,
-    render: Option<PathBuf>,
 }
 
 struct Shared {
@@ -70,8 +89,8 @@ pub struct Scheduler {
 }
 
 impl Scheduler {
-    /// Start processing every queued page in the project's scope. Returns
-    /// immediately; progress arrives on [`Scheduler::events`].
+    /// Start processing every queued page in the scope. Returns at once;
+    /// progress arrives on [`Scheduler::events`].
     pub fn start(config: SchedulerConfig) -> Result<Self> {
         let (ev_tx, ev_rx) = unbounded::<PipelineEvent>();
         let workers = effective_workers(config.settings.workers);
@@ -95,6 +114,11 @@ impl Scheduler {
                         text: format!("pipeline stopped: {e}"),
                     });
                     set_state(&shared2, &ev_tx, PipelineState::Idle);
+                    let _ = ev_tx.send(PipelineEvent::Finished {
+                        done: 0,
+                        failed: 0,
+                        cancelled: true,
+                    });
                 }
             })
             .map_err(SbwbError::other)?;
@@ -154,6 +178,14 @@ fn set_state(shared: &Shared, tx: &Sender<PipelineEvent>, state: PipelineState) 
     let _ = tx.send(PipelineEvent::State { state });
 }
 
+fn current_state(shared: &Shared) -> PipelineState {
+    shared
+        .status
+        .lock()
+        .map(|s| s.state)
+        .unwrap_or(PipelineState::Idle)
+}
+
 fn log(tx: &Sender<PipelineEvent>, level: &str, text: String) {
     tracing::info!(target: "pipeline", "{text}");
     let _ = tx.send(PipelineEvent::Log {
@@ -169,7 +201,7 @@ pub fn requeue_for_settings(project: &Project, settings: &ProcessingSettings) ->
     let fp = settings.ocr_fingerprint();
     let mut n = 0;
     for p in project.pages()? {
-        if p.status != PageStatus::Done || p.approved_revision.is_some() {
+        if !p.ocr_done || p.approved_revision.is_some() {
             continue;
         }
         let runs = project.runs_for_page(p.index)?;
@@ -186,11 +218,57 @@ pub fn requeue_for_settings(project: &Project, settings: &ProcessingSettings) ->
             })
             .unwrap_or(false);
         if !same {
+            project.set_stage_done(p.index, Stage::Ocr, false)?;
+            project.set_stage_done(p.index, Stage::Layout, false)?;
+            project.set_stage_done(p.index, Stage::TextPass, false)?;
             project.set_page_status(p.index, PageStatus::Queued, None)?;
             n += 1;
         }
     }
     Ok(n)
+}
+
+struct Progress {
+    ocr: StageProgress,
+    layout: StageProgress,
+    started: Instant,
+}
+
+impl Progress {
+    fn stages(&self) -> Vec<StageProgress> {
+        vec![self.ocr.clone(), self.layout.clone()]
+    }
+    fn for_stage(&mut self, stage: Stage) -> &mut StageProgress {
+        match stage {
+            Stage::Layout => &mut self.layout,
+            _ => &mut self.ocr,
+        }
+    }
+    fn tick(&mut self) {
+        let e = self.started.elapsed().as_millis() as u64;
+        self.ocr.elapsed_ms = e;
+        self.layout.elapsed_ms = e;
+        let finished = self.ocr.done + self.ocr.failed;
+        if finished >= 3 {
+            let per = self.started.elapsed().as_secs_f64() / finished as f64;
+            self.ocr.secs_per_unit = Some(per);
+            let remaining = self.ocr.total.saturating_sub(finished);
+            self.ocr.eta_ms = Some((per * remaining as f64 * 1000.0) as u64);
+        }
+    }
+}
+
+fn empty_progress(stage: Stage, total: u32) -> StageProgress {
+    StageProgress {
+        stage,
+        total,
+        done: 0,
+        failed: 0,
+        running: 0,
+        elapsed_ms: 0,
+        eta_ms: None,
+        secs_per_unit: None,
+    }
 }
 
 fn coordinate(
@@ -201,33 +279,34 @@ fn coordinate(
 ) -> Result<()> {
     let mut project = Project::open(&config.project_path, OpenMode::ReadWrite)?;
     let meta = project.meta()?;
-    let queued: Vec<PageIndex> = project
-        .pages()?
-        .into_iter()
-        .filter(|p| p.status == PageStatus::Queued && meta.scope.contains(p.index))
-        .map(|p| p.index)
-        .collect();
-    let total = queued.len() as u32;
+    let pages = project.pages()?;
+    let mut ocr_queue: VecDeque<PageIndex> = VecDeque::new();
+    let mut layout_queue: VecDeque<PageIndex> = VecDeque::new();
+    for p in pages.iter().filter(|p| meta.scope.contains(p.index)) {
+        let queued = matches!(p.status, PageStatus::Queued | PageStatus::Running);
+        if queued && !p.ocr_done {
+            ocr_queue.push_back(p.index);
+        } else if p.ocr_done && !p.layout_done && p.status != PageStatus::Failed {
+            layout_queue.push_back(p.index);
+        }
+    }
+    let ocr_total = ocr_queue.len() as u32;
+    let layout_total = ocr_total + layout_queue.len() as u32;
     log(
         &tx,
         "info",
         format!(
-            "ocr start · {total} pages · {} · {} dpi · deskew {} · {workers} workers",
+            "start · {ocr_total} pages to recognize · {} layouts pending · {} · {} dpi · deskew {} · {workers} workers",
+            layout_queue.len(),
             config.settings.model.label(),
             config.settings.dpi,
             if config.settings.deskew { "on" } else { "off" }
         ),
     );
-    let started = Instant::now();
-    let mut progress = StageProgress {
-        stage: Stage::Ocr,
-        total,
-        done: 0,
-        failed: 0,
-        running: 0,
-        elapsed_ms: 0,
-        eta_ms: None,
-        secs_per_unit: None,
+    let mut progress = Progress {
+        ocr: empty_progress(Stage::Ocr, ocr_total),
+        layout: empty_progress(Stage::Layout, layout_total),
+        started: Instant::now(),
     };
     publish(&shared, &tx, &progress, "starting");
 
@@ -243,20 +322,18 @@ fn coordinate(
         pool.push(
             std::thread::Builder::new()
                 .name(format!("pipeline-worker-{i}"))
-                .spawn(move || worker_loop(i, cfg, rx, rtx))
+                .spawn(move || worker_loop(cfg, rx, rtx))
                 .map_err(SbwbError::other)?,
         );
     }
     drop(res_tx);
 
-    let mut pending = queued.into_iter();
     let mut in_flight = 0u32;
     let mut cancelled = false;
     let mut unit_tx = Some(unit_tx);
     let mut next: Option<Unit> = None;
 
     loop {
-        // Control handling at page boundaries.
         match shared.control.load(Ordering::SeqCst) {
             CTRL_CANCEL => {
                 if !cancelled {
@@ -271,25 +348,13 @@ fn coordinate(
                 }
             }
             CTRL_PAUSE => {
-                if shared
-                    .status
-                    .lock()
-                    .map(|s| s.state)
-                    .unwrap_or(PipelineState::Idle)
-                    != PipelineState::Paused
-                {
+                if current_state(&shared) != PipelineState::Paused {
                     set_state(&shared, &tx, PipelineState::Paused);
                     log(&tx, "info", "paused".into());
                 }
             }
             _ => {
-                if shared
-                    .status
-                    .lock()
-                    .map(|s| s.state)
-                    .unwrap_or(PipelineState::Idle)
-                    == PipelineState::Paused
-                {
+                if current_state(&shared) == PipelineState::Paused {
                     set_state(&shared, &tx, PipelineState::Running);
                     log(&tx, "info", "resumed".into());
                 }
@@ -298,24 +363,49 @@ fn coordinate(
         let paused = shared.control.load(Ordering::SeqCst) == CTRL_PAUSE;
 
         if next.is_none() && !cancelled && !paused {
-            next = pending.next().map(|page| Unit {
-                stage: Stage::Ocr,
-                page,
-            });
+            // Layout units first: they are cheap and complete pages end to end.
+            if let Some(page) = layout_queue.pop_front() {
+                match project.current_page_ocr(page)? {
+                    Some((_, words, lines, _)) => {
+                        let blocks = blocks_from_lines(&lines);
+                        next = Some(Unit {
+                            stage: Stage::Layout,
+                            page,
+                            ocr: Some((words, lines, blocks)),
+                        });
+                    }
+                    None => {
+                        log(
+                            &tx,
+                            "warn",
+                            format!("{page} has no OCR evidence; skipping layout"),
+                        );
+                        progress.layout.failed += 1;
+                    }
+                }
+            } else if let Some(page) = ocr_queue.pop_front() {
+                next = Some(Unit {
+                    stage: Stage::Ocr,
+                    page,
+                    ocr: None,
+                });
+            }
         }
-        if next.is_none() && in_flight == 0 && (cancelled || pending.len() == 0) {
+        let queues_empty = ocr_queue.is_empty() && layout_queue.is_empty();
+        if next.is_none() && in_flight == 0 && (cancelled || queues_empty) {
             break;
         }
 
-        // Dispatch when possible, otherwise collect a result.
         let dispatch_ready = next.is_some() && !paused && !cancelled && unit_tx.is_some();
         if dispatch_ready {
             let unit = next.take().unwrap();
-            let page = unit.page;
+            let (page, stage) = (unit.page, unit.stage);
             let sent = crossbeam_channel::select! {
                 send(unit_tx.as_ref().unwrap(), unit) -> r => r.is_ok(),
                 recv(res_rx) -> r => {
-                    if let Ok(res) = r { handle_result(&mut project, &config, &shared, &tx, &mut progress, started, res, &mut in_flight)?; }
+                    if let Ok(res) = r {
+                        handle_result(&mut project, &config, &shared, &tx, &mut progress, res, &mut in_flight, &mut layout_queue)?;
+                    }
                     false
                 }
                 default(Duration::from_millis(250)) => false,
@@ -323,14 +413,19 @@ fn coordinate(
             if sent {
                 project.set_page_status(page, PageStatus::Running, None)?;
                 in_flight += 1;
-                progress.running = in_flight;
-                publish(&shared, &tx, &progress, &format!("ocr {page}"));
+                progress.for_stage(stage).running += 1;
+                publish(
+                    &shared,
+                    &tx,
+                    &progress,
+                    &format!("{} {page}", stage_word(stage)),
+                );
             } else if next.is_none() {
-                // not sent: put the unit back
-                next = Some(Unit {
-                    stage: Stage::Ocr,
-                    page,
-                });
+                // Not sent: put the page back so it is rebuilt with its evidence.
+                match stage {
+                    Stage::Layout => layout_queue.push_front(page),
+                    _ => ocr_queue.push_front(page),
+                }
             }
         } else {
             match res_rx.recv_timeout(Duration::from_millis(250)) {
@@ -340,12 +435,12 @@ fn coordinate(
                     &shared,
                     &tx,
                     &mut progress,
-                    started,
                     res,
                     &mut in_flight,
+                    &mut layout_queue,
                 )?,
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                    progress.elapsed_ms = started.elapsed().as_millis() as u64;
+                    progress.tick();
                     publish(
                         &shared,
                         &tx,
@@ -362,24 +457,32 @@ fn coordinate(
     for h in pool {
         let _ = h.join();
     }
-    // Pages still queued after a cancel stay queued (resume later, PIPE-02).
-    progress.running = 0;
-    progress.elapsed_ms = started.elapsed().as_millis() as u64;
+    // Pages left mid-way stay queued for a later resume (PIPE-02).
+    for p in project.pages()? {
+        if p.status == PageStatus::Running {
+            project.set_page_status(p.index, PageStatus::Queued, None)?;
+        }
+    }
+    progress.ocr.running = 0;
+    progress.layout.running = 0;
+    progress.tick();
     publish(
         &shared,
         &tx,
         &progress,
         if cancelled { "cancelled" } else { "done" },
     );
+    let failed = progress.ocr.failed + progress.layout.failed;
     log(
         &tx,
         "info",
         format!(
-            "ocr {} · {} done · {} failed · {:.1}s",
+            "{} · {} pages recognized · {} laid out · {} failed · {:.1}s",
             if cancelled { "cancelled" } else { "finished" },
-            progress.done,
-            progress.failed,
-            started.elapsed().as_secs_f64()
+            progress.ocr.done,
+            progress.layout.done,
+            failed,
+            progress.started.elapsed().as_secs_f64()
         ),
     );
     set_state(
@@ -392,12 +495,38 @@ fn coordinate(
         },
     );
     let _ = tx.send(PipelineEvent::Finished {
-        done: progress.done,
-        failed: progress.failed,
+        done: progress.ocr.done,
+        failed,
         cancelled,
     });
     project.close()?;
     Ok(())
+}
+
+fn stage_word(stage: Stage) -> &'static str {
+    match stage {
+        Stage::Layout => "layout",
+        _ => "ocr",
+    }
+}
+
+/// Tesseract blocks are not persisted; rebuild them from stored lines (one
+/// block per Tesseract block id) for the segmentation comparison.
+fn blocks_from_lines(lines: &[sbwb_ocr::OcrLine]) -> Vec<sbwb_ocr::OcrBlock> {
+    let mut map: std::collections::BTreeMap<u32, (sbwb_core::Rect, sbwb_core::Rect)> =
+        std::collections::BTreeMap::new();
+    for l in lines {
+        let e = map.entry(l.block).or_insert((l.bbox, l.bbox_px));
+        e.0 = e.0.union(&l.bbox);
+        e.1 = e.1.union(&l.bbox_px);
+    }
+    map.into_iter()
+        .map(|(block, (bbox, bbox_px))| sbwb_ocr::OcrBlock {
+            block,
+            bbox,
+            bbox_px,
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -406,72 +535,124 @@ fn handle_result(
     config: &SchedulerConfig,
     shared: &Shared,
     tx: &Sender<PipelineEvent>,
-    progress: &mut StageProgress,
-    started: Instant,
+    progress: &mut Progress,
     res: UnitResult,
     in_flight: &mut u32,
+    layout_queue: &mut VecDeque<PageIndex>,
 ) -> Result<()> {
     *in_flight = in_flight.saturating_sub(1);
     let page = res.page;
+    let stage = res.stage;
+    let st = progress.for_stage(stage);
+    st.running = st.running.saturating_sub(1);
     let mut settings_json = serde_json::to_value(&config.settings)?;
     settings_json["fingerprint"] = serde_json::Value::String(config.settings.ocr_fingerprint());
-    let run = project.start_run(
-        res.stage,
-        Some(page),
-        Some("tesseract"),
-        Some(config.settings.model.subdir()),
-        &settings_json,
-    )?;
+    let (engine, model) = match stage {
+        Stage::Layout => ("sbwb-layout", "cc-smear"),
+        _ => ("tesseract", config.settings.model.subdir()),
+    };
+    let run = project.start_run(stage, Some(page), Some(engine), Some(model), &settings_json)?;
     match res.result {
-        Ok(ok) => {
-            project.put_page_ocr(page, run, &ok.output)?;
-            project.set_page_size(page, ok.page_w, ok.page_h)?;
-            let mut status = serde_json::json!({});
-            if let Some(r) = &ok.render {
-                status["render"] = serde_json::Value::String(r.to_string_lossy().to_string());
-            }
+        Ok(UnitOk::Ocr {
+            output,
+            page_w,
+            page_h,
+            prep_warnings,
+        }) => {
+            project.put_page_ocr(page, run, &output)?;
+            project.set_page_size(page, page_w, page_h)?;
             project.finish_run(run, "ok", None, Some(res.elapsed_ms))?;
-            project.set_page_status(page, PageStatus::Done, None)?;
-            progress.done += 1;
-            let words = ok
-                .output
-                .words
-                .iter()
-                .filter(|w| !w.text.is_empty())
-                .count() as u32;
+            project.set_stage_done(page, Stage::Ocr, true)?;
+            project.set_stage_done(page, Stage::Layout, false)?;
+            progress.ocr.done += 1;
+            let words = output.words.iter().filter(|w| !w.text.is_empty()).count() as u32;
             log(
                 tx,
                 "info",
                 format!(
                     "ocr {page} ok · {words} words · mean {:.0} · {:.1}s",
-                    ok.output.mean_confidence,
+                    output.mean_confidence,
                     res.elapsed_ms as f64 / 1000.0
                 ),
             );
-            for w in &ok.prep_warnings {
+            for w in &prep_warnings {
                 log(tx, "warn", format!("{page} {w}"));
             }
             let _ = tx.send(PipelineEvent::Unit {
-                stage: res.stage,
+                stage,
                 page,
                 ok: true,
                 elapsed_ms: res.elapsed_ms,
                 words: Some(words),
-                mean_confidence: Some(ok.output.mean_confidence),
+                mean_confidence: Some(output.mean_confidence),
                 error: None,
-                warnings: ok.prep_warnings,
+                warnings: prep_warnings,
+            });
+            // Layout follows at once for this page.
+            layout_queue.push_front(page);
+        }
+        Ok(UnitOk::Layout {
+            regions,
+            report,
+            algorithm,
+        }) => {
+            let stored = project.put_page_layout(
+                page,
+                Some(run),
+                &serde_json::to_value(&regions)?,
+                &serde_json::to_value(&report)?,
+                Some(&algorithm),
+                false,
+                false,
+            )?;
+            project.finish_run(run, "ok", None, Some(res.elapsed_ms))?;
+            project.set_stage_done(page, Stage::Layout, true)?;
+            project.set_page_status(page, PageStatus::Done, None)?;
+            progress.layout.done += 1;
+            let kinds: Vec<String> = regions.iter().map(|r| r.kind.label().to_string()).collect();
+            log(
+                tx,
+                "info",
+                format!(
+                    "layout {page} ok · {} regions ({}) · {} col · {}",
+                    regions.len(),
+                    summarize(&kinds),
+                    report.columns,
+                    if stored {
+                        "stored"
+                    } else {
+                        "kept manual layout"
+                    }
+                ),
+            );
+            for w in &report.warnings {
+                log(tx, "warn", format!("{page} {w}"));
+            }
+            let _ = tx.send(PipelineEvent::Unit {
+                stage,
+                page,
+                ok: true,
+                elapsed_ms: res.elapsed_ms,
+                words: None,
+                mean_confidence: None,
+                error: None,
+                warnings: report.warnings.clone(),
             });
         }
         Err(e) => {
             project.finish_run(run, "failed", Some(&e.to_string()), Some(res.elapsed_ms))?;
             project.set_page_status(page, PageStatus::Failed, Some(&e.to_string()))?;
-            progress.failed += 1;
-            log(tx, "error", format!("ocr {page} failed · {e}"));
+            progress.for_stage(stage).failed += 1;
+            log(
+                tx,
+                "error",
+                format!("{} {page} failed · {e}", stage_word(stage)),
+            );
             if res.worker_died {
                 log(tx, "warn", "worker replaced after failure".into());
             }
             let _ = tx.send(PipelineEvent::Unit {
-                stage: res.stage,
+                stage,
                 page,
                 ok: false,
                 elapsed_ms: res.elapsed_ms,
@@ -482,31 +663,46 @@ fn handle_result(
             });
         }
     }
-    progress.running = *in_flight;
-    progress.elapsed_ms = started.elapsed().as_millis() as u64;
-    let finished = progress.done + progress.failed;
-    if finished >= 3 {
-        let per = started.elapsed().as_secs_f64() / finished as f64;
-        progress.secs_per_unit = Some(per);
-        let remaining = progress.total.saturating_sub(finished);
-        progress.eta_ms = Some((per * remaining as f64 * 1000.0) as u64);
-    }
-    publish(shared, tx, progress, &format!("ocr {page} done"));
+    progress.tick();
+    publish(
+        shared,
+        tx,
+        progress,
+        &format!("{} {page} done", stage_word(stage)),
+    );
     Ok(())
 }
 
-fn publish(shared: &Shared, tx: &Sender<PipelineEvent>, progress: &StageProgress, activity: &str) {
+fn summarize(kinds: &[String]) -> String {
+    let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for k in kinds {
+        *counts.entry(k.as_str()).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .map(|(k, n)| {
+            if n > 1 {
+                format!("{n} {k}")
+            } else {
+                k.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn publish(shared: &Shared, tx: &Sender<PipelineEvent>, progress: &Progress, activity: &str) {
     if let Ok(mut s) = shared.status.lock() {
-        s.stages = vec![progress.clone()];
+        s.stages = progress.stages();
         s.activity = activity.to_string();
     }
     let _ = tx.send(PipelineEvent::Progress {
-        stages: vec![progress.clone()],
+        stages: progress.stages(),
         activity: activity.to_string(),
     });
 }
 
-fn worker_loop(index: u32, config: SchedulerConfig, rx: Receiver<Unit>, tx: Sender<UnitResult>) {
+fn worker_loop(config: SchedulerConfig, rx: Receiver<Unit>, tx: Sender<UnitResult>) {
     let mut worker: Option<Worker> = None;
     let renders_dir = sbwb_store::cache_dir_for(&config.project_path).join("ocr-renders");
     while let Ok(unit) = rx.recv() {
@@ -528,39 +724,56 @@ fn worker_loop(index: u32, config: SchedulerConfig, rx: Receiver<Unit>, tx: Send
             }
         }
         let w = worker.as_mut().expect("worker");
-        let save_render = config
-            .keep_renders
-            .then(|| renders_dir.join(format!("p{:05}.png", unit.page.0)));
-        let result = w
-            .call(
-                RequestKind::OcrPage {
+        let request = match unit.stage {
+            Stage::Layout => {
+                let (words, lines, blocks) = unit.ocr.unwrap_or_default();
+                RequestKind::LayoutPage {
                     path: config.source_path.clone(),
                     password: None,
                     page: unit.page,
-                    dpi: config.settings.dpi,
-                    settings: config.settings.ocr(),
-                    prep: config.settings.prep(),
-                    save_render,
-                },
-                |_| {},
-            )
-            .and_then(|resp| match resp {
-                Response::Ocr {
-                    output,
-                    page_w_pt,
-                    page_h_pt,
-                    render,
-                    prep,
-                    ..
-                } => Ok(UnitOk {
-                    output,
-                    page_w: page_w_pt,
-                    page_h: page_h_pt,
-                    prep_warnings: prep.warnings,
-                    render,
-                }),
-                other => Err(SbwbError::other(format!("unexpected reply {other:?}"))),
-            });
+                    words,
+                    lines,
+                    blocks,
+                    settings: sbwb_layout::AnalysisSettings::default(),
+                }
+            }
+            _ => RequestKind::OcrPage {
+                path: config.source_path.clone(),
+                password: None,
+                page: unit.page,
+                dpi: config.settings.dpi,
+                settings: config.settings.ocr(),
+                prep: config.settings.prep(),
+                save_render: config
+                    .keep_renders
+                    .then(|| renders_dir.join(format!("p{:05}.png", unit.page.0))),
+            },
+        };
+        let result = w.call(request, |_| {}).and_then(|resp| match resp {
+            Response::Ocr {
+                output,
+                page_w_pt,
+                page_h_pt,
+                prep,
+                ..
+            } => Ok(UnitOk::Ocr {
+                output,
+                page_w: page_w_pt,
+                page_h: page_h_pt,
+                prep_warnings: prep.warnings,
+            }),
+            Response::Layout {
+                regions,
+                report,
+                algorithm,
+                ..
+            } => Ok(UnitOk::Layout {
+                regions,
+                report,
+                algorithm,
+            }),
+            other => Err(SbwbError::other(format!("unexpected reply {other:?}"))),
+        });
         if matches!(result, Err(SbwbError::Timeout(_))) || !w.is_alive() {
             died = true;
             worker = None;
@@ -572,7 +785,6 @@ fn worker_loop(index: u32, config: SchedulerConfig, rx: Receiver<Unit>, tx: Send
             elapsed_ms: started.elapsed().as_millis() as u64,
             worker_died: died,
         });
-        let _ = index;
     }
     if let Some(w) = worker.take() {
         w.shutdown();
@@ -625,7 +837,7 @@ mod tests {
             &fixture(),
             info,
             &[],
-            PageScope::from_ranges(vec![(59, 58 + pages)], 110),
+            PageScope::from_ranges(vec![(48, 47 + pages)], 110),
             "test",
         )
         .unwrap();
@@ -647,19 +859,19 @@ mod tests {
                 exe: Some(exe),
                 timeout,
                 grace: Duration::from_millis(300),
-                pdfium_dir: Some(sbwb_pdf_dir()),
+                pdfium_dir: Some(pdfium_dir()),
                 tessdata_dir: Some(sbwb_ocr::default_tessdata_root()),
             },
             keep_renders: false,
         }
     }
 
-    fn sbwb_pdf_dir() -> PathBuf {
+    fn pdfium_dir() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../third_party/pdfium/bin")
     }
 
     #[test]
-    fn runs_two_pages_and_records_evidence() {
+    fn runs_ocr_then_layout_and_records_evidence() {
         let Some(exe) = worker_exe() else {
             eprintln!("skipping: SBWB_TEST_WORKER_EXE not set");
             return;
@@ -667,13 +879,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (path, src) = make_project(dir.path(), 2);
         let s = Scheduler::start(cfg(&path, &src, exe, Duration::from_secs(120))).unwrap();
-        let mut units = 0;
+        let (mut ocr_units, mut layout_units) = (0, 0);
         for ev in s.events().iter() {
             match ev {
-                PipelineEvent::Unit { ok, words, .. } => {
+                PipelineEvent::Unit {
+                    ok, stage, words, ..
+                } => {
                     assert!(ok);
-                    assert!(words.unwrap() > 50);
-                    units += 1;
+                    match stage {
+                        Stage::Ocr => {
+                            assert!(words.unwrap() > 50);
+                            ocr_units += 1;
+                        }
+                        Stage::Layout => layout_units += 1,
+                        _ => {}
+                    }
                 }
                 PipelineEvent::Finished {
                     done,
@@ -686,25 +906,24 @@ mod tests {
                 _ => {}
             }
         }
-        assert_eq!(units, 2);
+        assert_eq!((ocr_units, layout_units), (2, 2));
         s.join();
         let p = Project::open(&path, OpenMode::ReadWrite).unwrap();
-        assert_eq!(p.counts().unwrap().done, 2);
-        let (_, words, _, conf) = p.current_page_ocr(PageIndex(58)).unwrap().unwrap();
-        assert!(conf > 50.0);
-        assert!(words
+        let c = p.counts().unwrap();
+        assert_eq!((c.done, c.ocr_done, c.layout_done), (2, 2, 2));
+        let layout = p.page_layout(PageIndex(47)).unwrap().unwrap();
+        let regions: Vec<sbwb_layout::Region> = serde_json::from_value(layout.regions).unwrap();
+        assert!(regions
             .iter()
-            .any(|w| w.text.contains("India") || w.text.contains("the")));
-        let runs = p.runs_for_page(PageIndex(58)).unwrap();
-        assert_eq!(
-            runs[0].settings["fingerprint"].as_str().unwrap(),
-            ProcessingSettings {
-                model: sbwb_ocr::ModelPack::EngFast,
-                ..Default::default()
-            }
-            .ocr_fingerprint()
-        );
-        // settings unchanged → nothing to requeue; a model change → requeue
+            .any(|r| r.kind == sbwb_layout::RegionKind::Body));
+        assert!(regions
+            .iter()
+            .any(|r| r.kind == sbwb_layout::RegionKind::Marginalia));
+        let runs = p.runs_for_page(PageIndex(47)).unwrap();
+        assert!(runs
+            .iter()
+            .any(|r| r.stage == Stage::Layout && r.status == "ok"));
+        // settings unchanged: nothing to requeue; a model change requeues both
         assert_eq!(
             requeue_for_settings(
                 &p,
@@ -735,7 +954,10 @@ mod tests {
         let mut first_done = false;
         for ev in s.events().iter() {
             match ev {
-                PipelineEvent::Unit { .. } if !first_done => {
+                PipelineEvent::Unit {
+                    stage: Stage::Layout,
+                    ..
+                } if !first_done => {
                     first_done = true;
                     s.cancel();
                 }
@@ -754,7 +976,7 @@ mod tests {
         let c = p.counts().unwrap();
         assert!(c.done >= 1);
         assert_eq!(c.running, 0);
-        assert_eq!(c.done + c.queued, 6);
+        assert_eq!(c.done + c.queued, 6, "{c:?}");
     }
 
     #[test]
@@ -764,7 +986,6 @@ mod tests {
         };
         let dir = tempfile::tempdir().unwrap();
         let (path, src) = make_project(dir.path(), 2);
-        // 1 ms timeout: every page times out, the worker is killed and replaced.
         let mut c = cfg(&path, &src, exe, Duration::from_millis(1));
         c.settings.workers = 1;
         let s = Scheduler::start(c).unwrap();

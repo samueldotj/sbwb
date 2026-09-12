@@ -15,6 +15,12 @@
   import { ui } from "$lib/stores/ui.svelte";
   import PageMiniGrid from "$lib/workspace/PageMiniGrid.svelte";
   import JobMonitor from "$lib/workspace/JobMonitor.svelte";
+  import RegionOverlay from "$lib/workspace/RegionOverlay.svelte";
+  import ReadingOrder from "$lib/workspace/ReadingOrder.svelte";
+  import RegionInspector from "$lib/workspace/RegionInspector.svelte";
+  import { layout } from "$lib/stores/layout.svelte";
+  import { confirmDialog } from "$lib/dialogs";
+  import type { OcrWord } from "$lib/api";
   import { pipeline } from "$lib/stores/pipeline.svelte";
   import { api, type ProcessingSettings } from "$lib/api";
   import { isTauri } from "$lib/ipc";
@@ -34,10 +40,64 @@
     if (view.pageCount !== summary.meta.source.page_count) view.reset(summary.meta.source.page_count);
   });
   $effect(() => {
-    tab = view.mode === "review" ? "page" : "import";
+    tab = view.mode === "review" ? "page" : view.mode === "layout" ? "region" : "import";
   });
 
   const currentPage = $derived(summary.pages[view.page] ?? null);
+  let pageWords = $state<OcrWord[]>([]);
+
+  // Regions for the current page follow the page and its layout revision.
+  $effect(() => {
+    const idx = view.page;
+    void currentPage?.layout_revision;
+    if (view.mode === "processing") return;
+    if (layout.dirty && layout.page === idx) return;
+    void layout.load(idx);
+  });
+  $effect(() => {
+    const idx = view.page;
+    if (view.mode !== "layout" || !isTauri) {
+      pageWords = [];
+      return;
+    }
+    api.pageOcr(idx).then((o) => (pageWords = o?.words ?? [])).catch(() => (pageWords = []));
+  });
+
+  async function leaveLayout() {
+    if (layout.dirty) {
+      const ok = await confirmDialog("Discard the unsaved layout changes on this page?", "Layout");
+      if (!ok) return;
+      layout.revert();
+    }
+    view.mode = "review";
+  }
+  function onkeydown(e: KeyboardEvent) {
+    const typing = (e.target as HTMLElement | null)?.closest("input, textarea, [contenteditable]");
+    if (typing) return;
+    if (view.mode === "review" && (e.key === "l" || e.key === "L") && (e.ctrlKey || e.metaKey)) {
+      view.editLayout();
+      e.preventDefault();
+    } else if (view.mode === "layout") {
+      if (e.key === "Escape") {
+        void leaveLayout();
+        e.preventDefault();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        layout.undo();
+        e.preventDefault();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        void layout.save();
+        e.preventDefault();
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        const k = e.key.toLowerCase();
+        if (k === "v") layout.tool = "select";
+        else if (k === "r") layout.tool = "draw";
+        else if (k === "x") layout.tool = "split";
+        else if (k === "m") layout.tool = "merge";
+        else return;
+        e.preventDefault();
+      }
+    }
+  }
 
   const ocrState = $derived.by((): StageRow["state"] => {
     if (pipeline.state === "running" || pipeline.state === "stopping" || pipeline.state === "paused") return "running";
@@ -61,18 +121,31 @@
       value: ocrValue,
       progress: pipeline.ocr && pipeline.ocr.total ? (pipeline.ocr.done + pipeline.ocr.failed) / pipeline.ocr.total : summary.counts.in_scope ? summary.counts.done / summary.counts.in_scope : 0,
     },
-    { id: "layout", label: "Layout", state: "queued", value: "queued" },
+    {
+      id: "layout",
+      label: "Layout",
+      state: view.mode === "layout" ? "running" : summary.counts.layout_done >= summary.counts.in_scope && summary.counts.in_scope > 0 ? "done" : summary.counts.layout_done > 0 ? "running" : "queued",
+      value: view.mode === "layout" ? "editing" : summary.counts.layout_done > 0 ? `${summary.counts.layout_done} / ${summary.counts.in_scope}` : "queued",
+      progress: summary.counts.in_scope ? summary.counts.layout_done / summary.counts.in_scope : 0,
+    },
     { id: "text_pass", label: "Text pass", state: "queued", value: "queued" },
     { id: "ai", label: "AI proofread", state: "off", value: "off" },
     { id: "export", label: "Export", state: "off", value: "—" },
   ]);
 
-  const tabs = $derived([
+  const tabs = $derived(
+    view.mode === "layout"
+      ? [
+          { id: "region", label: "Region" },
+          { id: "page", label: "Page" },
+        ]
+      : [
     { id: "import", label: "Import" },
     { id: "page", label: "Page", disabled: view.mode !== "review" },
     { id: "text_pass", label: "Text pass", disabled: true },
     { id: "ai", label: "AI", disabled: true },
-  ]);
+  ],
+  );
 
   function onrail(id: string) {
     if (id === "ai") ui.toast("AI proofreading arrives in a later version.", "info", 4000);
@@ -84,7 +157,9 @@
   }
 </script>
 
-<div class="workspace" class:review={view.mode === "review"} class:strip={view.mode === "review" && ui.theme !== "bench"} class:monitor={view.mode === "processing" && monitorOpen}>
+<svelte:window onkeydown={onkeydown} />
+
+<div class="workspace" class:review={view.mode === "review"} class:layoutmode={view.mode === "layout"} class:strip={view.mode === "review" && ui.theme !== "bench"} class:monitor={view.mode === "processing" && monitorOpen}>
   <PipelineRail {stages} activeId={view.mode === "processing" ? "import" : ""} onselect={onrail}>
     <div class="review-block">
       <button type="button" class="label linkish" onclick={() => (view.mode = "review")}>Review</button>
@@ -129,12 +204,32 @@
       <Filmstrip pages={summary.pages} />
     {/if}
     <ScanPane pages={summary.pages}>
+      {#snippet overlay({ page, zoom })}
+        {#if layout.showRegions && layout.page === page}
+          <RegionOverlay regions={layout.regions} {zoom} pageW={currentPage?.width_pt ?? 612} pageH={currentPage?.height_pt ?? 792} />
+        {/if}
+      {/snippet}
       {#snippet footer()}
-        <span class="chip">Regions</span>
-        <span class="chip muted">Edit layout</span>
+        <button type="button" class="chip" class:on={layout.showRegions} onclick={() => (layout.showRegions = !layout.showRegions)}>Regions</button>
+        <button type="button" class="chip" onclick={() => view.editLayout()} disabled={!currentPage?.ocr_done}>Edit layout <kbd>Ctrl+L</kbd></button>
       {/snippet}
     </ScanPane>
     <TranscriptPane page={currentPage} />
+  {:else if view.mode === "layout"}
+    <ScanPane pages={summary.pages} overlayInteractive={true}>
+      {#snippet tools()}
+        {#each [["select", "Select", "V"], ["draw", "Draw", "R"], ["split", "Split", "X"], ["merge", "Merge", "M"]] as [id, label, key] (id)}
+          <button type="button" class="tool" class:on={layout.tool === id} onclick={() => (layout.tool = id as typeof layout.tool)} aria-pressed={layout.tool === id} title="{label} ({key})" aria-label="{label} ({key})">{label}<span class="key">{key}</span></button>
+        {/each}
+        <span class="muted small">{String(layout.report?.columns ?? 1)} col</span>
+      {/snippet}
+      {#snippet overlay({ page, zoom })}
+        {#if layout.page === page}
+          <RegionOverlay regions={layout.regions} {zoom} interactive={true} pageW={currentPage?.width_pt ?? 612} pageH={currentPage?.height_pt ?? 792} />
+        {/if}
+      {/snippet}
+    </ScanPane>
+    <ReadingOrder words={pageWords} />
   {:else}
     <section class="center">
       <div class="pane-header">
@@ -152,12 +247,26 @@
     </section>
   {/if}
 
-  <Inspector {tabs} active={tab} onchange={(id) => (tab = id)} width={view.mode === "review" ? "var(--inspector-w)" : "340px"}>
-    {#if tab === "page"}
+  <Inspector {tabs} active={tab} onchange={(id) => (tab = id)} width={view.mode === "review" ? "var(--inspector-w)" : view.mode === "layout" ? "264px" : "340px"}>
+    {#if tab === "region"}
+      <RegionInspector pageW={currentPage?.width_pt ?? 612} pageH={currentPage?.height_pt ?? 792} words={pageWords} />
+    {:else if tab === "page"}
       <PageInspector page={currentPage} />
     {:else}
       <ImportInspector {summary} onstartreview={() => view.open(0)} eta={pipeline.ocr?.eta_ms ?? null} secsPerPage={pipeline.ocr?.secs_per_unit ?? null} pipelineState={pipeline.state} />
     {/if}
+    {#snippet footer()}
+      {#if view.mode === "layout"}
+        <div class="two">
+          <button type="button" class="ctl" onclick={() => layout.revert()} disabled={!layout.dirty}>Revert</button>
+          <button type="button" class="ctl primary" onclick={() => layout.save()} disabled={!layout.dirty}>Save layout</button>
+        </div>
+        <div class="two">
+          <button type="button" class="ctl muted" onclick={() => layout.rerun()}>Re-analyse page</button>
+          <button type="button" class="ctl muted" onclick={leaveLayout}>Done <kbd>Esc</kbd></button>
+        </div>
+      {/if}
+    {/snippet}
   </Inspector>
 </div>
 
@@ -173,6 +282,41 @@
   }
   .workspace.review {
     grid-template-columns: var(--rail-w) minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+  .workspace.layoutmode {
+    grid-template-columns: var(--rail-w) minmax(0, 1fr) 320px auto;
+  }
+  .tool {
+    all: unset;
+    padding: 3px 7px;
+    border-radius: 5px;
+    border: 1px solid var(--border-input);
+    background: var(--paper);
+    font-size: 12px;
+    cursor: default;
+  }
+  .tool.on {
+    background: var(--primary-bg);
+    color: var(--primary-fg);
+    border-color: var(--primary-bg);
+  }
+  .tool .key {
+    opacity: 0.6;
+    margin-left: 4px;
+    font-size: 10px;
+  }
+  @container (max-width: 520px) {
+    .tool .key {
+      display: none;
+    }
+  }
+  .tool:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  .two {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
   }
   .workspace.review.strip {
     grid-template-columns: var(--rail-w) var(--filmstrip-w) minmax(0, 1fr) minmax(0, 1fr) auto;
@@ -263,10 +407,26 @@
     align-items: center;
   }
   .chip {
+    all: unset;
+    cursor: default;
     padding: 3px 8px;
     border-radius: 5px;
     background: var(--paper);
     border: 1px solid var(--border-input);
     font-size: 11px;
+  }
+  .chip.on {
+    border-color: var(--accent);
+    color: var(--accent-text);
+  }
+  .chip:disabled {
+    opacity: 0.5;
+  }
+  .chip:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  .chip kbd {
+    font-size: 10px;
+    margin-left: 4px;
   }
 </style>

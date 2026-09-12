@@ -167,6 +167,44 @@ pub fn handle(ctx: &mut Context, req: Request, emit: &mut dyn FnMut(Message)) ->
                 elapsed_ms: started.elapsed().as_millis() as u64,
             })
         }
+        RequestKind::LayoutPage {
+            path,
+            password,
+            page,
+            words,
+            lines,
+            blocks,
+            settings,
+        } => {
+            let started = Instant::now();
+            emit(Message::Progress {
+                id,
+                activity: format!("layout {page}"),
+            });
+            let rendered = {
+                let r = ctx.renderer()?;
+                r.render(
+                    &path,
+                    password.as_deref(),
+                    &sbwb_pdf::RenderRequest::page_at_dpi(page, sbwb_layout::ANALYSIS_DPI),
+                )?
+            };
+            let gray = image::imageops::grayscale(&rendered.image);
+            let input = sbwb_layout::LayoutInput {
+                page_w: rendered.page_size.0,
+                page_h: rendered.page_size.1,
+                words: &words,
+                lines: &lines,
+                blocks: &blocks,
+            };
+            let out = sbwb_layout::analyze(&gray, &rendered.transform, &input, &settings);
+            Ok(Response::Layout {
+                regions: out.regions,
+                report: out.report,
+                algorithm: out.algorithm,
+                elapsed_ms: started.elapsed().as_millis() as u64,
+            })
+        }
         #[cfg(any(test, debug_assertions))]
         RequestKind::Sleep { ms } => {
             std::thread::sleep(std::time::Duration::from_millis(ms));

@@ -4,10 +4,10 @@
 use rusqlite_migration::{Migrations, M};
 
 /// Current project schema version. Bumped by every migration.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 pub fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(V1)])
+    Migrations::new(vec![M::up(V1), M::up(V2)])
 }
 
 const V1: &str = r#"
@@ -91,5 +91,25 @@ CREATE TABLE exports (
 CREATE TABLE kv (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
+);
+"#;
+
+/// v2: per-stage completion flags, layout results (M4).
+const V2: &str = r#"
+ALTER TABLE pages ADD COLUMN ocr_done INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pages ADD COLUMN layout_done INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pages ADD COLUMN text_done INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pages ADD COLUMN layout_revision INTEGER NOT NULL DEFAULT 0;
+UPDATE pages SET ocr_done = 1 WHERE status = 'done';
+
+CREATE TABLE page_layout (
+  page_index INTEGER PRIMARY KEY,
+  run_id TEXT,
+  regions TEXT NOT NULL,
+  report TEXT NOT NULL,
+  algorithm TEXT,
+  manual INTEGER NOT NULL DEFAULT 0,
+  revision INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
 );
 "#;

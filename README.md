@@ -39,7 +39,7 @@ developer; "week" is a rough unit, not a commitment.
 | M1 | Projects and import | 2 weeks | Done |
 | M2 | Rendering and page navigation | 1-2 weeks | Done (benchmarks partial) |
 | M3 | OCR pipeline and processing UI | 3 weeks | Done |
-| M4 | Layout analysis and Layout mode | 3 weeks | Not started |
+| M4 | Layout analysis and Layout mode | 3 weeks | Done (ground truth partial) |
 | M5 | Text reconstruction and provenance | 3 weeks | Not started |
 | M6 | Review workspace | 4 weeks | Not started |
 | M7 | Word export | 3 weeks | Not started |
@@ -127,14 +127,14 @@ Goal: regions, columns, marginalia, and reading order detected and correctable.
 
 | ID | Task | References | Status |
 | --- | --- | --- | --- |
-| M4.1 | Classical analysis: connected components, projection profiles, maximal whitespace rectangles for gutters and margins, baseline clustering, deskew confirmation | LAY-01, D-11 | Not started |
-| M4.2 | Tesseract page segmentation recorded as second evidence; disagreement flagged | D-11 | Not started |
-| M4.3 | Region model and classification: body, heading, header, footer, marginalia, footnote, page number, catchword, illustration, table, uncertain; heuristics from position, size, and line height | LAY-01 | Not started |
-| M4.4 | Reading order builder that follows structure, never joins across a gutter on the same band | LAY-01 | Not started |
-| M4.5 | Coverage accounting: uncovered text-like areas, clipping, overlaps, empty-area suspicion | LAY-03 | Not started |
-| M4.6 | Layout mode UI: tools V/R/X/M, region overlay with tags and handles, reading-order list with placement, region inspector, Revert / Save layout | LAY-02, design 4.4 | Not started |
-| M4.7 | Layout edits invalidate only dependent results; impact preview before rerun; undo | LAY-02, PRJ-05 | Not started |
-| M4.8 | Ground truth for 20 fixture pages (regions and order) and metrics: region coverage, missed lines, column/order errors | NFR-08 | Not started |
+| M4.1 | Classical analysis: connected components, projection profiles, maximal whitespace rectangles for gutters and margins, baseline clustering, deskew confirmation | LAY-01, D-11 | Done |
+| M4.2 | Tesseract page segmentation recorded as second evidence; disagreement flagged | D-11 | Done |
+| M4.3 | Region model and classification: body, heading, header, footer, marginalia, footnote, page number, catchword, illustration, table, uncertain; heuristics from position, size, and line height | LAY-01 | Done |
+| M4.4 | Reading order builder that follows structure, never joins across a gutter on the same band | LAY-01 | Done |
+| M4.5 | Coverage accounting: uncovered text-like areas, clipping, overlaps, empty-area suspicion | LAY-03 | Done |
+| M4.6 | Layout mode UI: tools V/R/X/M, region overlay with tags and handles, reading-order list with placement, region inspector, Revert / Save layout | LAY-02, design 4.4 | Done |
+| M4.7 | Layout edits invalidate only dependent results; impact preview before rerun; undo | LAY-02, PRJ-05 | Done |
+| M4.8 | Ground truth for 20 fixture pages (regions and order) and metrics: region coverage, missed lines, column/order errors | NFR-08 | Partial (10-page draft, 1 adjudicated) |
 
 Exit: A-03 two-column/marginalia scenario passes on the annotated pages.
 

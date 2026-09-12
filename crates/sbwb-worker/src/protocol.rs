@@ -50,6 +50,16 @@ pub enum RequestKind {
         /// Optional path to save the recognition render (evidence).
         save_render: Option<PathBuf>,
     },
+    /// Analyse the page layout from the bitmap plus current OCR evidence.
+    LayoutPage {
+        path: PathBuf,
+        password: Option<String>,
+        page: PageIndex,
+        words: Vec<sbwb_ocr::OcrWord>,
+        lines: Vec<sbwb_ocr::OcrLine>,
+        blocks: Vec<sbwb_ocr::OcrBlock>,
+        settings: sbwb_layout::AnalysisSettings,
+    },
     /// Sleep for testing timeouts.
     #[cfg(any(test, debug_assertions))]
     Sleep {
@@ -75,6 +85,12 @@ pub enum Response {
         page_w_pt: f64,
         page_h_pt: f64,
         scale: f64,
+    },
+    Layout {
+        regions: Vec<sbwb_layout::Region>,
+        report: sbwb_layout::CoverageReport,
+        algorithm: String,
+        elapsed_ms: u64,
     },
     Ocr {
         output: sbwb_ocr::OcrOutput,

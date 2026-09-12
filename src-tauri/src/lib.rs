@@ -70,6 +70,11 @@ pub fn run() {
                             let js = format!("window.__sbwb && window.__sbwb.importPdf({}){then}", serde_json::to_string(&p).unwrap());
                             let _ = w.eval(&js);
                         }
+                        if let Some(secs) = std::env::var("SBWB_DEV_LAYOUT_AT").ok().and_then(|v| v.parse::<u64>().ok()) {
+                            let page = std::env::var("SBWB_DEV_REVIEW").ok().and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
+                            std::thread::sleep(std::time::Duration::from_secs(secs));
+                            let _ = w.eval(&format!("window.__sbwb && window.__sbwb.layout({page})"));
+                        }
                     }
                 });
             }
@@ -114,6 +119,9 @@ pub fn run() {
             commands::settings::models_report,
             commands::settings::storage_info,
             commands::settings::clear_render_cache,
+            commands::layout::page_layout,
+            commands::layout::layout_save,
+            commands::layout::layout_rerun,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SBWB");

@@ -49,14 +49,23 @@ impl Renderer {
     /// Bind PDFium from `dir` (containing `pdfium.dll` / `libpdfium.so`).
     pub fn new(dir: &Path) -> Result<Self> {
         let lib = Pdfium::pdfium_platform_library_name_at_path(dir);
-        let bindings = Pdfium::bind_to_library(&lib)
-            .or_else(|_| Pdfium::bind_to_system_library())
-            .map_err(|e| {
-                SbwbError::other(format!("cannot load PDFium from {}: {e}", dir.display()))
-            })?;
-        Ok(Self {
-            pdfium: Pdfium::new(bindings),
-        })
+        // PDFium binds once per process (a global in pdfium-render); later
+        // renderers in the same process reuse those bindings.
+        let pdfium = match Pdfium::bind_to_library(&lib) {
+            Ok(bindings) => Pdfium::new(bindings),
+            Err(PdfiumError::PdfiumLibraryBindingsAlreadyInitialized) => Pdfium::default(),
+            Err(e) => match Pdfium::bind_to_system_library() {
+                Ok(bindings) => Pdfium::new(bindings),
+                Err(PdfiumError::PdfiumLibraryBindingsAlreadyInitialized) => Pdfium::default(),
+                Err(_) => {
+                    return Err(SbwbError::other(format!(
+                        "cannot load PDFium from {}: {e}",
+                        dir.display()
+                    )))
+                }
+            },
+        };
+        Ok(Self { pdfium })
     }
 
     pub fn page_count(&self, path: &Path, password: Option<&str>) -> Result<u32> {

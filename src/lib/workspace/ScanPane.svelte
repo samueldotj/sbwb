@@ -13,8 +13,10 @@
     /** Overlay rendered in page-point coordinates (highlights, regions). */
     overlay?: Snippet<[{ page: number; zoom: number }]>;
     footer?: Snippet;
+    tools?: Snippet;
+    overlayInteractive?: boolean;
   };
-  let { pages, overlay, footer }: Props = $props();
+  let { pages, overlay, footer, tools, overlayInteractive = false }: Props = $props();
 
   let body = $state<HTMLElement | null>(null);
   let paneW = $state(800);
@@ -119,6 +121,7 @@
     <form class="goto" onsubmit={(e) => { e.preventDefault(); submitGoto(); }}>
       <input type="text" inputmode="numeric" placeholder="Go to" aria-label="Go to page" bind:value={gotoText} size="4" />
     </form>
+    {#if tools}<span class="sep"></span>{@render tools()}{/if}
     <span class="grow"></span>
     <button type="button" class="nav" onclick={() => zoomBy(-1)} aria-label="Zoom out">−</button>
     <button type="button" class="text" class:on={view.zoomMode === "fit"} onclick={() => fit("fit")}>Fit</button>
@@ -133,7 +136,7 @@
       <div class="page-wrap" style="width:{wPt * shownZoom}px;height:{hPt * shownZoom}px">
         <img src={shownSrc} alt="Scan of page {shownPage + 1}" draggable="false" style="width:{wPt * shownZoom}px;height:{hPt * shownZoom}px" />
         {#if overlay}
-          <div class="overlay" style="width:{wPt}px;height:{hPt}px;transform:scale({shownZoom})">
+          <div class="overlay" class:live={overlayInteractive} style="width:{wPt}px;height:{hPt}px;transform:scale({shownZoom})">
             {@render overlay({ page: shownPage, zoom: shownZoom })}
           </div>
         {/if}
@@ -253,6 +256,15 @@
     top: 0;
     transform-origin: 0 0;
     pointer-events: none;
+  }
+  .overlay.live {
+    pointer-events: auto;
+  }
+  .sep {
+    width: 1px;
+    height: 18px;
+    background: var(--border);
+    margin: 0 4px;
   }
   .veil {
     position: absolute;

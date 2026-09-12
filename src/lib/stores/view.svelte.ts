@@ -37,6 +37,9 @@ class ViewState {
     this.goTo(index);
     this.mode = "review";
   }
+  editLayout() {
+    this.mode = "layout";
+  }
 }
 
 export const view = new ViewState();

@@ -1958,15 +1958,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hash32"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47d60b12902ba28e2730cd37e95b8c9223af2808df9e902d4df49588d1470606"
-dependencies = [
- "byteorder",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1997,16 +1988,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a596f1b20ed2cc5ecac41a164aaebc7258057060f06c0cf7a2ba3991ee7990fb"
 dependencies = [
  "hashbrown 0.17.1",
-]
-
-[[package]]
-name = "heapless"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bfb9eb618601c89945a70e254898da93b13be0388091d42117462b265bb3fad"
-dependencies = [
- "hash32",
- "stable_deref_trait",
 ]
 
 [[package]]
@@ -3015,21 +2996,6 @@ dependencies = [
  "num-traits",
  "simba",
  "typenum",
-]
-
-[[package]]
-name = "ndarray"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "882ed72dce9365842bf196bdeedf5055305f11fc8c03dee7bb0194a6cad34841"
-dependencies = [
- "matrixmultiply",
- "num-complex",
- "num-integer",
- "num-traits",
- "portable-atomic",
- "portable-atomic-util",
- "rawpointer",
 ]
 
 [[package]]
@@ -4225,17 +4191,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rstar"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5912b862fa5ffb462607bfd1e35036c458c537921f508c8235a83d5f3987edfe"
-dependencies = [
- "heapless",
- "num-traits",
- "smallvec",
-]
-
-[[package]]
 name = "rusqlite"
 version = "0.40.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4362,6 +4317,7 @@ dependencies = [
  "crossbeam-channel",
  "http",
  "sbwb-core",
+ "sbwb-layout",
  "sbwb-ocr",
  "sbwb-pdf",
  "sbwb-pipeline",
@@ -4420,11 +4376,11 @@ version = "0.1.0"
 dependencies = [
  "image",
  "imageproc",
- "ndarray",
- "rstar",
  "sbwb-core",
  "sbwb-ocr",
+ "sbwb-pdf",
  "serde",
+ "serde_json",
  "tracing",
 ]
 
@@ -4468,6 +4424,7 @@ dependencies = [
  "jiff",
  "sbwb-core",
  "sbwb-image",
+ "sbwb-layout",
  "sbwb-ocr",
  "sbwb-store",
  "sbwb-worker",
@@ -4529,6 +4486,7 @@ dependencies = [
  "image",
  "sbwb-core",
  "sbwb-image",
+ "sbwb-layout",
  "sbwb-ocr",
  "sbwb-pdf",
  "serde",

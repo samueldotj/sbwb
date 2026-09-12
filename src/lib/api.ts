@@ -12,6 +12,10 @@ export type PageRow = {
   printed_label: string | null;
   error: string | null;
   approved_revision: number | null;
+  ocr_done: boolean;
+  layout_done: boolean;
+  text_done: boolean;
+  layout_revision: number;
 };
 
 export type PageCounts = {
@@ -24,6 +28,9 @@ export type PageCounts = {
   failed: number;
   done: number;
   approved: number;
+  ocr_done: number;
+  layout_done: number;
+  text_done: number;
 };
 
 export type SourceInfo = {
@@ -127,6 +134,32 @@ export type PipelineStatusView = {
   } | null;
 };
 
+export type RegionKind =
+  | "body" | "heading" | "header" | "footer" | "marginalia" | "footnote" | "page_number" | "catchword" | "illustration" | "table" | "uncertain" | "ignore";
+export type WordStructure = "text" | "heading1" | "heading2" | "heading3" | "table_cell";
+
+export type Region = {
+  id: string;
+  kind: RegionKind;
+  bbox: { x: number; y: number; w: number; h: number };
+  order: number;
+  structure: WordStructure;
+  column: number | null;
+  score: number;
+  manual: boolean;
+  line_count: number;
+  anchor_y: number | null;
+};
+
+export type PageLayout = {
+  page: number;
+  regions: Region[];
+  report: Record<string, unknown>;
+  algorithm: string | null;
+  manual: boolean;
+  revision: number;
+};
+
 export type CommandError = { code: string; message: string };
 
 export function isCommandError(e: unknown): e is CommandError {
@@ -166,6 +199,9 @@ export const api = {
   modelsReport: () => invoke<PackReport[]>("models_report"),
   storageInfo: () => invoke<StorageInfo>("storage_info"),
   clearRenderCache: () => invoke<number>("clear_render_cache"),
+  pageLayout: (index: number) => invoke<PageLayout | null>("page_layout", { index }),
+  layoutSave: (index: number, regions: Region[]) => invoke<PageLayout>("layout_save", { index, regions }),
+  layoutRerun: (index: number) => invoke<void>("layout_rerun", { index }),
 };
 
 /// "1-50, 60-70" -> [[1,50],[60,70]]; returns null when unparsable.

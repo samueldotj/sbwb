@@ -8,6 +8,7 @@
   import WorkspacePage from "$lib/pages/WorkspacePage.svelte";
   import SettingsPage from "$lib/pages/SettingsPage.svelte";
   import { pipeline, formatEta } from "$lib/stores/pipeline.svelte";
+  import { layout } from "$lib/stores/layout.svelte";
   import { project } from "$lib/stores/project.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { isTauri } from "$lib/ipc";
@@ -132,6 +133,10 @@
         open: (p: string) => project.open(p),
         close: () => project.close(),
         review: (i: number) => view.open(i),
+        layout: (i: number) => {
+          view.open(i);
+          view.editLayout();
+        },
       };
     }
     if (!isTauri) {
@@ -184,7 +189,7 @@
   <StatusBar
     saveState={project.isOpen ? "saved" : "idle"}
     savedAgo="just now"
-    projectFile={project.summary?.path.split(/[\\/]/).pop() ?? ""}
+    projectFile={view.mode === "layout" ? `Layout · page ${view.page + 1}${layout.dirty ? " · unsaved changes" : ""} · Esc returns to Review` : (project.summary?.path.split(/[\\/]/).pop() ?? "")}
     stage={project.busy ?? (pipeline.active && pipeline.ocr ? `OCR · page ${pipeline.ocr.done + pipeline.ocr.failed} of ${pipeline.ocr.total}${pipeline.ocr.eta_ms !== null ? " · " + formatEta(pipeline.ocr.eta_ms) : ""}` : "")}
     running={project.busy !== null || pipeline.state === "running"}
     counters={pipeline.ocr && pipeline.ocr.failed ? `${pipeline.ocr.failed} failed` : ""}

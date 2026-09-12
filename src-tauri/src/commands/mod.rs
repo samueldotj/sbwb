@@ -1,3 +1,4 @@
+pub mod layout;
 pub mod page;
 pub mod pipeline;
 pub mod project;
