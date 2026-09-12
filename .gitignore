@@ -27,3 +27,12 @@ fixtures/lexicons/*.tar.gz
 
 # Claude Design mockup exports stay local (D-16); the derived spec lives in docs/design.md
 design/sbwb-redesign/
+
+# Build inputs fetched by scripts (see docs/dev-setup.md)
+third_party/
+models/**/*.traineddata
+node_modules/
+dist/
+.vcpkg-*.log
+src-tauri/gen/
+*.log

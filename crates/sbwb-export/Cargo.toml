@@ -1,0 +1,10 @@
+[package]
+name = "sbwb-export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "DOCX export and validation (M7)"
+
+[dependencies]
+sbwb-core.workspace = true
+serde.workspace = true

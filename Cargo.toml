@@ -1,0 +1,59 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.85"
+repository = "https://github.com/samueldotj/sbwb"
+
+[workspace.dependencies]
+sbwb-core = { path = "crates/sbwb-core" }
+sbwb-pdf = { path = "crates/sbwb-pdf" }
+sbwb-image = { path = "crates/sbwb-image" }
+sbwb-ocr = { path = "crates/sbwb-ocr" }
+sbwb-layout = { path = "crates/sbwb-layout" }
+sbwb-text = { path = "crates/sbwb-text" }
+sbwb-store = { path = "crates/sbwb-store" }
+sbwb-review = { path = "crates/sbwb-review" }
+sbwb-export = { path = "crates/sbwb-export" }
+sbwb-worker = { path = "crates/sbwb-worker" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+uuid = { version = "1", features = ["v4", "serde"] }
+jiff = { version = "0.2", features = ["serde"] }
+blake3 = "1"
+rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite_migration = "2"
+image = { version = "0.25", default-features = false, features = ["png", "webp", "jpeg"] }
+imageproc = "0.27"
+pdfium-render = "0.9"
+lopdf = "0.45"
+tesseract = "0.15"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "process", "io-util"] }
+rayon = "1"
+crossbeam-channel = "0.5"
+sysinfo = "0.39"
+tempfile = "3"
+regex = "1"
+unicode-segmentation = "1"
+unicode-normalization = "0.1"
+fst = "0.4"
+spellbook = "0.4"
+strsim = "0.11"
+rstar = "0.13"
+ndarray = "0.16"
+fast_image_resize = "6"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "unwind"

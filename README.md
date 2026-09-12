@@ -20,8 +20,9 @@ Everything runs offline; optional AI proofreading is a later phase.
 
 ## Status
 
-Requirements, design, and stack are settled (2026-09-12). No application
-code exists yet. The roadmap below is the plan for the first release.
+Requirements, design, and stack are settled (2026-09-12). M0 (scaffold) is
+complete: the workspace builds, tests pass, and the app window opens in both
+themes. See `docs/dev-setup.md` to build locally.
 
 ## Roadmap
 
@@ -34,7 +35,7 @@ developer; "week" is a rough unit, not a commitment.
 
 | Milestone | Goal | Estimate | Status |
 | --- | --- | --- | --- |
-| M0 | Scaffold and toolchain | 1-2 weeks | Not started |
+| M0 | Scaffold and toolchain | 1-2 weeks | Done (CI unverified) |
 | M1 | Projects and import | 2 weeks | Not started |
 | M2 | Rendering and page navigation | 1-2 weeks | Not started |
 | M3 | OCR pipeline and processing UI | 3 weeks | Not started |
@@ -55,15 +56,15 @@ crate layout, CI, and design tokens in place.
 
 | ID | Task | References | Status |
 | --- | --- | --- | --- |
-| M0.1 | Cargo workspace: `sbwb-app` (Tauri), `sbwb-core` (domain types, ids, errors), `sbwb-pdf`, `sbwb-image`, `sbwb-ocr`, `sbwb-layout`, `sbwb-text`, `sbwb-review`, `sbwb-store`, `sbwb-export`, `sbwb-worker` (worker binary entry). Typed boundaries | NFR-13 | Not started |
-| M0.2 | Frontend: Vite + Svelte 5 + TypeScript, Bits UI primitives, svelte-dnd-action, TanStack Virtual, `@tauri-apps/api`, ESLint, svelte-check, Vitest, Testing Library for Svelte | D-13, UX-05 | Not started |
-| M0.3 | Design tokens as CSS custom properties for Paper and Bench, `data-theme` switch, bundled OFL fonts | design 2, D-17, D-18 | Not started |
-| M0.4 | Shell components: custom title bar, status bar, pipeline rail skeleton, inspector frame, sheet, toast | design 3, UX-01 | Not started |
-| M0.5 | Windows build of Tesseract + Leptonica via vcpkg; `tesseract-sys` linking proven with a smoke test that OCRs one fixture crop | OCR-01, docs/crates.md | Not started |
-| M0.6 | PDFium binary fetch script with checksum, loaded by `pdfium-render`; render one fixture page in a test | D-14, docs/crates.md | Not started |
-| M0.7 | CI: `cargo nextest`, `cargo clippy -D warnings`, `cargo deny`, `cargo about` notices, Vitest, Tauri bundle to MSI/NSIS | NFR-12, NFR-13 | Not started |
-| M0.8 | Logging with `tracing` to rotated files, path redaction hook, opt-in diagnostics bundle stub | NFR-11 | Not started |
-| M0.9 | Worker process mode: same executable launched with `--worker`, IPC channel, heartbeat, kill after grace | NFR-06, NFR-11 | Not started |
+| M0.1 | Cargo workspace: `sbwb-app` (Tauri), `sbwb-core` (domain types, ids, errors), `sbwb-pdf`, `sbwb-image`, `sbwb-ocr`, `sbwb-layout`, `sbwb-text`, `sbwb-review`, `sbwb-store`, `sbwb-export`, `sbwb-worker` (worker binary entry). Typed boundaries | NFR-13 | Done |
+| M0.2 | Frontend: Vite + Svelte 5 + TypeScript, Bits UI primitives, svelte-dnd-action, TanStack Virtual, `@tauri-apps/api`, ESLint, svelte-check, Vitest, Testing Library for Svelte | D-13, UX-05 | Done |
+| M0.3 | Design tokens as CSS custom properties for Paper and Bench, `data-theme` switch, bundled OFL fonts | design 2, D-17, D-18 | Done |
+| M0.4 | Shell components: custom title bar, status bar, pipeline rail skeleton, inspector frame, sheet, toast | design 3, UX-01 | Done |
+| M0.5 | Windows build of Tesseract + Leptonica via vcpkg; `tesseract-sys` linking proven with a smoke test that OCRs one fixture crop | OCR-01, docs/crates.md | Done |
+| M0.6 | PDFium binary fetch script with checksum, loaded by `pdfium-render`; render one fixture page in a test | D-14, docs/crates.md | Done |
+| M0.7 | CI: `cargo nextest`, `cargo clippy -D warnings`, `cargo deny`, `cargo about` notices, Vitest, Tauri bundle to MSI/NSIS | NFR-12, NFR-13 | In progress |
+| M0.8 | Logging with `tracing` to rotated files, path redaction hook, opt-in diagnostics bundle stub | NFR-11 | Done |
+| M0.9 | Worker process mode: same executable launched with `--worker`, IPC channel, heartbeat, kill after grace | NFR-06, NFR-11 | Done |
 
 Exit: installer builds on CI, app opens to an empty Welcome page in both themes, axe-core reports no violations on the shell.
 

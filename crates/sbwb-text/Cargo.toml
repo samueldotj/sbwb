@@ -1,0 +1,20 @@
+[package]
+name = "sbwb-text"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Text reconstruction: spans, paragraphs, hyphen joins, lexicon, candidates"
+
+[dependencies]
+sbwb-core.workspace = true
+sbwb-ocr.workspace = true
+sbwb-layout.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+unicode-segmentation.workspace = true
+unicode-normalization.workspace = true
+fst.workspace = true
+spellbook.workspace = true
+strsim.workspace = true
+tracing.workspace = true

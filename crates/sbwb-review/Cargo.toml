@@ -1,0 +1,10 @@
+[package]
+name = "sbwb-review"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Issue index, thresholds, decisions, approvals (M6)"
+
+[dependencies]
+sbwb-core.workspace = true
+serde.workspace = true

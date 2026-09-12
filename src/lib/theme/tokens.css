@@ -1,0 +1,119 @@
+/* Design tokens from docs/design.md section 2. Paper is the default (light);
+   Bench is the dark theme. Switch with data-theme="bench" on <html>. */
+
+:root,
+[data-theme="paper"] {
+  color-scheme: light;
+
+  --bg: #f4efe6;
+  --chrome: #ece6da;
+  --strip: #e6dfd2;
+  --panel: #f4efe6;
+  --panel-header: #e6dfd2;
+  --scan-bg: #cfc7b8;
+  --scan-border: #bfb6a5;
+  --paper: #fbf8f2;
+  --raised: #f8f4ec;
+  --border: #d9d1c2;
+  --border-soft: #e8e1d4;
+  --border-input: #cfc6b6;
+  --track: #e0d8c9;
+  --text: #2a2622;
+  --text-2: #5d554b;
+  --muted: #8a8177;
+  --disabled: #b3aa9c;
+  --accent: #b8702e;
+  --accent-bg: #f7e2c6;
+  --accent-bg-scan: #f4dfc6;
+  --accent-text: #8a4d14;
+  --ok: #4f7d4a;
+  --ok-bg: #e4eddf;
+  --ok-bg-scan: #d6e6cf;
+  --ok-text: #365a32;
+  --warn: #d9a441;
+  --unseen: #c9b9a3;
+  --region-header: #6a5acd;
+  --scan-paper: #f7f2e7;
+  --danger: #a33a2a;
+
+  --primary-bg: var(--text);
+  --primary-fg: var(--bg);
+  --accent-glow: none;
+
+  --font-ui: "Source Sans 3", system-ui, sans-serif;
+  --font-serif: "Newsreader", Georgia, serif;
+  --font-mono: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-size-ui: 13px;
+  --font-size-transcript: 15.5px;
+  --line-height-transcript: 1.75;
+
+  --titlebar-h: 38px;
+  --statusbar-h: 26px;
+  --pane-header-h: 40px;
+  --rail-w: 168px;
+  --filmstrip-w: 76px;
+  --inspector-w: 292px;
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-sheet: 12px;
+  --shadow-sheet: 0 20px 60px rgba(30, 20, 5, 0.35);
+  --shadow-page: 0 2px 12px rgba(40, 30, 10, 0.25);
+}
+
+[data-theme="bench"] {
+  color-scheme: dark;
+
+  --bg: #16181b;
+  --chrome: #0f1113;
+  --strip: #1a1d21;
+  --panel: #1a1d21;
+  --panel-header: #1e2126;
+  --scan-bg: #2a2d31;
+  --scan-border: #26292e;
+  --paper: #1e2126;
+  --raised: #22262c;
+  --border: #26292e;
+  --border-soft: #26292e;
+  --border-input: #2c3037;
+  --track: #2c3037;
+  --text: #e6e8eb;
+  --text-2: #b5bac2;
+  --muted: #8b919a;
+  --disabled: #4a5058;
+  --accent: #6ea0e6;
+  --accent-bg: rgba(110, 160, 230, 0.25);
+  --accent-bg-scan: rgba(110, 160, 230, 0.35);
+  --accent-text: #9dc0f0;
+  --ok: #5cc48f;
+  --ok-bg: rgba(92, 196, 143, 0.18);
+  --ok-bg-scan: rgba(92, 196, 143, 0.3);
+  --ok-text: #5cc48f;
+  --warn: #d9a441;
+  --unseen: #2c3037;
+  --region-header: #8f82e8;
+  --scan-paper: #f1ece2;
+  --danger: #e06c5a;
+
+  --primary-bg: var(--accent);
+  --primary-fg: #0f1113;
+  --accent-glow: 0 0 8px var(--accent);
+
+  --font-ui: "Instrument Sans", system-ui, sans-serif;
+  --font-serif: "Instrument Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --font-size-ui: 12.5px;
+  --font-size-transcript: 14px;
+  --line-height-transcript: 1.7;
+
+  --titlebar-h: 34px;
+  --statusbar-h: 24px;
+  --pane-header-h: 34px;
+  --rail-w: 200px;
+  --filmstrip-w: 0px;
+  --inspector-w: 300px;
+  --radius-control: 4px;
+  --radius-card: 6px;
+  --radius-sheet: 8px;
+  --shadow-sheet: 0 20px 60px rgba(0, 0, 0, 0.6);
+  --shadow-page: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
