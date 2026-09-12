@@ -303,10 +303,8 @@ fn coordinate(
                 page,
             });
         }
-        if next.is_none() && in_flight == 0 {
-            if cancelled || pending.len() == 0 {
-                break;
-            }
+        if next.is_none() && in_flight == 0 && (cancelled || pending.len() == 0) {
+            break;
         }
 
         // Dispatch when possible, otherwise collect a result.
@@ -745,7 +743,7 @@ mod tests {
                     cancelled, done, ..
                 } => {
                     assert!(cancelled);
-                    assert!(done >= 1 && done < 6, "done {done}");
+                    assert!((1..6).contains(&done), "done {done}");
                     break;
                 }
                 _ => {}
