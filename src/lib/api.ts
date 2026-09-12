@@ -99,6 +99,34 @@ export type RunRecord = {
   elapsed_ms: number | null;
 };
 
+export type ProcessingSettings = {
+  model: "eng_best" | "eng_fast";
+  dpi: number;
+  deskew: boolean;
+  despeckle: boolean;
+  auto_apply_threshold: number;
+  run_stages_automatically: boolean;
+  workers: number;
+};
+
+export type PackReport = {
+  entry: { pack: string; label: string; language: string; file: string; sha256: string; size: number; license: string; url: string };
+  path: string;
+  status: "missing" | "verified" | { corrupt: { actual_sha256: string } };
+};
+
+export type StorageInfo = { cache_dir: string | null; cache_bytes: number; log_dir: string; tessdata_dir: string; tesseract_version: string };
+
+export type PipelineStatusView = {
+  active: boolean;
+  status: {
+    state: "idle" | "running" | "paused" | "stopping" | "done";
+    stages: { stage: string; total: number; done: number; failed: number; running: number; elapsed_ms: number; eta_ms: number | null; secs_per_unit: number | null }[];
+    activity: string;
+    workers: number;
+  } | null;
+};
+
 export type CommandError = { code: string; message: string };
 
 export function isCommandError(e: unknown): e is CommandError {
@@ -125,6 +153,19 @@ export const api = {
   pageOcr: (index: number) => invoke<PageOcr | null>("page_ocr", { index }),
   pageRuns: (index: number) => invoke<RunRecord[]>("page_runs", { index }),
   prefetchRender: (index: number, scale: number) => invoke<void>("prefetch_render", { index, scale }),
+  pipelineStart: () => invoke<unknown>("pipeline_start"),
+  pipelinePause: () => invoke<void>("pipeline_pause"),
+  pipelineResume: () => invoke<void>("pipeline_resume"),
+  pipelineCancel: () => invoke<void>("pipeline_cancel"),
+  pipelineRetryFailed: () => invoke<unknown>("pipeline_retry_failed"),
+  pipelineStatus: () => invoke<PipelineStatusView>("pipeline_status"),
+  settingsGet: () => invoke<ProcessingSettings>("settings_get"),
+  settingsPreview: (settings: ProcessingSettings) =>
+    invoke<{ rerun_pages: number; approved_untouched: number; effective_workers: number }>("settings_preview", { settings }),
+  settingsSet: (settings: ProcessingSettings, rerun: boolean) => invoke<number>("settings_set", { settings, rerun }),
+  modelsReport: () => invoke<PackReport[]>("models_report"),
+  storageInfo: () => invoke<StorageInfo>("storage_info"),
+  clearRenderCache: () => invoke<number>("clear_render_cache"),
 };
 
 /// "1-50, 60-70" -> [[1,50],[60,70]]; returns null when unparsable.

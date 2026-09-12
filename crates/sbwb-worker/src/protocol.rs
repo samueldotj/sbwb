@@ -46,6 +46,7 @@ pub enum RequestKind {
         page: PageIndex,
         dpi: u32,
         settings: sbwb_ocr::OcrSettings,
+        prep: sbwb_image::PrepSettings,
         /// Optional path to save the recognition render (evidence).
         save_render: Option<PathBuf>,
     },
@@ -80,10 +81,14 @@ pub enum Response {
         page_w_pt: f64,
         page_h_pt: f64,
         render: Option<PathBuf>,
+        prep: sbwb_image::PrepReport,
         elapsed_ms: u64,
     },
 }
 
+/// Messages are serialized as soon as they are built, so the size gap
+/// between a heartbeat and an OCR result never matters in memory.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "msg", rename_all = "snake_case")]
 pub enum Message {

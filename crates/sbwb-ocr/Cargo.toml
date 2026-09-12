@@ -9,6 +9,7 @@ description = "Tesseract adapter producing words with boxes and native confidenc
 sbwb-core.workspace = true
 tesseract.workspace = true
 tesseract-sys = "0.6"
+sha2.workspace = true
 image.workspace = true
 serde.workspace = true
 thiserror.workspace = true
@@ -16,3 +17,4 @@ tracing.workspace = true
 
 [dev-dependencies]
 sbwb-pdf.workspace = true
+tempfile.workspace = true

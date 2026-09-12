@@ -24,6 +24,7 @@ function readStoredTheme(): Theme {
 class UiState {
   theme = $state<Theme>(readStoredTheme());
   toasts = $state<Toast[]>([]);
+  settingsOpen = $state(false);
   #nextToast = 1;
 
   constructor() {

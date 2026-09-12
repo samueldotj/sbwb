@@ -9,6 +9,7 @@ description = "Isolated worker process protocol and host (NFR-06, NFR-11)"
 sbwb-core.workspace = true
 sbwb-pdf.workspace = true
 sbwb-ocr.workspace = true
+sbwb-image.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

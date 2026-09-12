@@ -262,6 +262,14 @@ pub fn import_pdf(
         render_cache,
     });
     emit_changed(&app);
+    // UX-02: processing starts right after import when the book's settings
+    // say so (default on). Opening never starts anything (PIPE-02).
+    let auto = sbwb_pipeline::ProcessingSettings::default().run_stages_automatically;
+    if auto {
+        if let Err(e) = crate::commands::pipeline::start_pipeline(&app) {
+            tracing::warn!("auto-start after import failed: {}", e.message);
+        }
+    }
     Ok(summary)
 }
 
@@ -336,6 +344,7 @@ pub fn project_summary(state: State<'_, AppState>) -> CmdResult<Option<ProjectSu
 
 #[tauri::command]
 pub fn close_project(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    crate::commands::pipeline::stop_for_close(&app);
     let taken = state
         .project
         .lock()

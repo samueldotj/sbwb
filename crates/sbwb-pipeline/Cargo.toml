@@ -1,0 +1,23 @@
+[package]
+name = "sbwb-pipeline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Processing plan and scheduler: bounded worker pool, pause/cancel/retry, progress"
+
+[dependencies]
+sbwb-core.workspace = true
+sbwb-store.workspace = true
+sbwb-worker.workspace = true
+sbwb-ocr.workspace = true
+sbwb-image.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+crossbeam-channel.workspace = true
+jiff.workspace = true
+sysinfo.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+blake3.workspace = true

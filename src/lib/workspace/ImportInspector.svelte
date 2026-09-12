@@ -4,8 +4,18 @@
   import { project } from "$lib/stores/project.svelte";
   import { ui } from "$lib/stores/ui.svelte";
 
-  type Props = { summary: ProjectSummary; onstartreview?: () => void };
-  let { summary, onstartreview }: Props = $props();
+  import { pipeline, formatEta } from "$lib/stores/pipeline.svelte";
+
+  type Props = { summary: ProjectSummary; onstartreview?: () => void; eta?: number | null; secsPerPage?: number | null; pipelineState?: string };
+  let { summary, onstartreview, eta = null, secsPerPage = null, pipelineState = "idle" }: Props = $props();
+  // Before the first pages finish, 3 s/page is typical for tessdata_best at 300 dpi.
+  const estimate = $derived.by(() => {
+    const remaining = summary.counts.queued + summary.counts.running;
+    if (remaining === 0) return "done";
+    if (eta !== null) return formatEta(eta).replace(" left", "");
+    const s = (secsPerPage ?? 3) * remaining;
+    return s < 90 ? `~${Math.round(s)} s (estimate)` : `~${Math.round(s / 60)} min (estimate)`;
+  });
 
   const total = $derived(summary.meta.source.page_count);
   const ranges = $derived(summary.meta.scope.ranges);
@@ -68,14 +78,20 @@
     <div class="muted">Processing {scopeLabel(ranges)} · {total - summary.counts.in_scope} untouched in the source</div>
   {/if}
   <div class="hint">Start small to check quality. You can extend the range later without re-importing.</div>
+  <div class="row-between small-row"><span class="muted">Estimated time</span><span>{estimate}</span></div>
 </div>
 
 <div class="card">
-  <div class="strong">Status</div>
-  <div class="row-between"><span>Queued for OCR</span><span class="muted">{summary.counts.queued}</span></div>
-  <div class="row-between"><span>Done</span><span class="muted">{summary.counts.done}</span></div>
+  <div class="strong">{pipelineState === "running" ? "Now running" : pipelineState === "paused" ? "Paused" : "Status"}</div>
+  {#if pipeline.ocr && pipeline.active}
+    <div class="row-between"><span>OCR · {pipeline.ocr.done + pipeline.ocr.failed} of {pipeline.ocr.total}</span><span class="muted">{pipeline.ocr.secs_per_unit ? `${pipeline.ocr.secs_per_unit.toFixed(1)} s / page` : "…"}</span></div>
+    <div class="bar"><div class="fill" style="width:{pipeline.ocr.total ? Math.round(((pipeline.ocr.done + pipeline.ocr.failed) / pipeline.ocr.total) * 100) : 0}%"></div></div>
+  {:else}
+    <div class="row-between"><span>Queued for OCR</span><span class="muted">{summary.counts.queued}</span></div>
+    <div class="row-between"><span>Done</span><span class="muted">{summary.counts.done}</span></div>
+  {/if}
   {#if summary.counts.failed}<div class="row-between"><span>Failed</span><span class="err">{summary.counts.failed}</span></div>{/if}
-  <div class="muted">OCR, layout, and the text pass run automatically once processing starts (M3).</div>
+  <div class="muted">Then layout → text pass, automatically. Review opens on page 1 when you are ready. No need to wait.</div>
   <button type="button" class="primary" onclick={() => onstartreview?.()} disabled={summary.counts.done === 0}>Start reviewing page 1</button>
 </div>
 
@@ -179,6 +195,22 @@
   .row-between {
     display: flex;
     justify-content: space-between;
+  }
+  .small-row {
+    font-size: 12px;
+    border-top: 1px solid var(--border-soft);
+    padding-top: 10px;
+  }
+  .bar {
+    height: 6px;
+    background: var(--track);
+    border-radius: 3px;
+  }
+  .fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 200ms;
   }
   .err {
     color: var(--danger);

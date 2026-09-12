@@ -14,11 +14,21 @@
   import { view } from "$lib/stores/view.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import PageMiniGrid from "$lib/workspace/PageMiniGrid.svelte";
+  import JobMonitor from "$lib/workspace/JobMonitor.svelte";
+  import { pipeline } from "$lib/stores/pipeline.svelte";
+  import { api, type ProcessingSettings } from "$lib/api";
+  import { isTauri } from "$lib/ipc";
 
   type Props = { summary: ProjectSummary };
   let { summary }: Props = $props();
 
   let tab = $state("import");
+  let monitorOpen = $state(false);
+  let settings = $state<ProcessingSettings | null>(null);
+  $effect(() => {
+    if (isTauri) api.settingsGet().then((s) => (settings = s)).catch(() => {});
+  });
+  const settingsLine = $derived(settings ? `${settings.model === "eng_best" ? "eng best" : "eng fast"} · ${settings.dpi}dpi · deskew ${settings.deskew ? "on" : "off"}` : "");
 
   $effect(() => {
     if (view.pageCount !== summary.meta.source.page_count) view.reset(summary.meta.source.page_count);
@@ -29,14 +39,27 @@
 
   const currentPage = $derived(summary.pages[view.page] ?? null);
 
+  const ocrState = $derived.by((): StageRow["state"] => {
+    if (pipeline.state === "running" || pipeline.state === "stopping" || pipeline.state === "paused") return "running";
+    if (summary.counts.failed > 0 && summary.counts.queued === 0) return "failed";
+    if (summary.counts.in_scope > 0 && summary.counts.done >= summary.counts.in_scope) return "done";
+    return "queued";
+  });
+  const ocrValue = $derived.by(() => {
+    const o = pipeline.ocr;
+    if (pipeline.state === "paused") return "paused";
+    if (o && pipeline.active) return `${o.done + o.failed} / ${o.total}`;
+    if (summary.counts.done > 0 || summary.counts.failed > 0) return `${summary.counts.done} / ${summary.counts.in_scope}`;
+    return "queued";
+  });
   const stages = $derived<StageRow[]>([
     { id: "import", label: "Import", state: "done", value: `${summary.counts.in_scope} pp` },
     {
       id: "ocr",
       label: "OCR",
-      state: summary.counts.running ? "running" : summary.counts.done >= summary.counts.in_scope && summary.counts.in_scope > 0 ? "done" : "queued",
-      value: summary.counts.running || summary.counts.done ? `${summary.counts.done} / ${summary.counts.in_scope}` : "queued",
-      progress: summary.counts.in_scope ? summary.counts.done / summary.counts.in_scope : 0,
+      state: ocrState,
+      value: ocrValue,
+      progress: pipeline.ocr && pipeline.ocr.total ? (pipeline.ocr.done + pipeline.ocr.failed) / pipeline.ocr.total : summary.counts.in_scope ? summary.counts.done / summary.counts.in_scope : 0,
     },
     { id: "layout", label: "Layout", state: "queued", value: "queued" },
     { id: "text_pass", label: "Text pass", state: "queued", value: "queued" },
@@ -54,11 +77,14 @@
   function onrail(id: string) {
     if (id === "ai") ui.toast("AI proofreading arrives in a later version.", "info", 4000);
     else if (id === "export") ui.toast("Export arrives in M7.", "info");
-    else view.mode = "processing";
+    else {
+      view.mode = "processing";
+      if (id === "ocr") monitorOpen = true;
+    }
   }
 </script>
 
-<div class="workspace" class:review={view.mode === "review"} class:strip={view.mode === "review" && ui.theme !== "bench"}>
+<div class="workspace" class:review={view.mode === "review"} class:strip={view.mode === "review" && ui.theme !== "bench"} class:monitor={view.mode === "processing" && monitorOpen}>
   <PipelineRail {stages} activeId={view.mode === "processing" ? "import" : ""} onselect={onrail}>
     <div class="review-block">
       <button type="button" class="label linkish" onclick={() => (view.mode = "review")}>Review</button>
@@ -71,6 +97,22 @@
       <PageMiniGrid pages={summary.pages} />
     {/if}
     {#snippet footer()}
+      {#if view.mode === "processing"}
+        <div class="controls">
+          {#if pipeline.state === "running" || pipeline.state === "stopping"}
+            <button type="button" class="ctl" onclick={() => pipeline.pause()} disabled={pipeline.state === "stopping"}>Pause all</button>
+          {:else if pipeline.state === "paused"}
+            <button type="button" class="ctl primary" onclick={() => pipeline.resume()}>Resume</button>
+            <button type="button" class="ctl" onclick={() => pipeline.cancel()}>Stop</button>
+          {:else if summary.counts.failed > 0}
+            <button type="button" class="ctl primary" onclick={() => pipeline.retryFailed()}>Retry {summary.counts.failed} failed</button>
+            {#if summary.counts.queued > 0}<button type="button" class="ctl" onclick={() => pipeline.start()}>Process {summary.counts.queued} queued</button>{/if}
+          {:else if summary.counts.queued > 0 && !summary.read_only}
+            <button type="button" class="ctl primary" onclick={() => pipeline.start()}>Process {summary.counts.queued} pages</button>
+          {/if}
+          {#if !monitorOpen}<button type="button" class="ctl muted" onclick={() => (monitorOpen = true)}>Details</button>{/if}
+        </div>
+      {/if}
       <div class="keys">
         <kbd>PgUp/PgDn</kbd><span>prev / next page</span>
         <kbd>Ctrl +/−</kbd><span>zoom</span>
@@ -78,6 +120,9 @@
       </div>
     {/snippet}
   </PipelineRail>
+  {#if view.mode === "processing" && monitorOpen}
+    <JobMonitor {summary} {settingsLine} oncollapse={() => (monitorOpen = false)} />
+  {/if}
 
   {#if view.mode === "review"}
     {#if ui.theme !== "bench"}
@@ -111,7 +156,7 @@
     {#if tab === "page"}
       <PageInspector page={currentPage} />
     {:else}
-      <ImportInspector {summary} onstartreview={() => view.open(0)} />
+      <ImportInspector {summary} onstartreview={() => view.open(0)} eta={pipeline.ocr?.eta_ms ?? null} secsPerPage={pipeline.ocr?.secs_per_unit ?? null} pipelineState={pipeline.state} />
     {/if}
   </Inspector>
 </div>
@@ -122,6 +167,9 @@
     grid-template-columns: var(--rail-w) 1fr auto;
     min-height: 0;
     height: 100%;
+  }
+  .workspace.monitor {
+    grid-template-columns: var(--rail-w) 360px 1fr auto;
   }
   .workspace.review {
     grid-template-columns: var(--rail-w) minmax(0, 1fr) minmax(0, 1fr) auto;
@@ -172,6 +220,38 @@
   .row {
     display: flex;
     justify-content: space-between;
+  }
+  .controls {
+    padding: 6px;
+    display: grid;
+    gap: 6px;
+  }
+  .ctl {
+    all: unset;
+    text-align: center;
+    padding: 7px;
+    border-radius: var(--radius-control);
+    border: 1px solid var(--border-input);
+    background: var(--paper);
+    font-size: 12px;
+    cursor: default;
+  }
+  .ctl.primary {
+    background: var(--primary-bg);
+    color: var(--primary-fg);
+    border-color: var(--primary-bg);
+    font-weight: 600;
+  }
+  .ctl.muted {
+    color: var(--muted);
+    border-color: transparent;
+    background: none;
+  }
+  .ctl:disabled {
+    opacity: 0.5;
+  }
+  .ctl:focus-visible {
+    outline: 2px solid var(--accent);
   }
   .keys {
     padding: 6px;

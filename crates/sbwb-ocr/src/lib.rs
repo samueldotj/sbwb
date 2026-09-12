@@ -5,6 +5,7 @@
 //! and the raw TSV/hOCR kept as evidence. Line and block structure from
 //! Tesseract's own segmentation is retained as extra layout evidence (D-11).
 
+pub mod models;
 pub mod tsv;
 
 use std::path::Path;

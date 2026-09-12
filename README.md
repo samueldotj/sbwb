@@ -38,7 +38,7 @@ developer; "week" is a rough unit, not a commitment.
 | M0 | Scaffold and toolchain | 1-2 weeks | Done (CI unverified) |
 | M1 | Projects and import | 2 weeks | Done |
 | M2 | Rendering and page navigation | 1-2 weeks | Done (benchmarks partial) |
-| M3 | OCR pipeline and processing UI | 3 weeks | Not started |
+| M3 | OCR pipeline and processing UI | 3 weeks | Done |
 | M4 | Layout analysis and Layout mode | 3 weeks | Not started |
 | M5 | Text reconstruction and provenance | 3 weeks | Not started |
 | M6 | Review workspace | 4 weeks | Not started |
@@ -107,17 +107,17 @@ Goal: import triggers OCR automatically with live progress, pause, resume, retry
 
 | ID | Task | References | Status |
 | --- | --- | --- | --- |
-| M3.1 | Job model: plan with stages Import → OCR → Layout → Text pass, per-page units, recorded algorithms/models/settings/input revisions | PIPE-01 | Not started |
-| M3.2 | Scheduler on Tokio: bounded worker pool, per-unit timeout 120 s, cancellation at page boundaries, escalation after 10 s grace | NFR-06, NFR-07 | Not started |
-| M3.3 | Tesseract adapter: page render at 300 DPI, `eng` and `tessdata_best/eng`, TSV parse into words with boxes and native confidences, hOCR kept as raw evidence | OCR-01, PROV-01 | Not started |
-| M3.4 | Preparation: orientation, deskew, conservative contrast; originals and variants recorded with geometry | IMG-01 | Not started |
-| M3.5 | Model pack manager: catalog with checksums, download or local package install, offline bundle of `eng` | OCR-01, NFR-12 | Not started |
-| M3.6 | Progress events: stage, done/total, elapsed, estimate when reliable, activity heartbeat ≤ 2 s; log lines | PIPE-02, design 4.2 | Not started |
-| M3.7 | Pipeline rail live state, Pause all / Resume / Retry failed pages, job monitor with per-stage cards and log | design 3, 4.2 | Not started |
-| M3.8 | Import inspector: source card, First 50 / Range… / All, estimate, Start reviewing page 1, project location | design 4.2, UX-02 | Not started |
-| M3.9 | Settings page, "this book · Processing" rows and app groups; apply with re-run consequence | UX-06, design 4.7 | Not started |
-| M3.10 | Memory accounting with `sysinfo`, caps on queues and crops, oversized-page warning | NFR-04 | Not started |
-| M3.11 | Durability tests: kill worker mid-page, disk full, restart and resume | NFR-10 | Not started |
+| M3.1 | Job model: plan with stages Import → OCR → Layout → Text pass, per-page units, recorded algorithms/models/settings/input revisions | PIPE-01 | Done |
+| M3.2 | Scheduler on Tokio: bounded worker pool, per-unit timeout 120 s, cancellation at page boundaries, escalation after 10 s grace | NFR-06, NFR-07 | Done |
+| M3.3 | Tesseract adapter: page render at 300 DPI, `eng` and `tessdata_best/eng`, TSV parse into words with boxes and native confidences, hOCR kept as raw evidence | OCR-01, PROV-01 | Done |
+| M3.4 | Preparation: orientation, deskew, conservative contrast; originals and variants recorded with geometry | IMG-01 | Done |
+| M3.5 | Model pack manager: catalog with checksums, download or local package install, offline bundle of `eng` | OCR-01, NFR-12 | Done (no downloader; both packs bundled) |
+| M3.6 | Progress events: stage, done/total, elapsed, estimate when reliable, activity heartbeat ≤ 2 s; log lines | PIPE-02, design 4.2 | Done |
+| M3.7 | Pipeline rail live state, Pause all / Resume / Retry failed pages, job monitor with per-stage cards and log | design 3, 4.2 | Done |
+| M3.8 | Import inspector: source card, First 50 / Range… / All, estimate, Start reviewing page 1, project location | design 4.2, UX-02 | Done |
+| M3.9 | Settings page, "this book · Processing" rows and app groups; apply with re-run consequence | UX-06, design 4.7 | Done |
+| M3.10 | Memory accounting with `sysinfo`, caps on queues and crops, oversized-page warning | NFR-04 | Done |
+| M3.11 | Durability tests: kill worker mid-page, disk full, restart and resume | NFR-10 | Partial (timeout, cancel, resume tested; disk-full pending) |
 
 Exit: A-02 extend-a-trial passes; four workers reach ≥ 2× single-worker throughput or a documented decision (NFR-07).
 

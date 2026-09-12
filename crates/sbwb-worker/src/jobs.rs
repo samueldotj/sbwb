@@ -107,6 +107,7 @@ pub fn handle(ctx: &mut Context, req: Request, emit: &mut dyn FnMut(Message)) ->
             page,
             dpi,
             settings,
+            prep,
             save_render,
         } => {
             let started = Instant::now();
@@ -132,15 +133,37 @@ pub fn handle(ctx: &mut Context, req: Request, emit: &mut dyn FnMut(Message)) ->
             }
             emit(Message::Progress {
                 id,
+                activity: format!("prepare {page}"),
+            });
+            let (prepared, report) = sbwb_image::prepare(&rendered.image, &prep);
+            emit(Message::Progress {
+                id,
                 activity: format!("ocr {page}"),
             });
             let engine = sbwb_ocr::Engine::new(&ctx.tessdata());
-            let output = engine.recognize(&rendered.image, &rendered.transform, &settings)?;
+            let mut output = engine.recognize(&prepared, &rendered.transform, &settings)?;
+            if report.deskewed {
+                // Boxes came from the deskewed bitmap; anchor them to the
+                // original render, then to page points (PROV-01).
+                for w in &mut output.words {
+                    w.bbox_px = report.map_back(&w.bbox_px);
+                    w.bbox = rendered.transform.to_points(&w.bbox_px);
+                }
+                for l in &mut output.lines {
+                    l.bbox_px = report.map_back(&l.bbox_px);
+                    l.bbox = rendered.transform.to_points(&l.bbox_px);
+                }
+                for b in &mut output.blocks {
+                    b.bbox_px = report.map_back(&b.bbox_px);
+                    b.bbox = rendered.transform.to_points(&b.bbox_px);
+                }
+            }
             Ok(Response::Ocr {
                 output,
                 page_w_pt: rendered.page_size.0,
                 page_h_pt: rendered.page_size.1,
                 render: save_render,
+                prep: report,
                 elapsed_ms: started.elapsed().as_millis() as u64,
             })
         }

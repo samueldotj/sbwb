@@ -20,6 +20,7 @@ sbwb-store = { path = "crates/sbwb-store" }
 sbwb-review = { path = "crates/sbwb-review" }
 sbwb-export = { path = "crates/sbwb-export" }
 sbwb-worker = { path = "crates/sbwb-worker" }
+sbwb-pipeline = { path = "crates/sbwb-pipeline" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -52,6 +53,7 @@ strsim = "0.11"
 rstar = "0.13"
 ndarray = "0.16"
 fast_image_resize = "6"
+sha2 = "0.10"
 
 [profile.release]
 codegen-units = 1

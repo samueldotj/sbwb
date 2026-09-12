@@ -27,6 +27,7 @@ pub struct OcrLine {
     pub paragraph: u32,
     pub line: u32,
     pub bbox: Rect,
+    pub bbox_px: Rect,
     pub word_count: u32,
 }
 
@@ -34,6 +35,7 @@ pub struct OcrLine {
 pub struct OcrBlock {
     pub block: u32,
     pub bbox: Rect,
+    pub bbox_px: Rect,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -59,12 +61,17 @@ pub fn parse_tsv(tsv: &str, transform: &Transform) -> TsvPage {
         let bbox_px = Rect::new(num(6), num(7), num(8), num(9));
         let bbox = transform.to_points(&bbox_px);
         match level {
-            2 => page.blocks.push(OcrBlock { block, bbox }),
+            2 => page.blocks.push(OcrBlock {
+                block,
+                bbox,
+                bbox_px,
+            }),
             4 => page.lines.push(OcrLine {
                 block,
                 paragraph: par,
                 line,
                 bbox,
+                bbox_px,
                 word_count: 0,
             }),
             5 => {

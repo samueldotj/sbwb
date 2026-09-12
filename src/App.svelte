@@ -6,6 +6,8 @@
   import MenuButton, { type MenuItem } from "$lib/shell/MenuButton.svelte";
   import WelcomePage from "$lib/pages/WelcomePage.svelte";
   import WorkspacePage from "$lib/pages/WorkspacePage.svelte";
+  import SettingsPage from "$lib/pages/SettingsPage.svelte";
+  import { pipeline, formatEta } from "$lib/stores/pipeline.svelte";
   import { project } from "$lib/stores/project.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { isTauri } from "$lib/ipc";
@@ -22,7 +24,8 @@
     { id: "open", label: "Open project…", accel: "Ctrl+O", disabled: project.isOpen, separatorAfter: true },
     { id: "save_copy", label: "Save a copy…", accel: "Ctrl+Shift+S", disabled: !project.isOpen },
     { id: "export", label: "Export to Word…", accel: "Ctrl+E", disabled: true, separatorAfter: true },
-    { id: "close", label: "Close book", accel: "Ctrl+W", disabled: !project.isOpen },
+    { id: "close", label: "Close book", accel: "Ctrl+W", disabled: !project.isOpen, separatorAfter: true },
+    { id: "settings", label: "Settings…", accel: "Ctrl+," },
   ]);
 
   async function onmenu(id: string) {
@@ -49,6 +52,9 @@
       case "export":
         ui.toast("Export arrives in M7.", "info");
         break;
+      case "settings":
+        ui.settingsOpen = true;
+        break;
     }
   }
 
@@ -73,6 +79,15 @@
       if (e.key === "End" && e.ctrlKey) {
         view.goTo(view.pageCount - 1);
         e.preventDefault();
+        return;
+      }
+      if (e.key === "," && (e.ctrlKey || e.metaKey)) {
+        ui.settingsOpen = !ui.settingsOpen;
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Escape" && ui.settingsOpen) {
+        ui.settingsOpen = false;
         return;
       }
       if (e.key === "Escape" && view.mode === "review") {
@@ -110,6 +125,7 @@
 
   onMount(() => {
     void project.init();
+    void pipeline.init();
     if (import.meta.env.DEV) {
       (window as unknown as { __sbwb: unknown }).__sbwb = {
         importPdf: (p: string) => project.importPdf(p),
@@ -148,7 +164,7 @@
 
 <div class="app">
   <TitleBar
-    context={project.isOpen ? (project.lockedBy ? "read-only" : "") : "Local · nothing uploaded"}
+    context={ui.settingsOpen ? "/ Settings" : project.isOpen ? (project.lockedBy ? "read-only" : "") : "Local · nothing uploaded"}
     bookTitle={project.title}
     bookMeta={project.isOpen ? project.scopeLabel : ""}
   >
@@ -157,18 +173,21 @@
     {/snippet}
   </TitleBar>
   <main class="main">
-    {#if project.summary}
+    {#if ui.settingsOpen}
+      <SettingsPage onclose={() => (ui.settingsOpen = false)} />
+    {:else if project.summary}
       <WorkspacePage summary={project.summary} />
     {:else}
-      <WelcomePage {version} {dragging} onsettings={() => ui.toast("Settings arrive in M3.", "info")} />
+      <WelcomePage {version} {dragging} onsettings={() => (ui.settingsOpen = true)} />
     {/if}
   </main>
   <StatusBar
     saveState={project.isOpen ? "saved" : "idle"}
     savedAgo="just now"
     projectFile={project.summary?.path.split(/[\\/]/).pop() ?? ""}
-    stage={project.busy ?? ""}
-    running={project.busy !== null}
+    stage={project.busy ?? (pipeline.active && pipeline.ocr ? `OCR · page ${pipeline.ocr.done + pipeline.ocr.failed} of ${pipeline.ocr.total}${pipeline.ocr.eta_ms !== null ? " · " + formatEta(pipeline.ocr.eta_ms) : ""}` : "")}
+    running={project.busy !== null || pipeline.state === "running"}
+    counters={pipeline.ocr && pipeline.ocr.failed ? `${pipeline.ocr.failed} failed` : ""}
   />
   <Toast />
 </div>

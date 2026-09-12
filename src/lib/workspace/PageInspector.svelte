@@ -11,6 +11,7 @@
 
   $effect(() => {
     const idx = view.page;
+    void page?.status; // refresh the run list when the page changes state
     let cancelled = false;
     api
       .pageRuns(idx)

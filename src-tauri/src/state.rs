@@ -111,6 +111,12 @@ impl From<sbwb_core::SbwbError> for CommandError {
     }
 }
 
+impl From<serde_json::Error> for CommandError {
+    fn from(e: serde_json::Error) -> Self {
+        CommandError::new("serde", e)
+    }
+}
+
 impl CommandError {
     pub fn new(code: &str, message: impl std::fmt::Display) -> Self {
         tracing::warn!(code, "command failed: {message}");

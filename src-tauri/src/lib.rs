@@ -46,6 +46,7 @@ pub fn run() {
             let res = paths::Resources::locate(app.handle());
             tracing::info!(pdfium = %res.pdfium_dir.display(), tessdata = %res.tessdata_dir.display(), "resources located");
             app.manage(state::AppState::new(res));
+            app.manage(commands::pipeline::PipelineSlot::default());
 
             // Writer-lock heartbeat (PRJ-02).
             let handle = app.handle().clone();
@@ -78,6 +79,7 @@ pub fn run() {
             // Release the lock on close so another instance can write (PRJ-04
             // close flow with drafts arrives in M6).
             if let tauri::WindowEvent::Destroyed = event {
+                commands::pipeline::stop_for_close(window.app_handle());
                 if let Some(state) = window.try_state::<state::AppState>() {
                     if let Ok(mut guard) = state.project.lock() {
                         if let Some(p) = guard.take() {
@@ -100,6 +102,18 @@ pub fn run() {
             commands::page::page_ocr,
             commands::page::page_runs,
             commands::page::prefetch_render,
+            commands::pipeline::pipeline_start,
+            commands::pipeline::pipeline_pause,
+            commands::pipeline::pipeline_resume,
+            commands::pipeline::pipeline_cancel,
+            commands::pipeline::pipeline_retry_failed,
+            commands::pipeline::pipeline_status,
+            commands::settings::settings_get,
+            commands::settings::settings_preview,
+            commands::settings::settings_set,
+            commands::settings::models_report,
+            commands::settings::storage_info,
+            commands::settings::clear_render_cache,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SBWB");

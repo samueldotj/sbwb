@@ -41,8 +41,8 @@ impl Resources {
             .unwrap_or_else(|| repo_root.join("models"));
 
         Self {
-            pdfium_dir,
-            tessdata_dir,
+            pdfium_dir: simplify(pdfium_dir),
+            tessdata_dir: simplify(tessdata_dir),
         }
     }
 }
@@ -54,5 +54,40 @@ pub fn pdfium_lib_name() -> &'static str {
         "libpdfium.dylib"
     } else {
         "libpdfium.so"
+    }
+}
+
+/// Strip the Windows verbatim prefix (`\\?\C:\...`). Native libraries such
+/// as Tesseract join forward-slash file names onto the directory, which the
+/// verbatim form rejects.
+pub fn simplify(path: PathBuf) -> PathBuf {
+    let s = path.to_string_lossy().into_owned();
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        if let Some(unc) = rest.strip_prefix(r"UNC\") {
+            return PathBuf::from(format!(r"\\{unc}"));
+        }
+        return PathBuf::from(rest);
+    }
+    path
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strips_verbatim_prefix() {
+        assert_eq!(
+            simplify(PathBuf::from(r"\\?\C:\x\y")),
+            PathBuf::from(r"C:\x\y")
+        );
+        assert_eq!(
+            simplify(PathBuf::from(r"\\?\UNC\srv\share")),
+            PathBuf::from(r"\\srv\share")
+        );
+        assert_eq!(
+            simplify(PathBuf::from(r"C:\plain")),
+            PathBuf::from(r"C:\plain")
+        );
     }
 }
