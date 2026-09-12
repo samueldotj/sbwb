@@ -117,3 +117,13 @@
   --shadow-sheet: 0 20px 60px rgba(0, 0, 0, 0.6);
   --shadow-page: 0 4px 20px rgba(0, 0, 0, 0.5);
 }
+
+/* Enlarged text (UX-05): every size that matters for reading scales. */
+:root[data-textsize="large"] {
+  font-size: 16px;
+  --font-size-transcript: 19px;
+  --inspector-w: 340px;
+}
+:root[data-textsize="large"] body {
+  font-size: 16px;
+}

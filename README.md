@@ -41,7 +41,7 @@ developer; "week" is a rough unit, not a commitment.
 | M3 | OCR pipeline and processing UI | 3 weeks | Done |
 | M4 | Layout analysis and Layout mode | 3 weeks | Done (ground truth partial) |
 | M5 | Text reconstruction and provenance | 3 weeks | Done |
-| M6 | Review workspace | 4 weeks | Not started |
+| M6 | Review workspace | 4 weeks | Done |
 | M7 | Word export | 3 weeks | Not started |
 | M8 | Targeted refinement and second engine | 2 weeks | Not started |
 | M9 | Hardening and release | 3 weeks | Not started |
@@ -164,19 +164,21 @@ Goal: the keyboard-first review loop from the mockups, end to end.
 
 | ID | Task | References | Status |
 | --- | --- | --- | --- |
-| M6.1 | Issue index: types (missing text, order ambiguity, clipping, conflicting readings, risky substitutions, questionable joins, user flags), priority, counts by state, stale detection | REV-01 | Not started |
-| M6.2 | Threshold filter (default 70), category filters, hide completed/auto-applied/approved markers | REV-02 | Not started |
-| M6.3 | Transcript pane: logical paragraphs, running-head line, marks with hover/focus source highlighting | design 4.3, REV-03 | Not started |
-| M6.4 | Issue tab: evidence crop, reading, score chip with source, reason, candidates 1-9, Accept/Edit/Skip/Later, history, auto-advance | REV-03, design 4.3 | Not started |
-| M6.5 | J/K navigation across the book, deduplicated cross-page items, wrap once, failures reported | REV-04 | Not started |
-| M6.6 | Grouped corrections: whole-token matching, preview with exclusions and conflicts, atomic apply, named history, guarded undo | REV-05 | Not started |
-| M6.7 | Decisions anchored to revisions; rerun protection; deferred view; page approval with covered revision and outstanding acknowledgements; Approve page button | REV-06 | Not started |
-| M6.8 | Page tab: no matching / no unresolved / approved states, exclusions, re-run | REV-06 | Not started |
-| M6.9 | Drafts and saving: transactional commits, Saving/Saved/Save failed, guarded navigation, close dialog, crash recovery | PRJ-04 | Not started |
-| M6.10 | Accessibility pass: names, focus order, announcements, enlarged text, contrast | UX-05 | Not started |
-| M6.11 | Indexed next-issue query p95 ≤ 300 ms on 10,000 issues | NFR-03 | Not started |
+| M6.1 | Issue index: types (missing text, order ambiguity, clipping, conflicting readings, risky substitutions, questionable joins, user flags), priority, counts by state, stale detection | REV-01 | Done (missing text, order ambiguity, and clipping kinds are modelled; they are raised by M8.2 coverage gaps) |
+| M6.2 | Threshold filter (default 70), category filters, hide completed/auto-applied/approved markers | REV-02 | Done |
+| M6.3 | Transcript pane: logical paragraphs, running-head line, marks with hover/focus source highlighting | design 4.3, REV-03 | Done |
+| M6.4 | Issue tab: evidence crop, reading, score chip with source, reason, candidates 1-9, Accept/Edit/Skip/Later, history, auto-advance | REV-03, design 4.3 | Done |
+| M6.5 | J/K navigation across the book, deduplicated cross-page items, wrap once, failures reported | REV-04 | Done |
+| M6.6 | Grouped corrections: whole-token matching, preview with exclusions and conflicts, atomic apply, named history, guarded undo | REV-05 | Done |
+| M6.7 | Decisions anchored to revisions; rerun protection; deferred view; page approval with covered revision and outstanding acknowledgements; Approve page button | REV-06 | Done |
+| M6.8 | Page tab: no matching / no unresolved / approved states, exclusions, re-run | REV-06 | Done |
+| M6.9 | Drafts and saving: transactional commits, Saving/Saved/Save failed, guarded navigation, close dialog, crash recovery | PRJ-04 | Done (edits commit per decision; the only draft is an open Edit box, persisted and restored) |
+| M6.10 | Accessibility pass: names, focus order, announcements, enlarged text, contrast | UX-05 | Done (names, focus order, live announcements, Large text size; no external audit yet) |
+| M6.11 | Indexed next-issue query p95 ≤ 300 ms on 10,000 issues | NFR-03 | Done (`next_issue_is_fast_on_ten_thousand_issues`) |
 
 Exit: A-07, A-08, A-09, A-10, A-13 pass.
+
+Notes: issues live in an indexed `issues` table rebuilt per page after every text pass; decisions carry over by (kind, original, replacement) and accepted readings are re-applied to fresh text (A-09). Grouped corrections and undo are all-or-nothing on span revisions (A-08). Approval records the covered text and layout revisions plus acknowledged outstanding issues; `approval` is `current`, `outdated`, or `none` (D-29).
 
 ### M7 — Word export (3 weeks)
 

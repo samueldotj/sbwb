@@ -4315,6 +4315,7 @@ dependencies = [
  "sbwb-ocr",
  "sbwb-pdf",
  "sbwb-pipeline",
+ "sbwb-review",
  "sbwb-store",
  "sbwb-text",
  "sbwb-worker",
@@ -4436,7 +4437,9 @@ name = "sbwb-review"
 version = "0.1.0"
 dependencies = [
  "sbwb-core",
+ "sbwb-text",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4449,6 +4452,7 @@ dependencies = [
  "rusqlite_migration",
  "sbwb-core",
  "sbwb-ocr",
+ "sbwb-review",
  "sbwb-text",
  "serde",
  "serde_json",

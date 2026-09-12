@@ -130,6 +130,9 @@ function mockSummary(pages: number, scope: number): ProjectSummary {
     text_done: false,
     layout_revision: 0,
     text_revision: 0,
+    approved_outstanding: 0,
+    approved_at: null,
+    approval: (i < 3 ? "current" : "none") as "current" | "none",
   }));
   return {
     path: "C:\mock\book.sbwb",

@@ -61,6 +61,14 @@ pub struct PageRow {
     pub layout_revision: u64,
     #[serde(default)]
     pub text_revision: u64,
+    /// Issues acknowledged as outstanding at approval time (REV-06).
+    #[serde(default)]
+    pub approved_outstanding: u32,
+    #[serde(default)]
+    pub approved_at: Option<String>,
+    /// `none`, `current`, or `outdated` (text or layout changed since).
+    #[serde(default)]
+    pub approval: String,
 }
 
 /// A proposal row with its decision status (M5/M6).
@@ -138,7 +146,7 @@ pub struct PageCounts {
 pub type PageOcr = (RunId, Vec<sbwb_ocr::OcrWord>, Vec<sbwb_ocr::OcrLine>, f32);
 
 pub struct Project {
-    conn: Connection,
+    pub(crate) conn: Connection,
     path: PathBuf,
     mode: OpenMode,
 }
@@ -187,7 +195,7 @@ fn parse_stage(s: &str) -> Stage {
     }
 }
 
-fn db(e: rusqlite::Error) -> SbwbError {
+pub(crate) fn db(e: rusqlite::Error) -> SbwbError {
     SbwbError::other(format!("database: {e}"))
 }
 
@@ -390,7 +398,7 @@ impl Project {
         crate::cache_dir_for(&self.path)
     }
 
-    fn require_write(&self) -> Result<()> {
+    pub(crate) fn require_write(&self) -> Result<()> {
         if self.is_read_only() {
             Err(SbwbError::Conflict("project is open read-only".into()))
         } else {
@@ -488,7 +496,7 @@ impl Project {
     pub fn pages(&self) -> Result<Vec<PageRow>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT page_index, width_pt, height_pt, status, printed_label, error, approved_revision, ocr_done, layout_done, text_done, layout_revision, text_revision FROM pages ORDER BY page_index")
+            .prepare("SELECT page_index, width_pt, height_pt, status, printed_label, error, approved_revision, ocr_done, layout_done, text_done, layout_revision, text_revision, approved_outstanding, approved_at, approved_layout_revision FROM pages ORDER BY page_index")
             .map_err(db)?;
         let rows = stmt
             .query_map([], |r| {
@@ -505,6 +513,24 @@ impl Project {
                     text_done: r.get::<_, i64>(9)? != 0,
                     layout_revision: r.get::<_, i64>(10)? as u64,
                     text_revision: r.get::<_, i64>(11)? as u64,
+                    approved_outstanding: r.get::<_, i64>(12)? as u32,
+                    approved_at: r.get(13)?,
+                    approval: {
+                        let approved: Option<i64> = r.get(6)?;
+                        let text_rev: i64 = r.get(11)?;
+                        let layout_rev: i64 = r.get(10)?;
+                        let approved_layout: Option<i64> = r.get(14)?;
+                        match approved {
+                            None => "none".to_string(),
+                            Some(a)
+                                if a == text_rev
+                                    && approved_layout.map(|l| l == layout_rev).unwrap_or(true) =>
+                            {
+                                "current".to_string()
+                            }
+                            Some(_) => "outdated".to_string(),
+                        }
+                    },
                 })
             })
             .map_err(db)?;
@@ -559,7 +585,7 @@ impl Project {
                 PageStatus::Failed => c.failed += 1,
                 PageStatus::Done => c.done += 1,
             }
-            if p.approved_revision.is_some() {
+            if p.approval == "current" {
                 c.approved += 1;
             }
             if p.ocr_done {
@@ -966,7 +992,8 @@ impl Project {
             params![page.0 as i64],
         )
         .map_err(db)?;
-        tx.commit().map_err(db)
+        tx.commit().map_err(db)?;
+        self.rebuild_issues(page)
     }
 
     pub fn page_spans(&self, page: PageIndex) -> Result<Vec<sbwb_text::Span>> {

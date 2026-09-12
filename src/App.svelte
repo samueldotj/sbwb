@@ -9,6 +9,8 @@
   import SettingsPage from "$lib/pages/SettingsPage.svelte";
   import { pipeline, formatEta } from "$lib/stores/pipeline.svelte";
   import { textPass } from "$lib/stores/text.svelte";
+  import { review } from "$lib/stores/review.svelte";
+  import ChoiceDialog from "$lib/shell/ChoiceDialog.svelte";
   import { layout } from "$lib/stores/layout.svelte";
   import { project } from "$lib/stores/project.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -49,7 +51,7 @@
         break;
       }
       case "close":
-        await project.close();
+        await closeBook();
         break;
       case "export":
         ui.toast("Export arrives in M7.", "info");
@@ -58,6 +60,31 @@
         ui.settingsOpen = true;
         break;
     }
+  }
+
+  // PRJ-04: a draft edit is never discarded silently.
+  let closeDialog = $state(false);
+  let closeResolve: ((id: string) => void) | null = null;
+  async function closeBook() {
+    if (review.editing && review.editing.text.trim() && review.editing.text !== review.selected?.original) {
+      const choice = await new Promise<string>((resolve) => {
+        closeResolve = resolve;
+        closeDialog = true;
+      });
+      closeDialog = false;
+      if (choice === "cancel") return;
+      if (choice === "save") {
+        const out = await review.decide({ kind: "edit", text: review.editing.text });
+        if (!out) return; // save failed: stay open with the draft
+      } else if (choice === "discard") {
+        const spanId = review.editing.span;
+        review.editing = null;
+        await api.draftDelete(spanId).catch(() => {});
+      }
+    }
+    review.reset();
+    textPass.reset();
+    await project.close();
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -129,6 +156,7 @@
     void project.init();
     void pipeline.init();
     void textPass.init();
+    void review.init();
     if (import.meta.env.DEV) {
       (window as unknown as { __sbwb: unknown }).__sbwb = {
         importPdf: (p: string) => project.importPdf(p),
@@ -136,6 +164,10 @@
         close: () => project.close(),
         review: (i: number) => view.open(i),
         tab: (id: string) => (ui.inspectorTab = id),
+        step: (fwd = true) => review.step(fwd),
+        decide: (d: { kind: string; text?: string }) => review.decide(d as never),
+        approve: (i: number, ack = 0) => review.approve(i, ack),
+        review_store: review,
         layout: (i: number) => {
           view.open(i);
           view.editLayout();
@@ -185,6 +217,17 @@
     if (t && (t.applied || t.suggested)) parts.push(`${t.applied} applied · ${t.suggested} suggested`);
     return parts.join(" · ");
   });
+
+  let now = $state(Date.now());
+  $effect(() => {
+    const t = setInterval(() => (now = Date.now()), 5000);
+    return () => clearInterval(t);
+  });
+  const savedAgo = $derived.by(() => {
+    if (!ui.savedAt) return "";
+    const s = Math.max(0, Math.round((now - ui.savedAt) / 1000));
+    return s < 5 ? "just now" : s < 60 ? `${s} s ago` : `${Math.round(s / 60)} min ago`;
+  });
 </script>
 
 <svelte:window onkeydown={onkeydown} />
@@ -209,17 +252,34 @@
     {/if}
   </main>
   <StatusBar
-    saveState={project.isOpen ? "saved" : "idle"}
-    savedAgo="just now"
+    saveState={project.isOpen ? (ui.saveState === "idle" ? "saved" : ui.saveState) : "idle"}
+    savedAgo={savedAgo}
+    saveError={ui.saveError}
     projectFile={view.mode === "layout" ? `Layout · page ${view.page + 1}${layout.dirty ? " · unsaved changes" : ""} · Esc returns to Review` : (project.summary?.path.split(/[\\/]/).pop() ?? "")}
     stage={project.busy ?? stageLine}
     running={project.busy !== null || pipeline.state === "running"}
     counters={counters}
   />
   <Toast />
+  <div class="sr-only" aria-live="polite" role="status">{ui.announcement}</div>
+  <ChoiceDialog
+    open={closeDialog}
+    title="Unsaved edit"
+    message="You have an edit that has not been saved. Save it and close, discard it and close, or keep working?"
+    choices={[{ id: "save", label: "Save and close", kind: "primary" }, { id: "discard", label: "Discard unsaved changes and close", kind: "danger" }, { id: "cancel", label: "Cancel" }]}
+    onchoose={(id) => closeResolve?.(id)}
+  />
 </div>
 
 <style>
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
   .app {
     height: 100%;
     display: grid;

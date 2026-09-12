@@ -1,26 +1,50 @@
 <script lang="ts">
-  // Transcript pane (design 4.3). Shows the effective text as paragraphs
-  // once the text pass has run (M5): auto-applied changes carry a green
-  // mark, open proposals an amber one, both with the original on hover.
-  // Before that it falls back to raw OCR lines grouped by layout region.
-  import { api, type OcrWord, type PageRow, type Region, type Span, type StoredProposal } from "$lib/api";
+  // Transcript pane (design 4.3, REV-02, REV-03). Header: title, issues on
+  // this page, the review threshold slider. Body: running head in small
+  // caps, logical paragraphs of the effective text, footnotes after a
+  // divider. Marks: issue (amber), deferred (dotted), accepted (green),
+  // auto-applied (light green); the focused issue carries a ring. Hover or
+  // focus on a mark highlights the source word on the scan; click selects
+  // the issue. Falls back to raw OCR lines before the text pass has run.
+  import { api, type OcrWord, type PageRow, type Span } from "$lib/api";
   import { KIND_LABEL } from "$lib/stores/layout.svelte";
+  import { review } from "$lib/stores/review.svelte";
   import { view } from "$lib/stores/view.svelte";
   import type { Snippet } from "svelte";
 
   type Props = { page: PageRow | null; header?: Snippet };
   let { page, header }: Props = $props();
 
-  type Line = { text: string; conf: number };
-  type Group = { label: string; kind: string; lines: Line[] };
-  let lines = $state<Line[]>([]);
-  let groups = $state<Group[]>([]);
+  // ----- effective text -----
+  type Word = { span: Span; mark: ReturnType<typeof review.markFor> };
+  type Para = { kind: string; label: string; words: Word[]; region: string | null };
+  const paras = $derived.by((): Para[] => {
+    if (review.page !== view.page) return [];
+    const byRegion = new Map(review.regions.map((r) => [r.id, r]));
+    const out: Para[] = [];
+    let cur: Para | null = null;
+    let lastRegion: string | null | undefined;
+    for (const sp of review.spans) {
+      const r = sp.region ? byRegion.get(sp.region) : undefined;
+      if (sp.paragraph_start || sp.region !== lastRegion || !cur) {
+        cur = { kind: r?.kind ?? "uncertain", label: r ? KIND_LABEL[r.kind] : "outside regions", words: [], region: sp.region };
+        out.push(cur);
+        lastRegion = sp.region;
+      }
+      cur.words.push({ span: sp, mark: review.markFor(sp) });
+    }
+    return out;
+  });
+  const head = $derived(paras.filter((p) => p.kind === "header" || p.kind === "page_number"));
+  const body = $derived(paras.filter((p) => !["header", "page_number", "footer", "footnote"].includes(p.kind)));
+  const foot = $derived(paras.filter((p) => p.kind === "footer" || p.kind === "footnote"));
+  const headLine = $derived(head.map((p) => p.words.map((w) => w.span.text).join(" ")).join(" · "));
+  const onPage = $derived(review.page === view.page ? review.matching.length : 0);
 
-  function inside(w: OcrWord, r: Region): boolean {
-    const cx = w.bbox.x + w.bbox.w / 2;
-    const cy = w.bbox.y + w.bbox.h / 2;
-    return cx >= r.bbox.x && cx <= r.bbox.x + r.bbox.w && cy >= r.bbox.y && cy <= r.bbox.y + r.bbox.h;
-  }
+  // ----- raw fallback -----
+  type Line = { text: string; conf: number };
+  let lines = $state<Line[]>([]);
+  let rawFor = $state<number | null>(null);
   function toLines(ws: OcrWord[]): Line[] {
     const byLine = new Map<string, { words: string[]; conf: number[]; y: number }>();
     for (const w of ws) {
@@ -35,160 +59,130 @@
       .filter((l) => l.words.length)
       .map((l) => ({ text: l.words.join(" "), conf: l.conf.reduce((a, b) => a + b, 0) / l.conf.length }));
   }
-  let meanConf = $state<number | null>(null);
-  let status = $state<"idle" | "loading" | "none" | "ready">("idle");
-  let shownFor = $state<number | null>(null);
-
-  // ----- effective text (M5) -----
-  type Mark = { kind: "applied" | "open"; title: string };
-  type Word = { span: Span; mark: Mark | null };
-  type Para = { kind: string; label: string; words: Word[] };
-  let paras = $state<Para[]>([]);
-  let textStats = $state<{ applied: number; open: number } | null>(null);
-
-  function buildParas(spans: Span[], proposals: StoredProposal[], regions: Region[]): Para[] {
-    const byRegion = new Map(regions.map((r) => [r.id, r]));
-    const bySpan = new Map<string, StoredProposal[]>();
-    for (const p of proposals) {
-      if (p.status !== "applied_auto" && p.status !== "open") continue;
-      const list = bySpan.get(p.span) ?? [];
-      list.push(p);
-      bySpan.set(p.span, list);
-    }
-    const out: Para[] = [];
-    let cur: Para | null = null;
-    let lastRegion: string | null | undefined;
-    for (const sp of spans) {
-      const r = sp.region ? byRegion.get(sp.region) : undefined;
-      if (sp.paragraph_start || sp.region !== lastRegion || !cur) {
-        cur = { kind: r?.kind ?? "uncertain", label: r ? KIND_LABEL[r.kind] : "outside regions", words: [] };
-        out.push(cur);
-        lastRegion = sp.region;
-      }
-      const ps = bySpan.get(sp.id) ?? [];
-      let mark: Mark | null = null;
-      const applied = ps.find((p) => p.status === "applied_auto");
-      const open = ps.find((p) => p.status === "open");
-      if (applied) mark = { kind: "applied", title: `was “${applied.original}” · ${applied.reason} · score ${applied.score}` };
-      else if (open) mark = { kind: "open", title: `suggested “${open.replacement}” · ${open.reason} · score ${open.score}` };
-      else if (sp.origin === "auto_applied") mark = { kind: "applied", title: "changed by the text pass" };
-      cur.words.push({ span: sp, mark });
-    }
-    return out;
-  }
-
   $effect(() => {
     const idx = view.page;
-    if (page?.status !== "done") {
+    if (!page?.ocr_done || page.text_done) {
       lines = [];
-      meanConf = null;
-      status = "none";
-      shownFor = idx;
+      rawFor = idx;
       return;
     }
-    status = "loading";
     let cancelled = false;
-    void page.text_revision;
-    if (page.text_done) {
-      Promise.all([api.pageText(idx), api.pageLayout(idx)])
-        .then(([t, l]) => {
-          if (cancelled || !t) {
-            if (!cancelled) paras = [];
-            return;
-          }
-          paras = buildParas(t.spans, t.proposals, l?.regions ?? []);
-          textStats = {
-            applied: t.proposals.filter((p) => p.status === "applied_auto").length,
-            open: t.proposals.filter((p) => p.status === "open").length,
-          };
-        })
-        .catch(() => (paras = []));
-    } else {
-      paras = [];
-      textStats = null;
-    }
     api
       .pageOcr(idx)
       .then((o) => {
         if (cancelled) return;
-        if (!o) {
-          lines = [];
-          status = "none";
-        } else {
-          lines = toLines(o.words);
-          meanConf = o.mean_confidence;
-          status = "ready";
-          // group by layout regions in reading order when a layout exists
-          api
-            .pageLayout(idx)
-            .then((l) => {
-              if (cancelled || !l || l.regions.length === 0) {
-                groups = [];
-                return;
-              }
-              const used = new Set<number>();
-              const out: Group[] = [];
-              for (const r of [...l.regions].sort((a, b) => a.order - b.order)) {
-                if (r.kind === "ignore" || r.kind === "illustration") continue;
-                const ws = o.words.filter((w, i) => !used.has(i) && inside(w, r));
-                ws.forEach((w) => used.add(o.words.indexOf(w)));
-                if (ws.length) out.push({ label: KIND_LABEL[r.kind], kind: r.kind, lines: toLines(ws) });
-              }
-              const rest = o.words.filter((_, i) => !used.has(i) && o.words[i]!.text);
-              if (rest.length) out.push({ label: "outside regions", kind: "uncertain", lines: toLines(rest) });
-              groups = out;
-            })
-            .catch(() => (groups = []));
-        }
-        shownFor = idx;
+        lines = o ? toLines(o.words) : [];
+        rawFor = idx;
       })
       .catch(() => {
-        if (!cancelled) status = "none";
+        if (!cancelled) lines = [];
       });
     return () => {
       cancelled = true;
     };
   });
+
+  // Keep the focused issue in view.
+  let bodyEl = $state<HTMLElement | null>(null);
+  $effect(() => {
+    const id = review.selectedId;
+    if (!id || !bodyEl) return;
+    const issue = review.selected;
+    if (!issue) return;
+    const el = bodyEl.querySelector<HTMLElement>(`[data-span="${issue.span}"]`);
+    el?.scrollIntoView({ block: "center" });
+  });
+
+  function onMarkKey(e: KeyboardEvent, w: Word) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (w.mark.issue) review.select(w.mark.issue.id);
+    }
+  }
+  function title(w: Word): string {
+    const i = w.mark.issue;
+    if (i) return `${i.reason}${i.score !== null ? ` · ${i.score}% · ${i.score_source}` : ""}`;
+    if (w.mark.kind === "accepted") return "accepted reading";
+    if (w.mark.kind === "auto") return "changed by the text pass";
+    return "";
+  }
 </script>
 
 <section class="transcript" aria-label="Transcript">
   <div class="header">
     <span class="strong">Transcript</span>
-    {#if status === "ready" && meanConf !== null}
-      <span class="muted">mean OCR score {Math.round(meanConf)}</span>
-    {/if}
-    {#if paras.length && textStats}
-      <span class="muted"><span class="dot applied"></span>{textStats.applied} applied · <span class="dot open"></span>{textStats.open} suggested</span>
+    {#if review.page === view.page && review.spans.length}
+      <span class="muted count" aria-live="polite">{onPage} {review.deferredView ? "deferred" : onPage === 1 ? "issue" : "issues"}<span class="lbl"> on this page</span></span>
     {/if}
     <span class="grow"></span>
+    <label class="slider">
+      <span class="muted"><span class="lbl">Show issues </span>below</span>
+      <input
+        type="range"
+        min="0"
+        max="100"
+        step="1"
+        bind:value={review.threshold}
+        onchange={() => {
+          review.savePrefs();
+          void review.refreshCounts();
+        }}
+        aria-label="Review threshold: show issues below this score"
+        aria-valuetext="{review.threshold} percent"
+      />
+      <span class="mono">{review.threshold}%</span>
+    </label>
     {#if header}{@render header()}{/if}
   </div>
-  <div class="body">
-    {#if status === "loading" && shownFor !== view.page}
-      <p class="muted">Loading…</p>
-    {:else if status === "none"}
-      <p class="muted">No recognized text for page {view.page + 1} yet.
-        {#if page?.status === "queued"}It is queued for OCR.{:else if page?.status === "unprocessed"}It is outside the processing scope.{:else if page?.status === "failed"}OCR failed: {page.error}{/if}
-      </p>
-    {:else if paras.length}
-      {#each paras as p, pi (pi)}
+  <div class="body" bind:this={bodyEl}>
+    {#if paras.length}
+      {#if headLine}
+        <p class="runhead" aria-label="Running head">{headLine}</p>
+      {/if}
+      {#each body as p, pi (pi)}
         <p class="para {p.kind}" data-label={p.label}>
-          {#each p.words as w (w.span.id)}{#if w.mark}<mark class={w.mark.kind} title={w.mark.title}>{w.span.text}</mark>{:else}{w.span.text}{/if}{w.span.trailing}{/each}
+          {#each p.words as w (w.span.id)}{#if w.mark.issue && w.mark.kind !== "none"}<button
+              type="button"
+              class="mark {w.mark.kind}"
+              class:focused={review.selected?.span === w.span.id}
+              class:hover={review.hoverSpan === w.span.id}
+              data-span={w.span.id}
+              aria-label="{w.span.text}: {w.mark.issue.kind.replace('_', ' ')}"
+              title={title(w)}
+              onmouseenter={() => (review.hoverSpan = w.span.id)}
+              onmouseleave={() => (review.hoverSpan = null)}
+              onfocus={() => (review.hoverSpan = w.span.id)}
+              onblur={() => (review.hoverSpan = null)}
+              onclick={() => review.select(w.mark.issue!.id)}
+              onkeydown={(e) => onMarkKey(e, w)}>{w.span.text}</button>{:else if w.mark.kind !== "none"}<mark
+              class="mark {w.mark.kind}"
+              class:focused={review.selected?.span === w.span.id}
+              data-span={w.span.id}
+              title={title(w)}>{w.span.text}</mark>{:else}<span
+              data-span={w.span.id}
+              class:focused={review.selected?.span === w.span.id}>{w.span.text}</span>{/if}{w.span.trailing}{/each}
         </p>
       {/each}
-    {:else if groups.length}
-      {#each groups as g, gi (gi)}
-        <div class="group {g.kind}">
-          <div class="glabel">{g.label}</div>
-          {#each g.lines as l, i (i)}
-            <p class="line" class:low={l.conf < 70}>{l.text}</p>
-          {/each}
-        </div>
-      {/each}
-    {:else}
+      {#if foot.length}
+        <hr class="divider" />
+        {#each foot as p, pi (pi)}
+          <p class="para {p.kind}" data-label={p.label}>
+            {#each p.words as w (w.span.id)}{#if w.mark.issue && w.mark.kind !== "none"}<button type="button" class="mark {w.mark.kind}" class:focused={review.selected?.span === w.span.id} data-span={w.span.id} aria-label="{w.span.text}: {w.mark.issue.kind.replace('_', ' ')}" title={title(w)} onmouseenter={() => (review.hoverSpan = w.span.id)} onmouseleave={() => (review.hoverSpan = null)} onfocus={() => (review.hoverSpan = w.span.id)} onblur={() => (review.hoverSpan = null)} onclick={() => review.select(w.mark.issue!.id)} onkeydown={(e) => onMarkKey(e, w)}>{w.span.text}</button>{:else if w.mark.kind !== "none"}<mark class="mark {w.mark.kind}" data-span={w.span.id} title={title(w)}>{w.span.text}</mark>{:else}<span data-span={w.span.id}>{w.span.text}</span>{/if}{w.span.trailing}{/each}
+          </p>
+        {/each}
+      {/if}
+    {:else if review.loading && review.page !== view.page}
+      <p class="muted note">Loading…</p>
+    {:else if lines.length && rawFor === view.page}
+      <p class="muted note">Raw OCR lines · the text pass has not run on this page yet.</p>
       {#each lines as l, i (i)}
         <p class="line" class:low={l.conf < 70}>{l.text}</p>
       {/each}
+    {:else}
+      <p class="muted note">
+        No text for page {view.page + 1} yet.
+        {#if page?.status === "queued"}It is queued for processing.{:else if page?.status === "unprocessed"}It is outside the processing scope.{:else if page?.status === "failed"}Processing failed: {page.error}{/if}
+      </p>
     {/if}
   </div>
 </section>
@@ -206,6 +200,7 @@
     display: flex;
     min-width: 0;
     overflow: hidden;
+    container-type: inline-size;
     align-items: center;
     gap: 10px;
     padding: 0 14px;
@@ -221,6 +216,27 @@
   .grow {
     flex: 1;
   }
+  .slider {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+  }
+  .slider input {
+    width: 80px;
+    min-width: 50px;
+    accent-color: var(--accent);
+  }
+  @container (max-width: 560px) {
+    .lbl {
+      display: none;
+    }
+  }
+  .mono {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    min-width: 32px;
+  }
   .body {
     overflow: auto;
     padding: 18px 26px;
@@ -230,60 +246,33 @@
     color: var(--text);
     user-select: text;
   }
-  .line {
-    margin: 0;
-    text-wrap: pretty;
-  }
-  .group {
-    margin-bottom: 14px;
-  }
-  .glabel {
-    font: 500 10px var(--font-ui);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 2px;
-  }
-  .group.header .line,
-  .group.page_number .line,
-  .group.footer .line {
+  .runhead {
+    margin: 0 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-soft);
     font-variant: small-caps;
-    letter-spacing: 0.06em;
-  }
-  .group.marginalia .line,
-  .group.footnote .line {
-    font-size: 13px;
+    letter-spacing: 0.08em;
+    font-size: 0.85em;
     color: var(--text-2);
-  }
-  .group.uncertain .glabel {
-    color: var(--accent-text);
-  }
-  .line.low {
-    color: var(--accent-text);
   }
   .para {
     margin: 0 0 0.9em;
     text-wrap: pretty;
     white-space: pre-wrap;
   }
-  .para.header,
-  .para.page_number,
-  .para.footer {
-    font-variant: small-caps;
-    letter-spacing: 0.06em;
-    margin-bottom: 1.2em;
-  }
   .para.heading {
     font-weight: 600;
     text-align: center;
   }
   .para.marginalia,
-  .para.footnote {
-    font-size: 13px;
+  .para.footnote,
+  .para.footer {
+    font-size: 0.86em;
     color: var(--text-2);
   }
   .para.marginalia::before,
   .para.footnote::before,
+  .para.footer::before,
   .para.uncertain::before {
     content: attr(data-label);
     display: block;
@@ -293,37 +282,59 @@
     color: var(--muted);
     margin-bottom: 2px;
   }
-  mark {
+  .divider {
+    border: 0;
+    border-top: 1px solid var(--border-soft);
+    margin: 12px 0 14px;
+  }
+  .mark {
     background: transparent;
     color: inherit;
+    font: inherit;
+    padding: 0;
+    border: 0;
     border-radius: 2px;
     text-decoration-thickness: 2px;
-    text-underline-offset: 2px;
-    cursor: help;
+    text-underline-offset: 3px;
+    cursor: pointer;
   }
-  mark.applied {
+  .mark.accepted {
     background: var(--ok-bg);
     text-decoration: underline var(--ok);
   }
-  mark.open {
-    background: var(--warn-bg, rgba(217, 164, 65, 0.22));
-    text-decoration: underline var(--warn);
+  .mark.auto {
+    text-decoration: underline var(--ok);
+    text-decoration-style: dotted;
   }
-  .dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    margin-right: 4px;
-    vertical-align: middle;
+  .mark.issue {
+    background: var(--accent-bg);
+    text-decoration: underline var(--accent);
   }
-  .dot.applied {
-    background: var(--ok);
+  .mark.deferred {
+    text-decoration: underline dotted var(--accent);
   }
-  .dot.open {
-    background: var(--warn);
+  .mark.focused,
+  span.focused {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-radius: 2px;
   }
-  .body p.muted {
+  .mark.hover {
+    outline: 1px solid var(--text);
+    outline-offset: 1px;
+  }
+  .mark:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+  }
+  .line {
+    margin: 0;
+    text-wrap: pretty;
+  }
+  .line.low {
+    color: var(--accent-text);
+  }
+  .note {
     font-family: var(--font-ui);
     font-size: 13px;
   }

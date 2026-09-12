@@ -33,6 +33,7 @@ sbwb-ocr.workspace = true
 sbwb-pipeline.workspace = true
 sbwb-layout.workspace = true
 sbwb-text.workspace = true
+sbwb-review.workspace = true
 crossbeam-channel.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true

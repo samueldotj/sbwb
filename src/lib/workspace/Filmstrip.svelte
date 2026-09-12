@@ -4,6 +4,7 @@
   import type { PageRow } from "$lib/api";
   import { renderUrl, THUMB_SCALE } from "$lib/render";
   import { view } from "$lib/stores/view.svelte";
+  import { review } from "$lib/stores/review.svelte";
 
   type Props = { pages: PageRow[] };
   let { pages }: Props = $props();
@@ -16,11 +17,17 @@
   });
 
   function dot(p: PageRow): string {
-    if (p.approved_revision !== null) return "approved";
+    if (p.approval === "current") return "approved";
     if (p.status === "failed") return "failed";
-    if (p.status === "done") return "issues";
     if (p.status === "unprocessed" || p.status === "excluded") return "none";
-    return "unseen";
+    if (!p.text_done) return "unseen";
+    const c = review.pageCounts.get(p.index);
+    return c && c.matching > 0 ? "issues" : "clear";
+  }
+  function title(p: PageRow): string {
+    const c = review.pageCounts.get(p.index);
+    const issues = c ? `${c.matching} matching · ${c.open} open · ${c.deferred} deferred` : "not indexed";
+    return `Page ${p.index + 1} · ${p.approval === "current" ? "approved" : p.approval === "outdated" ? "approval outdated" : issues}`;
   }
 </script>
 
@@ -32,7 +39,8 @@
       class:current={p.index === view.page}
       class:out={p.status === "unprocessed" || p.status === "excluded"}
       data-page={p.index}
-      aria-label="Page {p.index + 1}"
+      aria-label={title(p)}
+      title={title(p)}
       aria-current={p.index === view.page ? "page" : undefined}
       onclick={() => view.goTo(p.index)}
     >

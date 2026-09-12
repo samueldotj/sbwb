@@ -6,6 +6,10 @@
   import ImportInspector from "$lib/workspace/ImportInspector.svelte";
   import PageInspector from "$lib/workspace/PageInspector.svelte";
   import TextPassInspector from "$lib/workspace/TextPassInspector.svelte";
+  import IssueInspector from "$lib/workspace/IssueInspector.svelte";
+  import WordHighlights from "$lib/workspace/WordHighlights.svelte";
+  import GroupSheet from "$lib/workspace/GroupSheet.svelte";
+  import { review } from "$lib/stores/review.svelte";
   import StackedBar from "$lib/workspace/StackedBar.svelte";
   import ScanPane from "$lib/workspace/ScanPane.svelte";
   import Filmstrip from "$lib/workspace/Filmstrip.svelte";
@@ -30,6 +34,8 @@
   let { summary }: Props = $props();
 
   let tab = $state("import");
+  let issueTab = $state<IssueInspector | null>(null);
+  let group = $state<{ original: string; replacement: string } | null>(null);
   $effect(() => {
     if (ui.inspectorTab) {
       tab = ui.inspectorTab;
@@ -47,7 +53,18 @@
     if (view.pageCount !== summary.meta.source.page_count) view.reset(summary.meta.source.page_count);
   });
   $effect(() => {
-    tab = view.mode === "review" ? "page" : view.mode === "layout" ? "region" : "import";
+    tab = view.mode === "review" ? "issue" : view.mode === "layout" ? "region" : "import";
+  });
+  // Review data follows the page and its text revision (decisions, reruns).
+  $effect(() => {
+    const idx = view.page;
+    void currentPage?.text_revision;
+    void currentPage?.text_done;
+    if (view.mode === "processing") return;
+    void review.loadPrefs().then(() => review.load(idx));
+  });
+  $effect(() => {
+    if (view.mode === "review") void review.refreshCounts();
   });
 
   const currentPage = $derived(summary.pages[view.page] ?? null);
@@ -70,6 +87,21 @@
     api.pageOcr(idx).then((o) => (pageWords = o?.words ?? [])).catch(() => (pageWords = []));
   });
 
+  async function approveCurrent() {
+    if (!currentPage || !currentPage.text_done) return;
+    if (currentPage.approval === "current") {
+      const ok = await confirmDialog(`Remove the approval of page ${currentPage.index + 1}?`, "Approval");
+      if (ok) await review.unapprove(currentPage.index);
+      return;
+    }
+    const outstanding = review.page === currentPage.index ? review.pageUnresolved : 0;
+    if (outstanding > 0) {
+      const ok = await confirmDialog(`${outstanding} issue${outstanding === 1 ? " is" : "s are"} still unresolved or deferred on page ${currentPage.index + 1}. Approve anyway and record them as acknowledged?`, "Approve page");
+      if (!ok) return;
+    }
+    await review.approve(currentPage.index, outstanding);
+  }
+
   async function leaveLayout() {
     if (layout.dirty) {
       const ok = await confirmDialog("Discard the unsaved layout changes on this page?", "Layout");
@@ -84,6 +116,21 @@
     if (view.mode === "review" && (e.key === "l" || e.key === "L") && (e.ctrlKey || e.metaKey)) {
       view.editLayout();
       e.preventDefault();
+    } else if (view.mode === "review" && group === null) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        void approveCurrent();
+        e.preventDefault();
+      } else if (e.ctrlKey || e.metaKey || e.altKey) {
+        return;
+      } else if (e.key === "j" || e.key === "J") {
+        void review.step(true);
+        e.preventDefault();
+      } else if (e.key === "k" || e.key === "K") {
+        void review.step(false);
+        e.preventDefault();
+      } else if (tab === "issue" && issueTab?.onkey(e)) {
+        e.preventDefault();
+      }
     } else if (view.mode === "layout") {
       if (e.key === "Escape") {
         void leaveLayout();
@@ -152,12 +199,19 @@
           { id: "region", label: "Region" },
           { id: "page", label: "Page" },
         ]
-      : [
-    { id: "import", label: "Import" },
-    { id: "page", label: "Page", disabled: view.mode !== "review" },
-    { id: "text_pass", label: "Text pass" },
-    { id: "ai", label: "AI", disabled: true },
-  ],
+      : view.mode === "review"
+        ? [
+            { id: "issue", label: "Issue" },
+            { id: "page", label: "Page" },
+            { id: "text_pass", label: "Text pass" },
+            { id: "ai", label: "AI", disabled: true },
+          ]
+        : [
+            { id: "import", label: "Import" },
+            { id: "page", label: "Page", disabled: true },
+            { id: "text_pass", label: "Text pass" },
+            { id: "ai", label: "AI", disabled: true },
+          ],
   );
 
   function onrail(id: string) {
@@ -177,9 +231,19 @@
   <PipelineRail {stages} activeId={view.mode === "processing" ? "import" : ""} onselect={onrail}>
     <div class="review-block">
       <button type="button" class="label linkish" onclick={() => (view.mode = "review")}>Review</button>
-      <div class="row"><span>Unresolved</span><b>—</b></div>
+      <div class="row"><span>Unresolved</span><b>{review.counts.unresolved || "—"}</b></div>
+      <div class="row"><span>Below {review.threshold}%</span><b>{review.counts.matching}</b></div>
+      {#if review.counts.deferred}<div class="row"><span>Deferred</span><b>{review.counts.deferred}</b></div>{/if}
       <div class="row"><span>Pages approved</span><b>{summary.counts.approved} / {summary.counts.in_scope}</b></div>
-      <StackedBar approved={summary.counts.approved} issues={Math.max(0, summary.counts.done - summary.counts.approved)} unseen={Math.max(0, summary.counts.in_scope - summary.counts.done)} height="6px" />
+      <StackedBar approved={summary.counts.approved} issues={Math.max(0, summary.counts.text_done - summary.counts.approved)} unseen={Math.max(0, summary.counts.in_scope - summary.counts.text_done)} height="6px" />
+      {#if view.mode === "review"}
+        <div class="filters">
+          <label><input type="checkbox" bind:checked={review.deferredView} onchange={() => { review.selectedId = null; void review.refreshCounts(); }} /> Deferred view</label>
+          <label><input type="checkbox" bind:checked={review.byPriority} onchange={() => review.savePrefs()} /> By priority</label>
+          <label><input type="checkbox" bind:checked={review.hideCompleted} onchange={() => review.savePrefs()} /> Hide accepted</label>
+          <label><input type="checkbox" bind:checked={review.hideAuto} onchange={() => review.savePrefs()} /> Hide auto-applied</label>
+        </div>
+      {/if}
     </div>
     {#if ui.theme === "bench" && view.mode === "review"}
       <div class="label mini-label">pages</div>
@@ -203,6 +267,10 @@
         </div>
       {/if}
       <div class="keys">
+        {#if view.mode === "review"}
+          <kbd>J / K</kbd><span>next / prev issue</span>
+          <kbd>A E S L</kbd><span>accept · edit · skip · later</span>
+        {/if}
         <kbd>PgUp/PgDn</kbd><span>prev / next page</span>
         <kbd>Ctrl +/−</kbd><span>zoom</span>
         <kbd>Esc</kbd><span>pages view</span>
@@ -221,6 +289,9 @@
       {#snippet overlay({ page, zoom })}
         {#if layout.showRegions && layout.page === page}
           <RegionOverlay regions={layout.regions} {zoom} pageW={currentPage?.width_pt ?? 612} pageH={currentPage?.height_pt ?? 792} />
+        {/if}
+        {#if review.page === page}
+          <WordHighlights {zoom} />
         {/if}
       {/snippet}
       {#snippet footer()}
@@ -264,6 +335,8 @@
   <Inspector {tabs} active={tab} onchange={(id) => (tab = id)} width={view.mode === "review" ? "var(--inspector-w)" : view.mode === "layout" ? "264px" : "340px"}>
     {#if tab === "region"}
       <RegionInspector pageW={currentPage?.width_pt ?? 612} pageH={currentPage?.height_pt ?? 792} words={pageWords} />
+    {:else if tab === "issue"}
+      <IssueInspector bind:this={issueTab} page={currentPage} ongroup={(original, replacement) => (group = { original, replacement })} />
     {:else if tab === "page"}
       <PageInspector page={currentPage} />
     {:else if tab === "text_pass"}
@@ -272,6 +345,14 @@
       <ImportInspector {summary} onstartreview={() => view.open(0)} eta={pipeline.ocr?.eta_ms ?? null} secsPerPage={pipeline.ocr?.secs_per_unit ?? null} pipelineState={pipeline.state} />
     {/if}
     {#snippet footer()}
+      {#if view.mode === "review" && currentPage}
+        <div class="approve">
+          <span class="muted small">Page {currentPage.index + 1} · {review.page === currentPage.index ? review.pageUnresolved : "–"} unresolved</span>
+          <button type="button" class="ctl" class:primary={currentPage.approval !== "current"} onclick={approveCurrent} disabled={!currentPage.text_done} aria-label={currentPage.approval === "current" ? "Remove approval" : "Approve page (Ctrl+Enter)"}>
+            {currentPage.approval === "current" ? "Approved ✓" : currentPage.approval === "outdated" ? "Approve again" : "Approve page"} <kbd>Ctrl+↵</kbd>
+          </button>
+        </div>
+      {/if}
       {#if view.mode === "layout"}
         <div class="two">
           <button type="button" class="ctl" onclick={() => layout.revert()} disabled={!layout.dirty}>Revert</button>
@@ -284,6 +365,9 @@
       {/if}
     {/snippet}
   </Inspector>
+  {#if group}
+    <GroupSheet open={group !== null} original={group.original} replacement={group.replacement} onclose={() => (group = null)} />
+  {/if}
 </div>
 
 <style>
@@ -364,6 +448,36 @@
   }
   .grow {
     flex: 1;
+  }
+  .filters {
+    display: grid;
+    gap: 3px;
+    margin-top: 8px;
+    font-size: 11.5px;
+    color: var(--text-2);
+  }
+  .filters label {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .approve {
+    display: grid;
+    gap: 6px;
+  }
+  .approve .ctl {
+    display: inline-flex;
+    justify-content: center;
+    gap: 6px;
+  }
+  .approve .ctl kbd {
+    font: 500 10.5px var(--font-mono);
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid currentColor;
+    background: transparent;
+    color: inherit;
+    opacity: 0.8;
   }
   .review-block {
     padding: 4px 6px;

@@ -17,6 +17,9 @@ export type PageRow = {
   text_done: boolean;
   layout_revision: number;
   text_revision: number;
+  approved_outstanding: number;
+  approved_at: string | null;
+  approval: "none" | "current" | "outdated";
 };
 
 export type PageCounts = {
@@ -161,7 +164,7 @@ export type PageLayout = {
   revision: number;
 };
 
-export type SpanOrigin = "ocr" | "auto_applied" | "accepted" | "edited";
+export type SpanOrigin = "ocr" | "auto_applied" | "accepted" | "manual" | "inserted";
 export type Anchor = { run: string; index: number; bbox: { x: number; y: number; w: number; h: number }; confidence: number; text: string };
 export type Span = {
   id: string;
@@ -206,6 +209,62 @@ export type TextPassSummary = {
   pages_done: number;
   pages_in_scope: number;
   last_run: string | null;
+};
+
+// ----- review (M6) -----
+export type IssueKind = "missing_text" | "order_ambiguity" | "clipping" | "conflicting_readings" | "risky_substitution" | "questionable_join" | "user_flag";
+export type IssueStatus = "open" | "resolved" | "deferred" | "stale";
+export type Candidate = { text: string; score: number | null; source: string; proposal: string | null };
+export type Issue = {
+  id: string;
+  page: number;
+  seq: number;
+  span: string;
+  span_revision: number;
+  kind: IssueKind;
+  score: number | null;
+  score_source: string;
+  priority: number;
+  proposal: string | null;
+  original: string;
+  replacement: string | null;
+  reason: string;
+  status: IssueStatus;
+  decision: string | null;
+  note: string | null;
+  candidates: Candidate[];
+};
+export type IssueFilter = { threshold: number; exclude_kinds: IssueKind[]; deferred_view: boolean; by_priority: boolean };
+export type IssueCounts = {
+  unresolved: number;
+  matching: number;
+  above_threshold: number;
+  filtered_kind: number;
+  deferred: number;
+  resolved: number;
+  stale: number;
+  flagged: number;
+  unprocessed_pages: number;
+  pages_in_scope: number;
+};
+export type PageIssueCounts = { page: number; open: number; matching: number; deferred: number };
+export type ReviewCounts = { book: IssueCounts; pages: PageIssueCounts[] };
+export type NextIssue = { issue: Issue | null; wrapped: boolean };
+export type Decision = { kind: "accept"; text: string } | { kind: "edit"; text: string } | { kind: "skip" } | { kind: "later" };
+export type DecisionOutcome = { issue: Issue; history: string; span_text: string; span_revision: number };
+export type GroupMatch = { span: string; page: number; seq: number; revision: number; text: string; replacement: string; context: string; conflict: string | null };
+export type GroupOutcome = { applied: number; history: string | null; stale: string[] };
+export type HistoryEntry = { id: string; ts: string; kind: string; label: string; undone: boolean; undoable: boolean; page: number | null };
+export type Draft = { span: string; page: number; text: string; updated_at: string };
+
+export const ISSUE_KIND_LABEL: Record<IssueKind, string> = {
+  missing_text: "missing text",
+  order_ambiguity: "reading order",
+  clipping: "clipping",
+  conflicting_readings: "uncertain reading",
+  risky_substitution: "risky substitution",
+  questionable_join: "questionable join",
+  user_flag: "flagged",
 };
 
 export type CommandError = { code: string; message: string };
@@ -256,6 +315,24 @@ export const api = {
   vocabList: () => invoke<[string, string][]>("vocab_list"),
   vocabAdd: (word: string, kind: "vocab" | "protected") => invoke<void>("vocab_add", { word, kind }),
   vocabRemove: (word: string) => invoke<void>("vocab_remove", { word }),
+  reviewCounts: (filter: IssueFilter) => invoke<ReviewCounts>("review_counts", { filter }),
+  pageIssues: (index: number) => invoke<Issue[]>("page_issues", { index }),
+  nextIssue: (from: string | null, fromPage: number | null, forward: boolean, filter: IssueFilter) => invoke<NextIssue>("next_issue", { from, fromPage, forward, filter }),
+  issueDecide: (id: string, decision: Decision, spanRevision: number) => invoke<DecisionOutcome>("issue_decide", { id, decision, spanRevision }),
+  spanFlag: (span: string, note?: string) => invoke<Issue>("span_flag", { span, note: note ?? null }),
+  flagRemove: (id: string) => invoke<void>("flag_remove", { id }),
+  pageApprove: (index: number, acknowledged: number) => invoke<void>("page_approve", { index, acknowledged }),
+  pageUnapprove: (index: number) => invoke<void>("page_unapprove", { index }),
+  groupPreview: (original: string, replacement: string) => invoke<GroupMatch[]>("group_preview", { original, replacement }),
+  groupApply: (original: string, replacement: string, items: { span: string; revision: number }[]) =>
+    invoke<GroupOutcome>("group_apply", { original, replacement, items }),
+  historyList: (opts: { limit?: number; span?: string } = {}) => invoke<HistoryEntry[]>("history_list", { limit: opts.limit ?? null, span: opts.span ?? null }),
+  historyUndo: (id: string) => invoke<void>("history_undo", { id }),
+  draftPut: (span: string, text: string) => invoke<void>("draft_put", { span, text }),
+  draftDelete: (span: string) => invoke<void>("draft_delete", { span }),
+  draftList: (index?: number) => invoke<Draft[]>("draft_list", { index: index ?? null }),
+  reviewPrefsGet: () => invoke<Partial<IssueFilter> & { auto_advance?: boolean; hide_completed?: boolean; hide_auto?: boolean } | null>("review_prefs_get"),
+  reviewPrefsSet: (prefs: unknown) => invoke<void>("review_prefs_set", { prefs }),
 };
 
 /// "1-50, 60-70" -> [[1,50],[60,70]]; returns null when unparsable.

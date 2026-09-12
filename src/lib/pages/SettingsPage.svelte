@@ -5,6 +5,7 @@
   import { api, errorMessage, formatBytes, type ProcessingSettings, type PackReport, type StorageInfo } from "$lib/api";
   import { project } from "$lib/stores/project.svelte";
   import { ui } from "$lib/stores/ui.svelte";
+  import { review } from "$lib/stores/review.svelte";
   import { isTauri } from "$lib/ipc";
 
   type Props = { onclose: () => void };
@@ -150,7 +151,20 @@
       </div>
     {:else if section === "review"}
       <div class="title">Review</div>
-      <div class="sub">Review threshold, auto-advance, and grouped-correction defaults arrive with M6.</div>
+      <div class="rows">
+        <div class="row">
+          <div><div class="name">Review threshold</div><div class="hint">Scored issues strictly below this are shown and visited. Equal or higher scores stay unmarked, not approved.</div></div>
+          <div class="slider"><input type="range" min="0" max="100" bind:value={review.threshold} onchange={() => { review.savePrefs(); void review.refreshCounts(); }} aria-label="Review threshold" /><span class="mono">{review.threshold}%</span></div>
+        </div>
+        <div class="row">
+          <div><div class="name">Auto-advance</div><div class="hint">Move to the next issue only after a decision is saved.</div></div>
+          <label class="toggle"><input type="checkbox" bind:checked={review.autoAdvance} onchange={() => review.savePrefs()} /><span></span></label>
+        </div>
+        <div class="row">
+          <div><div class="name">Visit by priority</div><div class="hint">J / K follow impact and evidence instead of reading order.</div></div>
+          <label class="toggle"><input type="checkbox" bind:checked={review.byPriority} onchange={() => review.savePrefs()} /><span></span></label>
+        </div>
+      </div>
     {:else if section === "export"}
       <div class="title">Export defaults</div>
       <div class="sub">Page structure, furniture placement, and formatting presets arrive with M7.</div>
@@ -167,11 +181,18 @@
             <button type="button" role="radio" aria-checked={ui.theme === "bench"} class:on={ui.theme === "bench"} onclick={() => (ui.theme = "bench")}>Bench</button>
           </div>
         </div>
+        <div class="row">
+          <div><div class="name">Text size</div><div class="hint">Large enlarges the interface and the transcript.</div></div>
+          <div class="seg" role="radiogroup" aria-label="Text size">
+            <button type="button" role="radio" aria-checked={ui.textSize === "normal"} class:on={ui.textSize === "normal"} onclick={() => (ui.textSize = "normal")}>Normal</button>
+            <button type="button" role="radio" aria-checked={ui.textSize === "large"} class:on={ui.textSize === "large"} onclick={() => (ui.textSize = "large")}>Large</button>
+          </div>
+        </div>
       </div>
     {:else if section === "shortcuts"}
       <div class="title">Shortcuts</div>
       <div class="rows keys">
-        {#each [["Ctrl+I", "Import PDF"], ["Ctrl+O", "Open project"], ["Ctrl+Shift+S", "Save a copy"], ["Ctrl+W", "Close book"], ["PgUp / PgDn", "Previous / next page"], ["Ctrl+Home / Ctrl+End", "First / last page"], ["Ctrl+= / Ctrl+-", "Zoom in / out"], ["Ctrl+0", "Fit page"], ["Esc", "Back to the pages view"], ["Ctrl+,", "Settings"]] as [k, d] (k)}
+        {#each [["Ctrl+I", "Import PDF"], ["Ctrl+O", "Open project"], ["Ctrl+Shift+S", "Save a copy"], ["Ctrl+W", "Close book"], ["PgUp / PgDn", "Previous / next page"], ["Ctrl+Home / Ctrl+End", "First / last page"], ["Ctrl+= / Ctrl+-", "Zoom in / out"], ["Ctrl+0", "Fit page"], ["Esc", "Back to the pages view"], ["Ctrl+,", "Settings"], ["J / K", "Next / previous issue"], ["A / E / S / L", "Accept / Edit / Skip / Later"], ["1–9", "Choose a candidate"], ["Ctrl+Enter", "Approve page"], ["Ctrl+L", "Layout mode"], ["V / R / X / M", "Layout tools"]] as [k, d] (k)}
           <div class="row"><span>{d}</span><kbd>{k}</kbd></div>
         {/each}
       </div>

@@ -67,7 +67,8 @@ pub fn run() {
                         if let Ok(p) = std::env::var("SBWB_DEV_IMPORT") {
                             let review = std::env::var("SBWB_DEV_REVIEW").ok().and_then(|v| v.parse::<u32>().ok());
                             let tab = std::env::var("SBWB_DEV_TAB").ok().map(|t| format!(".then(() => window.__sbwb.tab({}))", serde_json::to_string(&t).unwrap())).unwrap_or_default();
-                            let then = review.map(|i| format!(".then(() => window.__sbwb.review({i})){tab}")).unwrap_or_default();
+                            let eval_js = std::env::var("SBWB_DEV_EVAL").ok().map(|js| format!(".then(() => new Promise(r => setTimeout(r, 1500))).then(() => {{ {js} }})")).unwrap_or_default();
+                            let then = review.map(|i| format!(".then(() => window.__sbwb.review({i})){tab}{eval_js}")).unwrap_or_default();
                             let js = format!("window.__sbwb && window.__sbwb.importPdf({}){then}", serde_json::to_string(&p).unwrap());
                             let _ = w.eval(&js);
                         }
@@ -129,6 +130,23 @@ pub fn run() {
             commands::text::vocab_list,
             commands::text::vocab_add,
             commands::text::vocab_remove,
+            commands::review::review_counts,
+            commands::review::page_issues,
+            commands::review::next_issue,
+            commands::review::issue_decide,
+            commands::review::span_flag,
+            commands::review::flag_remove,
+            commands::review::page_approve,
+            commands::review::page_unapprove,
+            commands::review::group_preview,
+            commands::review::group_apply,
+            commands::review::history_list,
+            commands::review::history_undo,
+            commands::review::draft_put,
+            commands::review::draft_delete,
+            commands::review::draft_list,
+            commands::review::review_prefs_get,
+            commands::review::review_prefs_set,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SBWB");

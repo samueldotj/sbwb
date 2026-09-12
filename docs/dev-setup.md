@@ -50,6 +50,7 @@ window opens:
 | `SBWB_DEV_IMPORT=<pdf>` | Import the file (first 50 pages) and start processing |
 | `SBWB_DEV_REVIEW=<index>` | Then open that page (0-based) in Review |
 | `SBWB_DEV_TAB=<id>` | Then select an inspector tab (`import`, `page`, `text_pass`, `ai`) |
+| `SBWB_DEV_EVAL=<js>` | Then run that JavaScript in the page (after 1.5 s); `window.__sbwb.step/decide/approve` drive the review loop |
 | `SBWB_DEV_LAYOUT_AT=<secs>` | Enter Layout mode for the review page after that many seconds |
 
 `scripts/capture-window.ps1 -Out shot.png` grabs the window without taking

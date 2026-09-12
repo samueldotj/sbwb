@@ -9,6 +9,7 @@
     saveState?: SaveState;
     savedAgo?: string;
     projectFile?: string;
+    saveError?: string;
   };
   let {
     stage = "",
@@ -17,6 +18,7 @@
     saveState = "idle",
     savedAgo = "",
     projectFile = "",
+    saveError = "",
   }: Props = $props();
 
   const saveLabel = $derived(
@@ -40,7 +42,7 @@
   {#if counters}<span class="sep">|</span><span>{counters}</span>{/if}
   <span class="grow"></span>
   {#if saveLabel}
-    <span class:failed={saveState === "failed"}>{saveLabel}</span>
+    <span class:failed={saveState === "failed"} title={saveError}>{saveLabel}{saveState === "failed" && saveError ? ` · ${saveError}` : ""}</span>
   {/if}
   {#if projectFile}<span class="sep">|</span><span class="file">{projectFile}</span>{/if}
 </footer>

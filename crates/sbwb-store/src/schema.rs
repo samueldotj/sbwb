@@ -4,10 +4,10 @@
 use rusqlite_migration::{Migrations, M};
 
 /// Current project schema version. Bumped by every migration.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 pub fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(V1), M::up(V2), M::up(V3)])
+    Migrations::new(vec![M::up(V1), M::up(V2), M::up(V3), M::up(V4)])
 }
 
 const V1: &str = r#"
@@ -160,4 +160,45 @@ CREATE TABLE vocab (
 );
 
 ALTER TABLE pages ADD COLUMN text_revision INTEGER NOT NULL DEFAULT 0;
+"#;
+
+/// v4: the review issue index, approvals with acknowledgements, drafts (M6).
+const V4: &str = r#"
+CREATE TABLE issues (
+  id TEXT PRIMARY KEY,
+  page_index INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  span_id TEXT NOT NULL,
+  span_revision INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  score INTEGER,
+  score_source TEXT NOT NULL,
+  priority INTEGER NOT NULL,
+  proposal_id TEXT,
+  original TEXT NOT NULL,
+  replacement TEXT,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL,
+  decision TEXT,
+  note TEXT,
+  candidates TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  decided_at TEXT,
+  history_id TEXT
+);
+CREATE INDEX issues_nav ON issues(status, page_index, seq);
+CREATE INDEX issues_prio ON issues(status, priority DESC, page_index, seq);
+CREATE INDEX issues_span ON issues(span_id);
+CREATE INDEX issues_page ON issues(page_index);
+
+CREATE TABLE drafts (
+  span_id TEXT PRIMARY KEY,
+  page_index INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+ALTER TABLE pages ADD COLUMN approved_outstanding INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pages ADD COLUMN approved_layout_revision INTEGER;
+ALTER TABLE pages ADD COLUMN approved_at TEXT;
 "#;
