@@ -8,7 +8,9 @@ export default defineConfig(({ mode }) => ({
   plugins: [svelte()],
   resolve: {
     alias: { $lib: fileURLToPath(new URL("./src/lib", import.meta.url)) },
-    conditions: mode === "test" ? ["browser"] : [],
+    // Vitest runs in jsdom; Svelte must resolve its browser build there.
+    // Never set this outside test mode: it replaces Vite's default conditions.
+    ...(mode === "test" ? { conditions: ["browser"] } : {}),
   },
   clearScreen: false,
   server: {

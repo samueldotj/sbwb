@@ -24,12 +24,16 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost sbwb-render: http://sbwb-render.localhost data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost sbwb-render: http://sbwb-render.localhost data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:",
+      "devCsp": null
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": [
+      "nsis",
+      "msi"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -43,7 +47,9 @@
       "../models/fast/eng.traineddata": "tessdata/fast/eng.traineddata"
     },
     "windows": {
-      "webviewInstallMode": { "type": "embedBootstrapper" }
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      }
     }
   }
 }

@@ -11,6 +11,16 @@ fn app_info() -> serde_json::Value {
     })
 }
 
+/// Frontend errors and diagnostics land in the same redacted log (NFR-11).
+#[tauri::command]
+fn log_frontend(level: String, message: String) {
+    match level.as_str() {
+        "error" => tracing::error!(target: "frontend", "{message}"),
+        "warn" => tracing::warn!(target: "frontend", "{message}"),
+        _ => tracing::info!(target: "frontend", "{message}"),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -28,9 +38,19 @@ pub fn run() {
             let res = paths::Resources::locate(app.handle());
             tracing::info!(pdfium = %res.pdfium_dir.display(), tessdata = %res.tessdata_dir.display(), "resources located");
             app.manage(res);
+            #[cfg(debug_assertions)]
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(8));
+                    if let Some(w) = handle.get_webview_window("main") {
+                        let _ = w.eval("window.__sbwbProbe && window.__sbwbProbe()");
+                    }
+                });
+            }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![app_info])
+        .invoke_handler(tauri::generate_handler![app_info, log_frontend])
         .run(tauri::generate_context!())
         .expect("error while running SBWB");
 }
