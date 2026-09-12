@@ -1,0 +1,40 @@
+page	kind	original	replacement	score	reason	verdict	by	context
+20	hyphen_join	pre- / paring	preparing	96	hyphen at a line break · “preparing” is in the dictionary	ok	claude	indifference. They are now [preparing] extensive means of aggression,
+20	hyphen_join	appre- / hended	apprehended	96	hyphen at a line break · “apprehended” is in the dictionary	ok	claude	more is to be [apprehended] from the reverend gentleman
+20	hyphen_join	ac- / cordance	accordance	96	hyphen at a line break · “accordance” is in the dictionary	ok	claude	use means more in [accordance] with the history, the
+20	hyphen_join	pre- / tensions	pretensions	96	hyphen at a line break · “pretensions” is in the dictionary	ok	claude	the character, and the [pretensions] of their Church. ‘The
+20	hyphen_join	proceed- / ings	proceedings	96	hyphen at a line break · “proceedings” is in the dictionary	ok	claude	‘The record of their [proceedings] in India here presented
+20	hyphen_join	Ro- / mish	Romish	96	hyphen at a line break · “Romish” is in the dictionary	ok	claude	What prayers are the [Romish] priests using for the
+20	hyphen_join	gen- / tleman	gentleman	96	hyphen at a line break · “gentleman” is in the dictionary	ok	claude	the purpose? The reverend [gentleman] informs us, that he
+30	hyphen_join	Solo- / mon	Solomon	96	hyphen at a line break · “Solomon” is in the dictionary	ok	claude	of communication through Mesopotamia. [Solomon] traded with the East
+30	ocr_confusion	pursucs	pursues	92	OCR confusion c→e; “pursues” is in the dictionary	ok	claude	Seleucus, king of Syria, [pursues] Alexander’s scheme of conquest
+30	ocr_confusion	castward	eastward	92	OCR confusion c→e; “eastward” is in the dictionary	ok	claude	of the Egyptians’ navigation [eastward] ......0ecccceccees Persians open a
+30	ocr_confusion	carly	early	92	OCR confusion c→e; “early” is in the dictionary	ok	claude	Probable account of the [early] origin of the Indian
+40	ocr_confusion	pcople	people	92	OCR confusion c→e; “people” is in the dictionary	ok	claude	submission, .escesecees Finds the [people] of Naramé in arms
+48	hyphen_join	communica- / tion	communication	96	hyphen at a line break · “communication” is in the dictionary	ok	claude	West who opened a [communication] with India by sea.’
+48	hyphen_join	com- / merce,	commerce,	96	hyphen at a line break · “commerce” is in the dictionary	ok	claude	becoming indifferent about the [commerce,] while they could obtain
+48	hyphen_join	them- / selves	themselves	96	hyphen at a line break · “themselves” is in the dictionary	ok	claude	at last to think [themselves] the greatest nation in
+48	hyphen_join	forti- / fied	fortified	96	hyphen at a line break · “fortified” is in the dictionary	ok	claude	far, that they actually [fortified] their harbours, and refused
+48	hyphen_join	com- / mercial	commercial	96	hyphen at a line break · “commercial” is in the dictionary	ok	claude	render the Egyptians a [commercial] people ; and in
+48	ocr_confusion	carricd	carried	92	OCR confusion c→e; “carried” is in the dictionary	ok	claude	In the end they [carried] this prejudice so far,
+55	hyphen_join	Alex- / ander,	Alexander,	96	hyphen at a line break · “Alexander” is in the dictionary	ok	claude	to return, that even [Alexander,] though possessed in the
+55	hyphen_join	con- / ducted	conducted	96	hyphen at a line break · “conducted” is in the dictionary	ok	claude	voyage of seven months, [conducted] it safely up the
+55	hyphen_join	do- / minions.	dominions.	96	hyphen at a line break · “dominions” is in the dictionary	ok	claude	with India and his [dominions.] Custonssand Tndiastthat ; °
+55	ocr_confusion	satisficd	satisfied	92	OCR confusion c→e; “satisfied” is in the dictionary	ok	claude	of the Indus, Alexander, [satisfied] with having accomplished this
+61	hyphen_join	pros- / perous	prosperous	96	hyphen at a line break · “prosperous” is in the dictionary	ok	claude	world. A long and [prosperous] reign. enabled him to
+61	hyphen_join	Ro- / man	Roman	96	hyphen at a line break · “Roman” is in the dictionary	ok	claude	two hundred and fifty-eight [Roman] miles, through the desert
+70	hyphen_join	pro- / vince	province	96	hyphen at a line break · “province” is in the dictionary	ok	claude	Chen-si, the most westerly [province] of the Chinese empire.
+70	hyphen_join	gene- / ral	general	96	hyphen at a line break · “general” is in the dictionary	ok	claude	intelligent, geographer collected some [general] information concerning various nations
+70	hyphen_join	to- / wards	towards	96	hyphen at a line break · “towards” is in the dictionary	ok	claude	information concerning various nations [towards] the North, which, according
+70	hyphen_join	con- / tent	content	96	hyphen at a line break · “content” is in the dictionary	ok	claude	were for many ages [content] with the commercial advantages
+85	hyphen_join	Clau- / dius,	Claudius,	96	hyphen at a line break · “Claudius” is in the dictionary	ok	claude	the ninth year of [Claudius,] and others, in the
+85	hyphen_join	com- / merce	commerce	96	hyphen at a line break · “commerce” is in the dictionary	ok	claude	means of its extensive [commerce] it had now acquired
+85	hyphen_join	in- / habitants	inhabitants	96	hyphen at a line break · “inhabitants” is in the dictionary	ok	claude	was composed of the [inhabitants] of all the nations
+85	ocr_confusion	gencrally	generally	92	OCR confusion c→e; “generally” is in the dictionary	ok	claude	apostolic age. It is [generally] believed that St. Mark
+85	ocr_confusion	ycar	year	92	OCR confusion c→e; “year” is in the dictionary	ok	claude	others, in the ninth [year] of Claudius, and others,
+85	ocr_confusion	supcrintendence.!	superintendence.!	92	OCR confusion c→e; “superintendence” is in the dictionary	ok	claude	church flourish under his [superintendence.!] It will be remembered,
+85	ocr_confusion	ecct.	eccl.	92	OCR confusion t→l; “eccl” is in the dictionary	ok	claude	Ecc. Hist. Lib, ii. [eccl.] 5. Gre’ _
+100	hyphen_join	emi- / nence.	eminence.	96	hyphen at a line break · “eminence” is in the dictionary	ok	claude	several prelates of great [eminence.] Such intolerance would obscure
+100	hyphen_join	Con- / stantine.	Constantine.	96	hyphen at a line break · “Constantine” is in the dictionary	ok	claude	sun than that of [Constantine.] 9. Notwithstanding the assertion
+100	hyphen_join	Chris- / tian	Christian	96	hyphen at a line break · “Christian” is in the dictionary	ok	claude	auspices to propagate the [Christian] religion, produced any immediate
+100	hyphen_join	con- / cluded,	concluded,	96	hyphen at a line break · “concluded” is in the dictionary	ok	claude	Hence it has been [concluded,] that the Indian church

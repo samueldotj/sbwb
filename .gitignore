@@ -42,3 +42,6 @@ fixtures/**/*.sbwb
 fixtures/**/*.sbwb-wal
 fixtures/**/*.sbwb-shm
 fixtures/**/*.sbwb.cache/
+
+# flat copy of the lexicons in the packaged layout, made by scripts/fetch-deps.ps1
+fixtures/lexicons/dev/

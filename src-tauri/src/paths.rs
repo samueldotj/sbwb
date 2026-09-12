@@ -2,8 +2,8 @@
 //!
 //! In a packaged build they live under the Tauri resource directory. In
 //! development they are read from the repository's `third_party/` and
-//! `models/` folders (see docs/dev-setup.md). `SBWB_PDFIUM_DIR` and
-//! `SBWB_TESSDATA_DIR` override both.
+//! `models/` folders (see docs/dev-setup.md). `SBWB_PDFIUM_DIR`,
+//! `SBWB_TESSDATA_DIR` and `SBWB_LEXICON_DIR` override them.
 
 use std::path::PathBuf;
 
@@ -13,6 +13,8 @@ use tauri::{AppHandle, Manager};
 pub struct Resources {
     pub pdfium_dir: PathBuf,
     pub tessdata_dir: PathBuf,
+    /// Hunspell en_GB-large and the Webster 1913 headword list (TXT-01).
+    pub lexicon_dir: PathBuf,
 }
 
 impl Resources {
@@ -40,9 +42,20 @@ impl Resources {
             })
             .unwrap_or_else(|| repo_root.join("models"));
 
+        let lexicon_dir = std::env::var_os("SBWB_LEXICON_DIR")
+            .map(PathBuf::from)
+            .or_else(|| {
+                resource_dir
+                    .as_ref()
+                    .map(|r| r.join("lexicons"))
+                    .filter(|p| p.join("en_GB-large.dic").exists())
+            })
+            .unwrap_or_else(|| repo_root.join("fixtures/lexicons/dev"));
+
         Self {
             pdfium_dir: simplify(pdfium_dir),
             tessdata_dir: simplify(tessdata_dir),
+            lexicon_dir: simplify(lexicon_dir),
         }
     }
 }

@@ -42,7 +42,6 @@ pub fn settings_preview(
     let p = guard
         .as_ref()
         .ok_or_else(|| CommandError::new("not_found", "no open book"))?;
-    let fp = settings.ocr_fingerprint();
     let mut rerun = 0;
     let mut approved = 0;
     for page in p.store.pages()? {
@@ -53,19 +52,7 @@ pub fn settings_preview(
             approved += 1;
             continue;
         }
-        let runs = p.store.runs_for_page(page.index)?;
-        let same = runs
-            .iter()
-            .rev()
-            .find(|r| r.stage == sbwb_core::Stage::Ocr && r.status == "ok")
-            .and_then(|r| {
-                r.settings
-                    .get("fingerprint")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s == fp)
-            })
-            .unwrap_or(false);
-        if !same {
+        if sbwb_pipeline::scheduler::stage_to_redo(&p.store, &page, &settings)?.is_some() {
             rerun += 1;
         }
     }

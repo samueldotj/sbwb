@@ -44,6 +44,8 @@ Scan characteristics (matter for pipeline design):
 | `en_GB.dic`, `en_GB.aff`, `en_GB-README.txt` | LibreOffice dictionaries repo, `en/` | LGPL 3 / see README | Modern British spelling, Hunspell format |
 | `hunspell-en_GB-large/` | SCOWL release rel-2026.02.25, `hunspell-en_GB-large-2026.02.25.zip` from GitHub en-wl/wordlist releases, unpacked | SCOWL permissive (MIT-like, see README) | Larger British list incl. variants |
 | `scowl-2026.02.25.tar.gz` (not in git) | GitHub en-wl/wordlist tag rel-2026.02.25 | SCOWL permissive | Build custom size-95 lists incl. archaic words |
+| `webster-1913-headwords.txt` (91,632 lines) | Extracted from the Gutenberg text above | Public domain | Period headword list loaded by the text pass alongside Hunspell |
+| `dev/` (not in git) | Copies of the three files the app bundles, made by `scripts/fetch-deps.ps1` | as above | Flat layout matching the packaged `lexicons/` resource dir |
 
 Not yet fetched, listed for later evaluation:
 
@@ -52,3 +54,15 @@ Not yet fetched, listed for later evaluation:
 - Google Books Ngram 1-grams (CC BY 3.0) filtered to 1750-1900 for period
   word frequencies; tens of GB uncompressed.
 - MorphAdorner Early Modern lexicon (NCSA license) for spelling-variant tables.
+
+## groundtruth/hough-1839-vol1
+
+| File | Content | Status |
+| --- | --- | --- |
+| `layout.json` | Regions and reading order for 10 pages (indices 9, 19, 29, 39, 47, 54, 60, 69, 84, 99), drafted by `sbwb-layout` | page index 47 adjudicated by hand; the rest is a draft (D-26) |
+| `auto-corrections.tsv` | Every change the text pass applies automatically on those pages, with context, a `verdict` (`ok`/`bad`) and who decided (`by` = `user`/`claude`) | 39 rows, all Claude-drafted `ok`; user spot-check pending |
+
+`cargo test -p sbwb-text --test precision -- --nocapture` regenerates the
+report under `target/precision/`, keeping existing verdicts; set
+`SBWB_UPDATE_GROUNDTRUTH=1` to rewrite the fixture copy. Precision is reported
+separately for user-checked and Claude-drafted rows; the test fails below 99%.

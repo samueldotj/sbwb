@@ -16,6 +16,7 @@ export type PageRow = {
   layout_done: boolean;
   text_done: boolean;
   layout_revision: number;
+  text_revision: number;
 };
 
 export type PageCounts = {
@@ -160,6 +161,53 @@ export type PageLayout = {
   revision: number;
 };
 
+export type SpanOrigin = "ocr" | "auto_applied" | "accepted" | "edited";
+export type Anchor = { run: string; index: number; bbox: { x: number; y: number; w: number; h: number }; confidence: number; text: string };
+export type Span = {
+  id: string;
+  page: number;
+  seq: number;
+  region: string | null;
+  text: string;
+  anchors: Anchor[];
+  origin: SpanOrigin;
+  confidence: number | null;
+  trailing: string;
+  revision: number;
+  protected: boolean;
+  structure: WordStructure;
+  paragraph_start: boolean;
+};
+export type ProposalStatus = "open" | "applied_auto" | "accepted" | "rejected" | "deferred" | "stale";
+export type ProposalKind = "hyphen_join" | "ocr_confusion" | "spelling" | "proper_name";
+export type StoredProposal = {
+  id: string;
+  page: number;
+  span: string;
+  span_revision: number;
+  kind: ProposalKind;
+  original: string;
+  replacement: string;
+  score: number;
+  reason: string;
+  source: string;
+  status: ProposalStatus;
+  merged_span: string | null;
+  cross_page: boolean;
+};
+export type PageText = { page: number; spans: Span[]; proposals: StoredProposal[]; text_revision: number };
+export type TextPassSummary = {
+  applied: number;
+  suggested: number;
+  accepted: number;
+  rejected: number;
+  deferred: number;
+  stale: number;
+  pages_done: number;
+  pages_in_scope: number;
+  last_run: string | null;
+};
+
 export type CommandError = { code: string; message: string };
 
 export function isCommandError(e: unknown): e is CommandError {
@@ -202,6 +250,12 @@ export const api = {
   pageLayout: (index: number) => invoke<PageLayout | null>("page_layout", { index }),
   layoutSave: (index: number, regions: Region[]) => invoke<PageLayout>("layout_save", { index, regions }),
   layoutRerun: (index: number) => invoke<void>("layout_rerun", { index }),
+  pageText: (index: number) => invoke<PageText | null>("page_text", { index }),
+  textPassSummary: () => invoke<TextPassSummary | null>("text_pass_summary"),
+  textPassRerun: (index?: number) => invoke<number>("text_pass_rerun", { index: index ?? null }),
+  vocabList: () => invoke<[string, string][]>("vocab_list"),
+  vocabAdd: (word: string, kind: "vocab" | "protected") => invoke<void>("vocab_add", { word, kind }),
+  vocabRemove: (word: string) => invoke<void>("vocab_remove", { word }),
 };
 
 /// "1-50, 60-70" -> [[1,50],[60,70]]; returns null when unparsable.

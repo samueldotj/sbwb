@@ -8,6 +8,7 @@
   import WorkspacePage from "$lib/pages/WorkspacePage.svelte";
   import SettingsPage from "$lib/pages/SettingsPage.svelte";
   import { pipeline, formatEta } from "$lib/stores/pipeline.svelte";
+  import { textPass } from "$lib/stores/text.svelte";
   import { layout } from "$lib/stores/layout.svelte";
   import { project } from "$lib/stores/project.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -127,12 +128,14 @@
   onMount(() => {
     void project.init();
     void pipeline.init();
+    void textPass.init();
     if (import.meta.env.DEV) {
       (window as unknown as { __sbwb: unknown }).__sbwb = {
         importPdf: (p: string) => project.importPdf(p),
         open: (p: string) => project.open(p),
         close: () => project.close(),
         review: (i: number) => view.open(i),
+        tab: (id: string) => (ui.inspectorTab = id),
         layout: (i: number) => {
           view.open(i);
           view.editLayout();
@@ -163,6 +166,25 @@
     });
     return () => unlisten?.();
   });
+
+  const STAGE_NAME: Record<string, string> = { ocr: "OCR", layout: "Layout", text_pass: "Text pass" };
+  const stageLine = $derived.by(() => {
+    if (!pipeline.active) return "";
+    const c = pipeline.current;
+    if (!c || !c.total) return "";
+    const finished = c.done + c.failed;
+    const pct = Math.round((finished / c.total) * 100);
+    const eta = c.stage === "ocr" && c.eta_ms !== null ? ` · ${formatEta(c.eta_ms)}` : "";
+    return `${STAGE_NAME[c.stage] ?? c.stage} · page ${Math.min(finished + 1, c.total)} of ${c.total} · ${pct}%${eta}`;
+  });
+  const counters = $derived.by(() => {
+    const parts: string[] = [];
+    const failed = pipeline.stages.reduce((n, s) => n + s.failed, 0);
+    if (failed) parts.push(`${failed} failed`);
+    const t = textPass.summary;
+    if (t && (t.applied || t.suggested)) parts.push(`${t.applied} applied · ${t.suggested} suggested`);
+    return parts.join(" · ");
+  });
 </script>
 
 <svelte:window onkeydown={onkeydown} />
@@ -190,9 +212,9 @@
     saveState={project.isOpen ? "saved" : "idle"}
     savedAgo="just now"
     projectFile={view.mode === "layout" ? `Layout · page ${view.page + 1}${layout.dirty ? " · unsaved changes" : ""} · Esc returns to Review` : (project.summary?.path.split(/[\\/]/).pop() ?? "")}
-    stage={project.busy ?? (pipeline.active && pipeline.ocr ? `OCR · page ${pipeline.ocr.done + pipeline.ocr.failed} of ${pipeline.ocr.total}${pipeline.ocr.eta_ms !== null ? " · " + formatEta(pipeline.ocr.eta_ms) : ""}` : "")}
+    stage={project.busy ?? stageLine}
     running={project.busy !== null || pipeline.state === "running"}
-    counters={pipeline.ocr && pipeline.ocr.failed ? `${pipeline.ocr.failed} failed` : ""}
+    counters={counters}
   />
   <Toast />
 </div>

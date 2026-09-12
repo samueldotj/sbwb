@@ -32,6 +32,8 @@ pub struct SchedulerConfig {
     pub worker: WorkerConfig,
     /// Save recognition renders next to the cache as evidence (IMG-01).
     pub keep_renders: bool,
+    /// Lexicon files for the text pass (TXT-01).
+    pub lexicon: sbwb_text::LexiconPaths,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -56,6 +58,9 @@ struct Unit {
 }
 
 enum UnitOk {
+    Text {
+        stats: sbwb_text::TextStats,
+    },
     Ocr {
         output: sbwb_ocr::OcrOutput,
         page_w: f64,
@@ -197,32 +202,68 @@ fn log(tx: &Sender<PipelineEvent>, level: &str, text: String) {
 
 /// Mark pages that finished under different OCR settings as queued again
 /// (PIPE-01: a setting change invalidates only dependent results).
-pub fn requeue_for_settings(project: &Project, settings: &ProcessingSettings) -> Result<u32> {
+/// Which stage a page must redo under `settings`, if any (PIPE-01):
+/// OCR when the recognition fingerprint changed, the text pass alone when
+/// only the auto-apply threshold changed. Approved pages never rerun.
+pub fn stage_to_redo(
+    project: &Project,
+    page: &sbwb_store::PageRow,
+    settings: &ProcessingSettings,
+) -> Result<Option<Stage>> {
+    if !page.ocr_done || page.approved_revision.is_some() {
+        return Ok(None);
+    }
     let fp = settings.ocr_fingerprint();
-    let mut n = 0;
-    for p in project.pages()? {
-        if !p.ocr_done || p.approved_revision.is_some() {
-            continue;
-        }
-        let runs = project.runs_for_page(p.index)?;
-        let last_ocr = runs
-            .iter()
+    let runs = project.runs_for_page(page.index)?;
+    let last_ok = |stage: Stage| {
+        runs.iter()
             .rev()
-            .find(|r| r.stage == Stage::Ocr && r.status == "ok");
-        let same = last_ocr
+            .find(|r| r.stage == stage && r.status == "ok")
+    };
+    let same_ocr = last_ok(Stage::Ocr)
+        .and_then(|r| {
+            r.settings
+                .get("fingerprint")
+                .and_then(|v| v.as_str())
+                .map(|s| s == fp)
+        })
+        .unwrap_or(false);
+    if !same_ocr {
+        return Ok(Some(Stage::Ocr));
+    }
+    if page.text_done {
+        let same_threshold = last_ok(Stage::TextPass)
             .and_then(|r| {
                 r.settings
-                    .get("fingerprint")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s == fp)
+                    .get("auto_apply_threshold")
+                    .and_then(|v| v.as_u64())
             })
-            .unwrap_or(false);
-        if !same {
-            project.set_stage_done(p.index, Stage::Ocr, false)?;
-            project.set_stage_done(p.index, Stage::Layout, false)?;
-            project.set_stage_done(p.index, Stage::TextPass, false)?;
-            project.set_page_status(p.index, PageStatus::Queued, None)?;
-            n += 1;
+            .map(|t| t == settings.auto_apply_threshold as u64)
+            .unwrap_or(true);
+        if !same_threshold {
+            return Ok(Some(Stage::TextPass));
+        }
+    }
+    Ok(None)
+}
+
+pub fn requeue_for_settings(project: &Project, settings: &ProcessingSettings) -> Result<u32> {
+    let mut n = 0;
+    for p in project.pages()? {
+        match stage_to_redo(project, &p, settings)? {
+            Some(Stage::TextPass) => {
+                project.set_stage_done(p.index, Stage::TextPass, false)?;
+                project.set_page_status(p.index, PageStatus::Queued, None)?;
+                n += 1;
+            }
+            Some(_) => {
+                project.set_stage_done(p.index, Stage::Ocr, false)?;
+                project.set_stage_done(p.index, Stage::Layout, false)?;
+                project.set_stage_done(p.index, Stage::TextPass, false)?;
+                project.set_page_status(p.index, PageStatus::Queued, None)?;
+                n += 1;
+            }
+            None => {}
         }
     }
     Ok(n)
@@ -231,16 +272,18 @@ pub fn requeue_for_settings(project: &Project, settings: &ProcessingSettings) ->
 struct Progress {
     ocr: StageProgress,
     layout: StageProgress,
+    text: StageProgress,
     started: Instant,
 }
 
 impl Progress {
     fn stages(&self) -> Vec<StageProgress> {
-        vec![self.ocr.clone(), self.layout.clone()]
+        vec![self.ocr.clone(), self.layout.clone(), self.text.clone()]
     }
     fn for_stage(&mut self, stage: Stage) -> &mut StageProgress {
         match stage {
             Stage::Layout => &mut self.layout,
+            Stage::TextPass => &mut self.text,
             _ => &mut self.ocr,
         }
     }
@@ -248,6 +291,7 @@ impl Progress {
         let e = self.started.elapsed().as_millis() as u64;
         self.ocr.elapsed_ms = e;
         self.layout.elapsed_ms = e;
+        self.text.elapsed_ms = e;
         let finished = self.ocr.done + self.ocr.failed;
         if finished >= 3 {
             let per = self.started.elapsed().as_secs_f64() / finished as f64;
@@ -282,16 +326,41 @@ fn coordinate(
     let pages = project.pages()?;
     let mut ocr_queue: VecDeque<PageIndex> = VecDeque::new();
     let mut layout_queue: VecDeque<PageIndex> = VecDeque::new();
+    let mut text_queue: VecDeque<PageIndex> = VecDeque::new();
     for p in pages.iter().filter(|p| meta.scope.contains(p.index)) {
         let queued = matches!(p.status, PageStatus::Queued | PageStatus::Running);
         if queued && !p.ocr_done {
             ocr_queue.push_back(p.index);
         } else if p.ocr_done && !p.layout_done && p.status != PageStatus::Failed {
             layout_queue.push_back(p.index);
+        } else if p.ocr_done && p.layout_done && !p.text_done && p.status != PageStatus::Failed {
+            text_queue.push_back(p.index);
         }
     }
     let ocr_total = ocr_queue.len() as u32;
     let layout_total = ocr_total + layout_queue.len() as u32;
+    let text_total = layout_total + text_queue.len() as u32;
+    // The text pass is pure Rust and runs on its own thread with one
+    // lexicon, so dictionary lookups never hold up OCR dispatch.
+    let mut lexicon = match sbwb_text::Lexicon::load(&config.lexicon) {
+        Ok(l) => l,
+        Err(e) => {
+            log(
+                &tx,
+                "warn",
+                format!("lexicon unavailable ({e}); text pass runs without a dictionary"),
+            );
+            sbwb_text::Lexicon::empty()
+        }
+    };
+    for (word, kind) in project.vocab()? {
+        if kind == "protected" {
+            lexicon.add_protected([word]);
+        } else {
+            lexicon.add_vocab([word]);
+        }
+    }
+    let policy = config.settings.auto_apply_policy();
     log(
         &tx,
         "info",
@@ -306,6 +375,7 @@ fn coordinate(
     let mut progress = Progress {
         ocr: empty_progress(Stage::Ocr, ocr_total),
         layout: empty_progress(Stage::Layout, layout_total),
+        text: empty_progress(Stage::TextPass, text_total),
         started: Instant::now(),
     };
     publish(&shared, &tx, &progress, "starting");
@@ -314,6 +384,18 @@ fn coordinate(
     // so pausing stops dispatch at the next page boundary.
     let (unit_tx, unit_rx) = bounded::<Unit>(0);
     let (res_tx, res_rx) = unbounded::<UnitResult>();
+    let (text_tx, text_rx) = unbounded::<PageIndex>();
+    let text_thread = {
+        let res_tx = res_tx.clone();
+        let path = config.project_path.clone();
+        let scope = meta.scope.clone();
+        let policy = policy.clone();
+        std::thread::Builder::new()
+            .name("sbwb-text".into())
+            .spawn(move || text_loop(path, lexicon, policy, scope, text_rx, res_tx))
+            .map_err(|e| SbwbError::Other(format!("text thread: {e}")))?
+    };
+    let text_tx = Some(text_tx);
     let mut pool = Vec::new();
     for i in 0..workers {
         let rx = unit_rx.clone();
@@ -362,6 +444,21 @@ fn coordinate(
         }
         let paused = shared.control.load(Ordering::SeqCst) == CTRL_PAUSE;
 
+        // Text-pass units go to the text thread. A cancel still lets pages
+        // whose layout is already stored finish; only a pause holds them.
+        while let (Some(page), Some(ttx)) = (text_queue.front().copied(), text_tx.as_ref()) {
+            if paused {
+                break;
+            }
+            if ttx.send(page).is_err() {
+                break;
+            }
+            text_queue.pop_front();
+            project.set_page_status(page, PageStatus::Running, None)?;
+            in_flight += 1;
+            progress.text.running += 1;
+            publish(&shared, &tx, &progress, &format!("text {page}"));
+        }
         if next.is_none() && !cancelled && !paused {
             // Layout units first: they are cheap and complete pages end to end.
             if let Some(page) = layout_queue.pop_front() {
@@ -391,7 +488,7 @@ fn coordinate(
                 });
             }
         }
-        let queues_empty = ocr_queue.is_empty() && layout_queue.is_empty();
+        let queues_empty = ocr_queue.is_empty() && layout_queue.is_empty() && text_queue.is_empty();
         if next.is_none() && in_flight == 0 && (cancelled || queues_empty) {
             break;
         }
@@ -404,7 +501,7 @@ fn coordinate(
                 send(unit_tx.as_ref().unwrap(), unit) -> r => r.is_ok(),
                 recv(res_rx) -> r => {
                     if let Ok(res) = r {
-                        handle_result(&mut project, &config, &shared, &tx, &mut progress, res, &mut in_flight, &mut layout_queue)?;
+                        handle_result(&mut project, &config, &shared, &tx, &mut progress, res, &mut in_flight, &mut layout_queue, &mut text_queue)?;
                     }
                     false
                 }
@@ -438,6 +535,7 @@ fn coordinate(
                     res,
                     &mut in_flight,
                     &mut layout_queue,
+                    &mut text_queue,
                 )?,
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                     progress.tick();
@@ -457,6 +555,8 @@ fn coordinate(
     for h in pool {
         let _ = h.join();
     }
+    drop(text_tx);
+    let _ = text_thread.join();
     // Pages left mid-way stay queued for a later resume (PIPE-02).
     for p in project.pages()? {
         if p.status == PageStatus::Running {
@@ -465,6 +565,7 @@ fn coordinate(
     }
     progress.ocr.running = 0;
     progress.layout.running = 0;
+    progress.text.running = 0;
     progress.tick();
     publish(
         &shared,
@@ -506,8 +607,117 @@ fn coordinate(
 fn stage_word(stage: Stage) -> &'static str {
     match stage {
         Stage::Layout => "layout",
+        Stage::TextPass => "text",
         _ => "ocr",
     }
+}
+
+/// The text thread: its own connection (the writer lock is per process),
+/// one lexicon for the run, pages in the order layout finished.
+fn text_loop(
+    path: PathBuf,
+    lexicon: sbwb_text::Lexicon,
+    policy: sbwb_text::AutoApplyPolicy,
+    scope: sbwb_core::PageScope,
+    rx: Receiver<PageIndex>,
+    res_tx: Sender<UnitResult>,
+) {
+    let mut project = match Project::open(&path, OpenMode::ReadWrite) {
+        Ok(p) => p,
+        Err(e) => {
+            // Every page sent here fails with the same cause; the coordinator
+            // records it per page.
+            for page in rx.iter() {
+                let _ = res_tx.send(UnitResult {
+                    stage: Stage::TextPass,
+                    page,
+                    result: Err(SbwbError::Other(format!(
+                        "text pass could not open the book: {e}"
+                    ))),
+                    elapsed_ms: 0,
+                    worker_died: false,
+                });
+            }
+            return;
+        }
+    };
+    for page in rx.iter() {
+        let started = Instant::now();
+        let result = run_text_pass(&mut project, &lexicon, &policy, page, &scope);
+        let _ = res_tx.send(UnitResult {
+            stage: Stage::TextPass,
+            page,
+            result: result.map(|stats| UnitOk::Text { stats }),
+            elapsed_ms: started.elapsed().as_millis() as u64,
+            worker_died: false,
+        });
+    }
+}
+
+/// Run the text pass for one page (TXT-02, TXT-03).
+fn run_text_pass(
+    project: &mut Project,
+    lexicon: &sbwb_text::Lexicon,
+    policy: &sbwb_text::AutoApplyPolicy,
+    page: PageIndex,
+    scope: &sbwb_core::PageScope,
+) -> Result<sbwb_text::TextStats> {
+    let (run, words, _lines, _) = project
+        .current_page_ocr(page)?
+        .ok_or_else(|| SbwbError::NotFound(format!("{page} has no OCR evidence")))?;
+    let layout = project.page_layout(page)?;
+    let regions: Vec<sbwb_layout::Region> = layout
+        .map(|l| serde_json::from_value(l.regions).unwrap_or_default())
+        .unwrap_or_default();
+    let row = project
+        .pages()?
+        .into_iter()
+        .find(|r| r.index == page)
+        .ok_or_else(|| SbwbError::NotFound(format!("{page} row")))?;
+    // previous page tail for cross-page joins
+    let previous_tail = if page.0 > 0 && scope.contains(PageIndex(page.0 - 1)) {
+        let prev = PageIndex(page.0 - 1);
+        project
+            .page_spans(prev)?
+            .into_iter()
+            .rev()
+            .find(|s| s.region.is_some())
+            .filter(|s| s.text.ends_with('-') && s.text.chars().count() >= 3)
+            .map(|s| sbwb_text::reconstruct::PendingHyphen {
+                span: s.id,
+                page: prev,
+                revision: s.revision,
+                text: s.text.clone(),
+            })
+    } else {
+        None
+    };
+    let input = sbwb_text::PageTextInput {
+        page,
+        run,
+        words: &words,
+        regions: &regions,
+        page_w: row.width_pt.unwrap_or(612.0),
+        page_h: row.height_pt.unwrap_or(792.0),
+        previous_tail,
+    };
+    let out = sbwb_text::reconstruct(&input, lexicon, policy);
+    project.put_page_text(page, Some(run), &out.spans, &out.proposals)?;
+    // cross-page join: apply now when it qualifies (D-24 rule a)
+    for p in project.page_proposals(page)? {
+        if p.cross_page && p.status == "open" && p.score >= policy.threshold {
+            project.apply_cross_page_join(&p, page)?;
+        }
+    }
+    let applied = out.stats.auto_applied;
+    if applied > 0 {
+        project.add_history(
+            "text_pass",
+            &format!("Text pass · page {} · {applied} automatic changes", page.number()),
+            &serde_json::json!({ "page": page.0, "applied": applied, "proposals": out.proposals.iter().filter(|p| p.auto_applied).map(|p| serde_json::json!({"id": p.id, "original": p.original, "replacement": p.replacement})).collect::<Vec<_>>() }),
+        )?;
+    }
+    Ok(out.stats)
 }
 
 /// Tesseract blocks are not persisted; rebuild them from stored lines (one
@@ -539,6 +749,7 @@ fn handle_result(
     res: UnitResult,
     in_flight: &mut u32,
     layout_queue: &mut VecDeque<PageIndex>,
+    text_queue: &mut VecDeque<PageIndex>,
 ) -> Result<()> {
     *in_flight = in_flight.saturating_sub(1);
     let page = res.page;
@@ -549,6 +760,7 @@ fn handle_result(
     settings_json["fingerprint"] = serde_json::Value::String(config.settings.ocr_fingerprint());
     let (engine, model) = match stage {
         Stage::Layout => ("sbwb-layout", "cc-smear"),
+        Stage::TextPass => ("sbwb-text", "rules/1"),
         _ => ("tesseract", config.settings.model.subdir()),
     };
     let run = project.start_run(stage, Some(page), Some(engine), Some(model), &settings_json)?;
@@ -591,6 +803,33 @@ fn handle_result(
             // Layout follows at once for this page.
             layout_queue.push_front(page);
         }
+        Ok(UnitOk::Text { stats }) => {
+            project.finish_run(run, "ok", None, Some(res.elapsed_ms))?;
+            project.set_stage_done(page, Stage::TextPass, true)?;
+            project.set_page_status(page, PageStatus::Done, None)?;
+            progress.text.done += 1;
+            log(
+                tx,
+                "info",
+                format!(
+                    "text {page} ok · {} words · {} paragraphs · {} applied · {} suggested",
+                    stats.words,
+                    stats.paragraphs,
+                    stats.auto_applied,
+                    stats.proposals.saturating_sub(stats.auto_applied)
+                ),
+            );
+            let _ = tx.send(PipelineEvent::Unit {
+                stage,
+                page,
+                ok: true,
+                elapsed_ms: res.elapsed_ms,
+                words: Some(stats.words),
+                mean_confidence: None,
+                error: None,
+                warnings: vec![],
+            });
+        }
         Ok(UnitOk::Layout {
             regions,
             report,
@@ -607,8 +846,9 @@ fn handle_result(
             )?;
             project.finish_run(run, "ok", None, Some(res.elapsed_ms))?;
             project.set_stage_done(page, Stage::Layout, true)?;
-            project.set_page_status(page, PageStatus::Done, None)?;
+            project.set_stage_done(page, Stage::TextPass, false)?;
             progress.layout.done += 1;
+            text_queue.push_back(page);
             let kinds: Vec<String> = regions.iter().map(|r| r.kind.label().to_string()).collect();
             log(
                 tx,
@@ -803,6 +1043,7 @@ pub fn config_for(
         settings: ProcessingSettings::load(project)?,
         worker,
         keep_renders: false,
+        lexicon: sbwb_text::lexicon::default_paths(),
     })
 }
 
@@ -863,6 +1104,7 @@ mod tests {
                 tessdata_dir: Some(sbwb_ocr::default_tessdata_root()),
             },
             keep_renders: false,
+            lexicon: sbwb_text::lexicon::default_paths(),
         }
     }
 
@@ -879,7 +1121,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (path, src) = make_project(dir.path(), 2);
         let s = Scheduler::start(cfg(&path, &src, exe, Duration::from_secs(120))).unwrap();
-        let (mut ocr_units, mut layout_units) = (0, 0);
+        let (mut ocr_units, mut layout_units, mut text_units) = (0, 0, 0);
         for ev in s.events().iter() {
             match ev {
                 PipelineEvent::Unit {
@@ -892,6 +1134,7 @@ mod tests {
                             ocr_units += 1;
                         }
                         Stage::Layout => layout_units += 1,
+                        Stage::TextPass => text_units += 1,
                         _ => {}
                     }
                 }
@@ -906,11 +1149,24 @@ mod tests {
                 _ => {}
             }
         }
-        assert_eq!((ocr_units, layout_units), (2, 2));
+        assert_eq!((ocr_units, layout_units, text_units), (2, 2, 2));
         s.join();
         let p = Project::open(&path, OpenMode::ReadWrite).unwrap();
         let c = p.counts().unwrap();
-        assert_eq!((c.done, c.ocr_done, c.layout_done), (2, 2, 2));
+        assert_eq!(
+            (c.done, c.ocr_done, c.layout_done, c.text_done),
+            (2, 2, 2, 2)
+        );
+        let spans = p.page_spans(PageIndex(47)).unwrap();
+        assert!(
+            spans.iter().any(|s| s.text == "communication"),
+            "joined word missing"
+        );
+        assert!(p
+            .page_proposals(PageIndex(47))
+            .unwrap()
+            .iter()
+            .any(|q| q.status == "applied_auto"));
         let layout = p.page_layout(PageIndex(47)).unwrap().unwrap();
         let regions: Vec<sbwb_layout::Region> = serde_json::from_value(layout.regions).unwrap();
         assert!(regions

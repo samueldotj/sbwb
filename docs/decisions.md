@@ -33,6 +33,8 @@ Each entry names the requirement it touches.
 | D-24 | Auto-apply eligible rules at or above the threshold: (a) hyphen joins across line and page breaks; (b) single-character OCR confusions (rn/m, l/1, I/l, o/0, c/e, ſ/f) where the result is in the lexicon or project vocabulary and the original is not. All other kinds remain suggestions. | TXT-03, NFR-09 | 2026-09-12 |
 | D-25 | Tauri bundle identifier is `io.github.samueldotj.sbwb`. It names the AppData folder, the WebView2 profile folder, and the installer's upgrade identity; it is not shown in the UI. Fixed from the first public build onward. | NFR-12 | 2026-09-12 |
 | D-26 | Ground truth for M4.8 and M5.9: Claude drafts region, reading-order, and text annotations for about 20 fixture pages; the user spot-checks 5; the remainder is reported as unadjudicated in quality metrics. | NFR-08, NFR-09 | 2026-09-12 |
+| D-27 | The text pass is pure Rust and runs on a dedicated thread inside the scheduler (its own SQLite connection; the writer lock is per process), not in a worker process. One lexicon is loaded per run; project vocabulary and protected words are folded in at start. Dictionary suggestions are budgeted per page (40) because each is a Hunspell edit search. | TXT-01, TXT-03, NFR-03 | 2026-09-12 |
+| D-28 | Auto-apply guards for OCR confusions: exactly one single-character candidate may be a dictionary word (ambiguity drops the score to 78) and the word needs four or more letters (shorter drops to 84), so both stay suggestions under the default threshold of 90. Spans produced by a hyphen join are never spell-checked again as fragments; roman numerals are skipped. | TXT-03, D-24 | 2026-09-12 |
 
 ## Open
 

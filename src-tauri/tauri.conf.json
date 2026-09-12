@@ -43,7 +43,10 @@
     "resources": {
       "../third_party/pdfium/bin/pdfium.dll": "pdfium/pdfium.dll",
       "../models/best/eng.traineddata": "tessdata/best/eng.traineddata",
-      "../models/fast/eng.traineddata": "tessdata/fast/eng.traineddata"
+      "../models/fast/eng.traineddata": "tessdata/fast/eng.traineddata",
+      "../fixtures/lexicons/hunspell-en_GB-large/en_GB-large.aff": "lexicons/en_GB-large.aff",
+      "../fixtures/lexicons/hunspell-en_GB-large/en_GB-large.dic": "lexicons/en_GB-large.dic",
+      "../fixtures/lexicons/webster-1913-headwords.txt": "lexicons/webster-1913-headwords.txt"
     },
     "windows": {
       "webviewInstallMode": {

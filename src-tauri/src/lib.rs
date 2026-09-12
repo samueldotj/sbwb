@@ -44,7 +44,7 @@ pub fn run() {
             let log_dir = app.path().app_log_dir()?;
             logging::init(&log_dir)?;
             let res = paths::Resources::locate(app.handle());
-            tracing::info!(pdfium = %res.pdfium_dir.display(), tessdata = %res.tessdata_dir.display(), "resources located");
+            tracing::info!(pdfium = %res.pdfium_dir.display(), tessdata = %res.tessdata_dir.display(), lexicons = %res.lexicon_dir.display(), "resources located");
             app.manage(state::AppState::new(res));
             app.manage(commands::pipeline::PipelineSlot::default());
 
@@ -66,7 +66,8 @@ pub fn run() {
                         let _ = w.eval("window.__sbwbProbe && window.__sbwbProbe()");
                         if let Ok(p) = std::env::var("SBWB_DEV_IMPORT") {
                             let review = std::env::var("SBWB_DEV_REVIEW").ok().and_then(|v| v.parse::<u32>().ok());
-                            let then = review.map(|i| format!(".then(() => window.__sbwb.review({i}))")).unwrap_or_default();
+                            let tab = std::env::var("SBWB_DEV_TAB").ok().map(|t| format!(".then(() => window.__sbwb.tab({}))", serde_json::to_string(&t).unwrap())).unwrap_or_default();
+                            let then = review.map(|i| format!(".then(() => window.__sbwb.review({i})){tab}")).unwrap_or_default();
                             let js = format!("window.__sbwb && window.__sbwb.importPdf({}){then}", serde_json::to_string(&p).unwrap());
                             let _ = w.eval(&js);
                         }
@@ -122,6 +123,12 @@ pub fn run() {
             commands::layout::page_layout,
             commands::layout::layout_save,
             commands::layout::layout_rerun,
+            commands::text::page_text,
+            commands::text::text_pass_summary,
+            commands::text::text_pass_rerun,
+            commands::text::vocab_list,
+            commands::text::vocab_add,
+            commands::text::vocab_remove,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SBWB");

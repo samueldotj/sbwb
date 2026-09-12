@@ -1529,12 +1529,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fst"
-version = "0.4.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ab85b9b05e3978cc9a9cf8fea7f01b494e1a09ed3037e16ba39edc7a29eb61a"
-
-[[package]]
 name = "futures-channel"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4322,6 +4316,7 @@ dependencies = [
  "sbwb-pdf",
  "sbwb-pipeline",
  "sbwb-store",
+ "sbwb-text",
  "sbwb-worker",
  "serde",
  "serde_json",
@@ -4427,6 +4422,7 @@ dependencies = [
  "sbwb-layout",
  "sbwb-ocr",
  "sbwb-store",
+ "sbwb-text",
  "sbwb-worker",
  "serde",
  "serde_json",
@@ -4453,6 +4449,7 @@ dependencies = [
  "rusqlite_migration",
  "sbwb-core",
  "sbwb-ocr",
+ "sbwb-text",
  "serde",
  "serde_json",
  "tempfile",
@@ -4464,11 +4461,12 @@ dependencies = [
 name = "sbwb-text"
 version = "0.1.0"
 dependencies = [
- "fst",
+ "image",
  "regex",
  "sbwb-core",
  "sbwb-layout",
  "sbwb-ocr",
+ "sbwb-pdf",
  "serde",
  "serde_json",
  "spellbook",

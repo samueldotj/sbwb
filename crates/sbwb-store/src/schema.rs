@@ -4,10 +4,10 @@
 use rusqlite_migration::{Migrations, M};
 
 /// Current project schema version. Bumped by every migration.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 pub fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(V1), M::up(V2)])
+    Migrations::new(vec![M::up(V1), M::up(V2), M::up(V3)])
 }
 
 const V1: &str = r#"
@@ -112,4 +112,52 @@ CREATE TABLE page_layout (
   revision INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL
 );
+"#;
+
+/// v3: effective text spans, proposals, project vocabulary (M5).
+const V3: &str = r#"
+CREATE TABLE spans (
+  id TEXT PRIMARY KEY,
+  page_index INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  region_id TEXT,
+  text TEXT NOT NULL,
+  trailing TEXT NOT NULL,
+  origin TEXT NOT NULL,
+  confidence REAL,
+  anchors TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  protected INTEGER NOT NULL DEFAULT 0,
+  structure TEXT NOT NULL,
+  paragraph_start INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX spans_page ON spans(page_index, seq);
+
+CREATE TABLE proposals (
+  id TEXT PRIMARY KEY,
+  page_index INTEGER NOT NULL,
+  span_id TEXT NOT NULL,
+  span_revision INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  original TEXT NOT NULL,
+  replacement TEXT NOT NULL,
+  score INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  source TEXT NOT NULL,
+  status TEXT NOT NULL,
+  merged_span TEXT,
+  cross_page INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  decided_at TEXT,
+  run_id TEXT
+);
+CREATE INDEX proposals_page ON proposals(page_index, status);
+
+CREATE TABLE vocab (
+  word TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  added_at TEXT NOT NULL
+);
+
+ALTER TABLE pages ADD COLUMN text_revision INTEGER NOT NULL DEFAULT 0;
 "#;

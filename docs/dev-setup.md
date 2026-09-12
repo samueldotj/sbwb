@@ -35,6 +35,24 @@
 Tests: `cargo test --workspace` and `npm test`. The Rust tests that need
 PDFium or models skip themselves with a message when the files are absent.
 
-Environment overrides: `SBWB_PDFIUM_DIR`, `SBWB_TESSDATA_DIR`, `SBWB_LOG`
+Environment overrides: `SBWB_PDFIUM_DIR`, `SBWB_TESSDATA_DIR`, `SBWB_LEXICON_DIR` (a flat folder with `en_GB-large.aff`, `en_GB-large.dic`, `webster-1913-headwords.txt`; in dev `scripts/fetch-deps.ps1` makes `fixtures/lexicons/dev/`), `SBWB_LOG`
 (tracing filter, default `info`). Logs go to the Tauri app log directory
 with the home path redacted.
+
+## Dev hooks
+
+Debug builds expose `window.__sbwb` (`importPdf`, `open`, `close`, `review`,
+`layout`, `tab`) and read these variables at start-up, about 8 s after the
+window opens:
+
+| Variable | Effect |
+| --- | --- |
+| `SBWB_DEV_IMPORT=<pdf>` | Import the file (first 50 pages) and start processing |
+| `SBWB_DEV_REVIEW=<index>` | Then open that page (0-based) in Review |
+| `SBWB_DEV_TAB=<id>` | Then select an inspector tab (`import`, `page`, `text_pass`, `ai`) |
+| `SBWB_DEV_LAYOUT_AT=<secs>` | Enter Layout mode for the review page after that many seconds |
+
+`scripts/capture-window.ps1 -Out shot.png` grabs the window without taking
+focus. The Vite dev server alone (`npm run dev`, then `/?mock=review`) renders
+the workspace with mock data and no backend.
+

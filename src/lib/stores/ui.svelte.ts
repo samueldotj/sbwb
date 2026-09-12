@@ -25,6 +25,8 @@ class UiState {
   theme = $state<Theme>(readStoredTheme());
   toasts = $state<Toast[]>([]);
   settingsOpen = $state(false);
+  /// Inspector tab requested from outside the workspace (rail rows, dev hooks).
+  inspectorTab = $state<string | null>(null);
   #nextToast = 1;
 
   constructor() {

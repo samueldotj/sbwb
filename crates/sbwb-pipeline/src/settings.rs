@@ -66,6 +66,13 @@ impl ProcessingSettings {
 
     /// Settings that change OCR output; used to decide whether a done page
     /// must be re-run after a settings change (PIPE-01).
+    pub fn auto_apply_policy(&self) -> sbwb_text::AutoApplyPolicy {
+        sbwb_text::AutoApplyPolicy {
+            threshold: self.auto_apply_threshold,
+            ..Default::default()
+        }
+    }
+
     pub fn ocr_fingerprint(&self) -> String {
         format!(
             "{:?}|{}|deskew={}|despeckle={}",

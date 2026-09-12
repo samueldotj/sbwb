@@ -39,6 +39,18 @@ class PipelineStore {
   get ocr(): StageProgress | null {
     return this.stages.find((s) => s.stage === "ocr") ?? null;
   }
+  get layout(): StageProgress | null {
+    return this.stages.find((s) => s.stage === "layout") ?? null;
+  }
+  get text(): StageProgress | null {
+    return this.stages.find((s) => s.stage === "text_pass") ?? null;
+  }
+  /** The stage currently doing work, for the status bar. */
+  get current(): StageProgress | null {
+    const running = this.stages.find((s) => s.running > 0);
+    if (running) return running;
+    return this.stages.find((s) => s.done + s.failed < s.total) ?? this.ocr;
+  }
   get active(): boolean {
     return this.state === "running" || this.state === "paused" || this.state === "stopping";
   }
@@ -77,8 +89,8 @@ class PipelineStore {
         break;
       case "finished":
         this.state = e.cancelled ? "idle" : "done";
-        if (e.failed > 0) ui.toast(`OCR finished: ${e.done} pages, ${e.failed} failed`, "warn", 6000);
-        else if (!e.cancelled) ui.toast(`OCR finished: ${e.done} pages`, "ok");
+        if (e.failed > 0) ui.toast(`Processing finished: ${e.done} pages, ${e.failed} failed`, "warn", 6000);
+        else if (!e.cancelled) ui.toast(`Processing finished: ${e.done} pages`, "ok");
         break;
       case "unit":
         break;

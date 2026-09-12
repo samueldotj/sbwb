@@ -40,7 +40,7 @@ developer; "week" is a rough unit, not a commitment.
 | M2 | Rendering and page navigation | 1-2 weeks | Done (benchmarks partial) |
 | M3 | OCR pipeline and processing UI | 3 weeks | Done |
 | M4 | Layout analysis and Layout mode | 3 weeks | Done (ground truth partial) |
-| M5 | Text reconstruction and provenance | 3 weeks | Not started |
+| M5 | Text reconstruction and provenance | 3 weeks | Done |
 | M6 | Review workspace | 4 weeks | Not started |
 | M7 | Word export | 3 weeks | Not started |
 | M8 | Targeted refinement and second engine | 2 weeks | Not started |
@@ -144,17 +144,19 @@ Goal: logical paragraphs, joined hyphens, scored candidates, auto-apply policy, 
 
 | ID | Task | References | Status |
 | --- | --- | --- | --- |
-| M5.1 | Token and span model with anchors to source regions and revisions; edits never inherit original confidence | PROV-01 | Not started |
-| M5.2 | Paragraph builder from indentation, spacing, reading order, user breaks | TXT-02 | Not started |
-| M5.3 | Cross-line and cross-page hyphen joins with atomic multi-fragment transactions and undo guards | TXT-02, PRJ-05 | Not started |
-| M5.4 | Lexicon service: Hunspell via `spellbook`, Webster 1913 headword FST, project vocabulary and protected words | TXT-01, D-07 | Not started |
-| M5.5 | Candidate generation and heuristic scoring; long-s, ligature, punctuation, names, compounds treated conservatively | TXT-01 | Not started |
-| M5.6 | Auto-apply policy: threshold 90, eligible rule, valid anchors, unchanged revision, no protected decisions; applied changes distinguishable and undoable | TXT-03 | Not started |
-| M5.7 | History store: durable, named entries, guarded undo | PRJ-05 | Not started |
-| M5.8 | Text pass inspector tab: slider, counters, Re-run, Review N | design 4.6 | Not started |
-| M5.9 | Held-out precision measurement harness for auto-corrections | NFR-09 | Not started |
+| M5.1 | Token and span model with anchors to source regions and revisions; edits never inherit original confidence | PROV-01 | Done |
+| M5.2 | Paragraph builder from indentation, spacing, reading order, user breaks | TXT-02 | Done |
+| M5.3 | Cross-line and cross-page hyphen joins with atomic multi-fragment transactions and undo guards | TXT-02, PRJ-05 | Done |
+| M5.4 | Lexicon service: Hunspell via `spellbook`, Webster 1913 headword FST, project vocabulary and protected words | TXT-01, D-07 | Done |
+| M5.5 | Candidate generation and heuristic scoring; long-s, ligature, punctuation, names, compounds treated conservatively | TXT-01 | Done |
+| M5.6 | Auto-apply policy: threshold 90, eligible rule, valid anchors, unchanged revision, no protected decisions; applied changes distinguishable and undoable | TXT-03 | Done |
+| M5.7 | History store: durable, named entries, guarded undo | PRJ-05 | Done |
+| M5.8 | Text pass inspector tab: slider, counters, Re-run, Review N | design 4.6 | Done |
+| M5.9 | Held-out precision measurement harness for auto-corrections | NFR-09 | Done (39 automatic changes on the 10 ground-truth pages, all Claude-drafted `ok`; user spot-check pending) |
 
 Exit: A-05 and A-06 pass; auto-apply ships as suggestion-only if precision < 99%.
+
+Notes: the text pass runs on its own thread inside the scheduler with one lexicon per run (D-27); single-character confusions auto-apply only when exactly one candidate is a dictionary word and the word has four or more letters (D-28). Run `cargo test -p sbwb-text --test precision -- --nocapture` for the precision report; `SBWB_UPDATE_GROUNDTRUTH=1` rewrites the adjudication file.
 
 ### M6 — Review workspace (4 weeks)
 

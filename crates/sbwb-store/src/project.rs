@@ -59,6 +59,26 @@ pub struct PageRow {
     pub text_done: bool,
     #[serde(default)]
     pub layout_revision: u64,
+    #[serde(default)]
+    pub text_revision: u64,
+}
+
+/// A proposal row with its decision status (M5/M6).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StoredProposal {
+    pub id: sbwb_core::ProposalId,
+    pub page: PageIndex,
+    pub span: sbwb_core::SpanId,
+    pub span_revision: u64,
+    pub kind: String,
+    pub original: String,
+    pub replacement: String,
+    pub score: u8,
+    pub reason: String,
+    pub source: String,
+    pub status: String,
+    pub merged_span: Option<sbwb_core::SpanId>,
+    pub cross_page: bool,
 }
 
 /// Stored layout for one page (M4).
@@ -468,7 +488,7 @@ impl Project {
     pub fn pages(&self) -> Result<Vec<PageRow>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT page_index, width_pt, height_pt, status, printed_label, error, approved_revision, ocr_done, layout_done, text_done, layout_revision FROM pages ORDER BY page_index")
+            .prepare("SELECT page_index, width_pt, height_pt, status, printed_label, error, approved_revision, ocr_done, layout_done, text_done, layout_revision, text_revision FROM pages ORDER BY page_index")
             .map_err(db)?;
         let rows = stmt
             .query_map([], |r| {
@@ -484,6 +504,7 @@ impl Project {
                     layout_done: r.get::<_, i64>(8)? != 0,
                     text_done: r.get::<_, i64>(9)? != 0,
                     layout_revision: r.get::<_, i64>(10)? as u64,
+                    text_revision: r.get::<_, i64>(11)? as u64,
                 })
             })
             .map_err(db)?;
@@ -845,6 +866,286 @@ impl Project {
         }
     }
 
+    // ----- effective text (M5) -----
+
+    /// Replace a page's spans and undecided proposals with a new text-pass
+    /// result. Decided proposals (accepted, rejected, deferred) are kept so
+    /// human decisions survive reruns (REV-06); stale ones are marked.
+    pub fn put_page_text(
+        &mut self,
+        page: PageIndex,
+        run: Option<RunId>,
+        spans: &[sbwb_text::Span],
+        proposals: &[sbwb_text::Proposal],
+    ) -> Result<()> {
+        self.require_write()?;
+        let now = Timestamp::now().to_string();
+        let tx = self.conn.transaction().map_err(db)?;
+        tx.execute(
+            "DELETE FROM spans WHERE page_index = ?1",
+            params![page.0 as i64],
+        )
+        .map_err(db)?;
+        tx.execute(
+            "UPDATE proposals SET status = 'stale' WHERE page_index = ?1 AND status IN ('accepted', 'rejected', 'deferred')",
+            params![page.0 as i64],
+        )
+        .map_err(db)?;
+        tx.execute(
+            "DELETE FROM proposals WHERE page_index = ?1 AND status IN ('open', 'applied_auto')",
+            params![page.0 as i64],
+        )
+        .map_err(db)?;
+        {
+            let mut ins = tx
+                .prepare(
+                    "INSERT INTO spans(id, page_index, seq, region_id, text, trailing, origin, confidence, anchors, revision, protected, structure, paragraph_start)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                )
+                .map_err(db)?;
+            for s in spans {
+                ins.execute(params![
+                    s.id.to_string(),
+                    s.page.0 as i64,
+                    s.seq as i64,
+                    s.region.map(|r| r.to_string()),
+                    s.text,
+                    s.trailing,
+                    serde_json::to_value(s.origin)?
+                        .as_str()
+                        .unwrap_or("ocr")
+                        .to_string(),
+                    s.confidence.map(|c| c as f64),
+                    serde_json::to_string(&s.anchors)?,
+                    s.revision as i64,
+                    s.protected as i64,
+                    serde_json::to_value(s.structure)?
+                        .as_str()
+                        .unwrap_or("text")
+                        .to_string(),
+                    s.paragraph_start as i64,
+                ])
+                .map_err(db)?;
+            }
+            let mut insp = tx
+                .prepare(
+                    "INSERT INTO proposals(id, page_index, span_id, span_revision, kind, original, replacement, score, reason, source, status, merged_span, cross_page, created_at, run_id)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                )
+                .map_err(db)?;
+            for p in proposals {
+                insp.execute(params![
+                    p.id.to_string(),
+                    page.0 as i64,
+                    p.span.to_string(),
+                    p.span_revision as i64,
+                    serde_json::to_value(p.kind)?
+                        .as_str()
+                        .unwrap_or("spelling")
+                        .to_string(),
+                    p.original,
+                    p.replacement,
+                    p.score as i64,
+                    p.reason,
+                    "text_pass",
+                    if p.auto_applied {
+                        "applied_auto"
+                    } else {
+                        "open"
+                    },
+                    p.merged_span.map(|m| m.to_string()),
+                    p.cross_page as i64,
+                    now,
+                    run.map(|r| r.to_string()),
+                ])
+                .map_err(db)?;
+            }
+        }
+        tx.execute(
+            "UPDATE pages SET text_revision = text_revision + 1 WHERE page_index = ?1",
+            params![page.0 as i64],
+        )
+        .map_err(db)?;
+        tx.commit().map_err(db)
+    }
+
+    pub fn page_spans(&self, page: PageIndex) -> Result<Vec<sbwb_text::Span>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, seq, region_id, text, trailing, origin, confidence, anchors, revision, protected, structure, paragraph_start FROM spans WHERE page_index = ?1 ORDER BY seq")
+            .map_err(db)?;
+        let rows = stmt
+            .query_map(params![page.0 as i64], |r| {
+                let id: String = r.get(0)?;
+                let region: Option<String> = r.get(2)?;
+                let origin: String = r.get(5)?;
+                let anchors: String = r.get(7)?;
+                let structure: String = r.get(10)?;
+                Ok(sbwb_text::Span {
+                    id: sbwb_core::SpanId::parse(&id).unwrap_or_default(),
+                    page,
+                    seq: r.get::<_, i64>(1)? as u32,
+                    region: region.and_then(|s| sbwb_core::RegionId::parse(&s)),
+                    text: r.get(3)?,
+                    trailing: r.get(4)?,
+                    origin: serde_json::from_value(serde_json::Value::String(origin))
+                        .unwrap_or(sbwb_text::SpanOrigin::Ocr),
+                    confidence: r.get::<_, Option<f64>>(6)?.map(|c| c as f32),
+                    anchors: serde_json::from_str(&anchors).unwrap_or_default(),
+                    revision: r.get::<_, i64>(8)? as u64,
+                    protected: r.get::<_, i64>(9)? != 0,
+                    structure: serde_json::from_value(serde_json::Value::String(structure))
+                        .unwrap_or_default(),
+                    paragraph_start: r.get::<_, i64>(11)? != 0,
+                })
+            })
+            .map_err(db)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(db)
+    }
+
+    /// Proposals for a page with their status.
+    pub fn page_proposals(&self, page: PageIndex) -> Result<Vec<StoredProposal>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, span_id, span_revision, kind, original, replacement, score, reason, source, status, merged_span, cross_page FROM proposals WHERE page_index = ?1 ORDER BY created_at")
+            .map_err(db)?;
+        let rows = stmt
+            .query_map(params![page.0 as i64], |r| {
+                let id: String = r.get(0)?;
+                let span: String = r.get(1)?;
+                let kind: String = r.get(3)?;
+                let merged: Option<String> = r.get(10)?;
+                Ok(StoredProposal {
+                    id: sbwb_core::ProposalId::parse(&id).unwrap_or_default(),
+                    page,
+                    span: sbwb_core::SpanId::parse(&span).unwrap_or_default(),
+                    span_revision: r.get::<_, i64>(2)? as u64,
+                    kind,
+                    original: r.get(4)?,
+                    replacement: r.get(5)?,
+                    score: r.get::<_, i64>(6)? as u8,
+                    reason: r.get(7)?,
+                    source: r.get(8)?,
+                    status: r.get(9)?,
+                    merged_span: merged.and_then(|m| sbwb_core::SpanId::parse(&m)),
+                    cross_page: r.get::<_, i64>(11)? != 0,
+                })
+            })
+            .map_err(db)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(db)
+    }
+
+    /// Book-wide proposal counts by status (Text pass tab counters).
+    pub fn proposal_counts(&self) -> Result<std::collections::BTreeMap<String, u32>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT status, count(*) FROM proposals GROUP BY status")
+            .map_err(db)?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u32))
+            })
+            .map_err(db)?;
+        rows.collect::<std::result::Result<std::collections::BTreeMap<_, _>, _>>()
+            .map_err(db)
+    }
+
+    /// Apply a cross-page join: the whole word belongs to the earlier page,
+    /// the continuation span on the later page is consumed (EXP-02).
+    pub fn apply_cross_page_join(
+        &mut self,
+        proposal: &StoredProposal,
+        later_page: PageIndex,
+    ) -> Result<bool> {
+        self.require_write()?;
+        let Some(b_id) = proposal.merged_span else {
+            return Ok(false);
+        };
+        let a_page = proposal.page;
+        let mut a = self
+            .page_spans(a_page)?
+            .into_iter()
+            .find(|s| s.id == proposal.span);
+        let mut later = self.page_spans(later_page)?;
+        let b_pos = later.iter().position(|s| s.id == b_id);
+        let (Some(a), Some(bi)) = (a.as_mut(), b_pos) else {
+            return Ok(false);
+        };
+        if a.revision != proposal.span_revision || a.protected || later[bi].protected {
+            return Ok(false);
+        }
+        let b = later.remove(bi);
+        a.text = proposal.replacement.clone();
+        a.anchors.extend(b.anchors.clone());
+        a.trailing = b.trailing.clone();
+        a.origin = sbwb_text::SpanOrigin::AutoApplied;
+        a.confidence = None;
+        a.revision += 1;
+        for (i, s) in later.iter_mut().enumerate() {
+            s.seq = i as u32;
+        }
+        let now = Timestamp::now().to_string();
+        let tx = self.conn.transaction().map_err(db)?;
+        tx.execute(
+            "UPDATE spans SET text = ?2, anchors = ?3, trailing = ?4, origin = 'auto_applied', confidence = NULL, revision = ?5 WHERE id = ?1",
+            params![a.id.to_string(), a.text, serde_json::to_string(&a.anchors)?, a.trailing, a.revision as i64],
+        )
+        .map_err(db)?;
+        tx.execute("DELETE FROM spans WHERE id = ?1", params![b.id.to_string()])
+            .map_err(db)?;
+        {
+            let mut upd = tx
+                .prepare("UPDATE spans SET seq = ?2 WHERE id = ?1")
+                .map_err(db)?;
+            for s in &later {
+                upd.execute(params![s.id.to_string(), s.seq as i64])
+                    .map_err(db)?;
+            }
+        }
+        tx.execute(
+            "UPDATE proposals SET status = 'applied_auto', decided_at = ?2 WHERE id = ?1",
+            params![proposal.id.to_string(), now],
+        )
+        .map_err(db)?;
+        tx.execute(
+            "UPDATE pages SET text_revision = text_revision + 1 WHERE page_index IN (?1, ?2)",
+            params![a_page.0 as i64, later_page.0 as i64],
+        )
+        .map_err(db)?;
+        tx.commit().map_err(db)?;
+        Ok(true)
+    }
+
+    pub fn vocab(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT word, kind FROM vocab ORDER BY word")
+            .map_err(db)?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(db)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(db)
+    }
+
+    pub fn add_vocab(&self, word: &str, kind: &str) -> Result<()> {
+        self.require_write()?;
+        self.conn
+            .execute(
+                "INSERT INTO vocab(word, kind, added_at) VALUES (?1, ?2, ?3) ON CONFLICT(word) DO UPDATE SET kind = excluded.kind",
+                params![word.trim(), kind, Timestamp::now().to_string()],
+            )
+            .map_err(db)?;
+        Ok(())
+    }
+
+    pub fn remove_vocab(&self, word: &str) -> Result<()> {
+        self.require_write()?;
+        self.conn
+            .execute("DELETE FROM vocab WHERE word = ?1", params![word.trim()])
+            .map_err(db)?;
+        Ok(())
+    }
+
     // ----- history -----
 
     pub fn add_history(
@@ -1156,6 +1457,65 @@ mod tests {
         p.set_stage_done(PageIndex(2), Stage::Layout, true).unwrap();
         assert_eq!(p.counts().unwrap().layout_done, 1);
         assert_eq!(p.pages().unwrap()[2].layout_revision, 3);
+    }
+
+    #[test]
+    fn text_roundtrip_keeps_decisions() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create_in(dir.path());
+        let page = PageIndex(4);
+        let mk = |text: &str, seq: u32| sbwb_text::Span {
+            id: sbwb_core::SpanId::new(),
+            page,
+            seq,
+            region: None,
+            text: text.into(),
+            anchors: vec![],
+            origin: sbwb_text::SpanOrigin::Ocr,
+            confidence: Some(80.0),
+            trailing: " ".into(),
+            revision: 1,
+            protected: false,
+            structure: Default::default(),
+            paragraph_start: seq == 0,
+        };
+        let spans = vec![mk("Hello", 0), mk("wor1d", 1)];
+        let prop = sbwb_text::Proposal {
+            id: sbwb_core::ProposalId::new(),
+            span: spans[1].id,
+            span_revision: 1,
+            kind: sbwb_text::ProposalKind::OcrConfusion,
+            original: "wor1d".into(),
+            replacement: "world".into(),
+            score: 92,
+            reason: "test".into(),
+            auto_applied: false,
+            merged_span: None,
+            cross_page: false,
+        };
+        p.put_page_text(page, None, &spans, std::slice::from_ref(&prop))
+            .unwrap();
+        assert_eq!(p.page_spans(page).unwrap().len(), 2);
+        let props = p.page_proposals(page).unwrap();
+        assert_eq!(props.len(), 1);
+        assert_eq!(props[0].status, "open");
+        // decide, then rerun: the decision is kept as stale, the open one replaced
+        p.conn()
+            .execute(
+                "UPDATE proposals SET status = 'accepted' WHERE id = ?1",
+                params![prop.id.to_string()],
+            )
+            .unwrap();
+        p.put_page_text(page, None, &spans, &[]).unwrap();
+        let props = p.page_proposals(page).unwrap();
+        assert_eq!(props.len(), 1);
+        assert_eq!(props[0].status, "stale");
+        assert_eq!(p.proposal_counts().unwrap().get("stale"), Some(&1));
+        p.add_vocab("Sesostris", "protected").unwrap();
+        assert_eq!(
+            p.vocab().unwrap(),
+            vec![("Sesostris".to_string(), "protected".to_string())]
+        );
     }
 
     #[test]

@@ -55,6 +55,10 @@ ndarray = "0.16"
 fast_image_resize = "6"
 sha2 = "0.10"
 
+# Dictionary lookups dominate the text pass; keep them fast in dev builds.
+[profile.dev.package.spellbook]
+opt-level = 3
+
 [profile.release]
 codegen-units = 1
 lto = "thin"

@@ -5,6 +5,7 @@
   import PageGrid from "$lib/workspace/PageGrid.svelte";
   import ImportInspector from "$lib/workspace/ImportInspector.svelte";
   import PageInspector from "$lib/workspace/PageInspector.svelte";
+  import TextPassInspector from "$lib/workspace/TextPassInspector.svelte";
   import StackedBar from "$lib/workspace/StackedBar.svelte";
   import ScanPane from "$lib/workspace/ScanPane.svelte";
   import Filmstrip from "$lib/workspace/Filmstrip.svelte";
@@ -29,6 +30,12 @@
   let { summary }: Props = $props();
 
   let tab = $state("import");
+  $effect(() => {
+    if (ui.inspectorTab) {
+      tab = ui.inspectorTab;
+      ui.inspectorTab = null;
+    }
+  });
   let monitorOpen = $state(false);
   let settings = $state<ProcessingSettings | null>(null);
   $effect(() => {
@@ -128,7 +135,13 @@
       value: view.mode === "layout" ? "editing" : summary.counts.layout_done > 0 ? `${summary.counts.layout_done} / ${summary.counts.in_scope}` : "queued",
       progress: summary.counts.in_scope ? summary.counts.layout_done / summary.counts.in_scope : 0,
     },
-    { id: "text_pass", label: "Text pass", state: "queued", value: "queued" },
+    {
+      id: "text_pass",
+      label: "Text pass",
+      state: pipeline.text && pipeline.text.running > 0 ? "running" : summary.counts.text_done >= summary.counts.in_scope && summary.counts.in_scope > 0 ? "done" : summary.counts.text_done > 0 ? "running" : "queued",
+      value: summary.counts.text_done > 0 ? `${summary.counts.text_done} / ${summary.counts.in_scope}` : "queued",
+      progress: summary.counts.in_scope ? summary.counts.text_done / summary.counts.in_scope : 0,
+    },
     { id: "ai", label: "AI proofread", state: "off", value: "off" },
     { id: "export", label: "Export", state: "off", value: "—" },
   ]);
@@ -142,7 +155,7 @@
       : [
     { id: "import", label: "Import" },
     { id: "page", label: "Page", disabled: view.mode !== "review" },
-    { id: "text_pass", label: "Text pass", disabled: true },
+    { id: "text_pass", label: "Text pass" },
     { id: "ai", label: "AI", disabled: true },
   ],
   );
@@ -150,6 +163,7 @@
   function onrail(id: string) {
     if (id === "ai") ui.toast("AI proofreading arrives in a later version.", "info", 4000);
     else if (id === "export") ui.toast("Export arrives in M7.", "info");
+    else if (id === "text_pass") tab = "text_pass";
     else {
       view.mode = "processing";
       if (id === "ocr") monitorOpen = true;
@@ -252,6 +266,8 @@
       <RegionInspector pageW={currentPage?.width_pt ?? 612} pageH={currentPage?.height_pt ?? 792} words={pageWords} />
     {:else if tab === "page"}
       <PageInspector page={currentPage} />
+    {:else if tab === "text_pass"}
+      <TextPassInspector {summary} page={currentPage} />
     {:else}
       <ImportInspector {summary} onstartreview={() => view.open(0)} eta={pipeline.ocr?.eta_ms ?? null} secsPerPage={pipeline.ocr?.secs_per_unit ?? null} pipelineState={pipeline.state} />
     {/if}

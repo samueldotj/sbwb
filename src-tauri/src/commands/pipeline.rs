@@ -56,7 +56,10 @@ pub fn start_pipeline(app: &AppHandle) -> CmdResult<Status> {
         if p.store.is_read_only() {
             return Err(CommandError::new("conflict", "the book is open read-only"));
         }
-        sbwb_pipeline::scheduler::config_for(&p.store, &p.source_path, state.worker_config())?
+        let mut c =
+            sbwb_pipeline::scheduler::config_for(&p.store, &p.source_path, state.worker_config())?;
+        c.lexicon = sbwb_text::LexiconPaths::in_dir(&state.resources.lexicon_dir);
+        c
     };
     let scheduler = Scheduler::start(config)?;
     let status = scheduler.status();

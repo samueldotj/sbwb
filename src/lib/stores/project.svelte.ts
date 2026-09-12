@@ -129,6 +129,7 @@ function mockSummary(pages: number, scope: number): ProjectSummary {
     layout_done: i < 10,
     text_done: false,
     layout_revision: 0,
+    text_revision: 0,
   }));
   return {
     path: "C:\mock\book.sbwb",
