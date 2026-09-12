@@ -70,6 +70,35 @@ export type SourceCheck = {
   warnings: string[];
 };
 
+export type OcrWord = {
+  block: number;
+  paragraph: number;
+  line: number;
+  index: number;
+  bbox: { x: number; y: number; w: number; h: number };
+  bbox_px: { x: number; y: number; w: number; h: number };
+  confidence: number;
+  text: string;
+};
+
+export type OcrLine = { block: number; paragraph: number; line: number; bbox: { x: number; y: number; w: number; h: number }; word_count: number };
+
+export type PageOcr = { run_id: string; words: OcrWord[]; lines: OcrLine[]; mean_confidence: number };
+
+export type RunRecord = {
+  id: string;
+  stage: string;
+  page: number | null;
+  engine: string | null;
+  model: string | null;
+  settings: unknown;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  error: string | null;
+  elapsed_ms: number | null;
+};
+
 export type CommandError = { code: string; message: string };
 
 export function isCommandError(e: unknown): e is CommandError {
@@ -93,6 +122,9 @@ export const api = {
   closeProject: () => invoke<void>("close_project"),
   saveCopy: (dest: string) => invoke<void>("save_copy", { dest }),
   setScope: (ranges: [number, number][]) => invoke<ProjectSummary>("set_scope", { req: { ranges } }),
+  pageOcr: (index: number) => invoke<PageOcr | null>("page_ocr", { index }),
+  pageRuns: (index: number) => invoke<RunRecord[]>("page_runs", { index }),
+  prefetchRender: (index: number, scale: number) => invoke<void>("prefetch_render", { index, scale }),
 };
 
 /// "1-50, 60-70" -> [[1,50],[60,70]]; returns null when unparsable.

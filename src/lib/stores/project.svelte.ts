@@ -29,7 +29,11 @@ class ProjectState {
   }
 
   async init() {
-    if (!isTauri) return;
+    if (!isTauri) {
+      // Dev-only layout mock: http://localhost:1420/?mock=review
+      if (import.meta.env.DEV && new URLSearchParams(location.search).has("mock")) this.summary = mockSummary(110, 50);
+      return;
+    }
     this.#unlisten = await listen("project:changed", () => void this.refresh());
     await this.refresh();
   }
@@ -110,6 +114,34 @@ class ProjectState {
   destroy() {
     this.#unlisten?.();
   }
+}
+
+function mockSummary(pages: number, scope: number): ProjectSummary {
+  const rows = Array.from({ length: pages }, (_, i) => ({
+    index: i,
+    width_pt: 361,
+    height_pt: 605,
+    status: (i < scope ? (i < 10 ? "done" : "queued") : "unprocessed") as ProjectSummary["pages"][number]["status"],
+    printed_label: null,
+    error: null,
+    approved_revision: i < 3 ? 1 : null,
+  }));
+  return {
+    path: "C:\mock\book.sbwb",
+    read_only: false,
+    meta: {
+      id: "mock",
+      created_at: new Date().toISOString(),
+      app_version: "0.1.0",
+      title: "The History of Christianity in India",
+      author: "James Hough",
+      source: { name: "book.pdf", size: 15_534_508, blake3: "0".repeat(64), page_count: pages, title: null, author: null },
+      scope: { ranges: [[1, scope]] },
+      settings: {},
+    },
+    pages: rows,
+    counts: { source: pages, in_scope: scope, unprocessed: pages - scope, excluded: 0, queued: scope - 10, running: 0, failed: 0, done: 10, approved: 3 },
+  };
 }
 
 export const project = new ProjectState();

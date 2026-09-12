@@ -1,6 +1,7 @@
 mod commands;
 mod logging;
 mod paths;
+mod render;
 mod state;
 
 use tauri::Manager;
@@ -35,6 +36,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .register_asynchronous_uri_scheme_protocol("sbwb-render", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            std::thread::spawn(move || responder.respond(render::handle(&app, &request)));
+        })
         .setup(|app| {
             let log_dir = app.path().app_log_dir()?;
             logging::init(&log_dir)?;
@@ -59,7 +64,9 @@ pub fn run() {
                     if let Some(w) = handle.get_webview_window("main") {
                         let _ = w.eval("window.__sbwbProbe && window.__sbwbProbe()");
                         if let Ok(p) = std::env::var("SBWB_DEV_IMPORT") {
-                            let js = format!("window.__sbwb && window.__sbwb.importPdf({})", serde_json::to_string(&p).unwrap());
+                            let review = std::env::var("SBWB_DEV_REVIEW").ok().and_then(|v| v.parse::<u32>().ok());
+                            let then = review.map(|i| format!(".then(() => window.__sbwb.review({i}))")).unwrap_or_default();
+                            let js = format!("window.__sbwb && window.__sbwb.importPdf({}){then}", serde_json::to_string(&p).unwrap());
                             let _ = w.eval(&js);
                         }
                     }
@@ -90,6 +97,9 @@ pub fn run() {
             commands::project::close_project,
             commands::project::save_copy,
             commands::project::set_scope,
+            commands::page::page_ocr,
+            commands::page::page_runs,
+            commands::page::prefetch_render,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SBWB");

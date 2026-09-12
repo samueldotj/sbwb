@@ -271,4 +271,45 @@ mod tests {
             Err(SbwbError::ResourceLimit(_))
         ));
     }
+
+    /// NFR-03 / M2.6: uncached preview renders must stay well under the 2 s
+    /// budget on the reference fixture; the numbers are printed for the
+    /// benchmark record.
+    #[test]
+    fn render_timing_report() {
+        let dir = crate::default_pdfium_dir();
+        if !dir
+            .join(if cfg!(windows) {
+                "pdfium.dll"
+            } else {
+                "libpdfium.so"
+            })
+            .exists()
+        {
+            return;
+        }
+        let r = Renderer::new(&dir).unwrap();
+        for (label, dpi) in [
+            ("thumb 14dpi", 14u32),
+            ("preview 72dpi", 72),
+            ("preview 144dpi", 144),
+            ("ocr 300dpi", 300),
+        ] {
+            let started = std::time::Instant::now();
+            let out = r
+                .render(
+                    &fixture(),
+                    None,
+                    &RenderRequest::page_at_dpi(PageIndex(47), dpi),
+                )
+                .unwrap();
+            let ms = started.elapsed().as_millis();
+            eprintln!(
+                "render {label}: {}x{} in {ms} ms",
+                out.image.width(),
+                out.image.height()
+            );
+            assert!(ms < 2000, "{label} took {ms} ms");
+        }
+    }
 }

@@ -11,6 +11,8 @@
   import { isTauri } from "$lib/ipc";
   import { pickPdf, pickProject, pickSaveCopy } from "$lib/dialogs";
   import { api } from "$lib/api";
+  import { view } from "$lib/stores/view.svelte";
+  import { nextZoom, pickScale } from "$lib/render";
 
   let version = $state("0.1.0");
   let dragging = $state(false);
@@ -51,6 +53,42 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
+    const typing = (e.target as HTMLElement | null)?.closest("input, textarea, [contenteditable]");
+    if (project.isOpen && !typing) {
+      if (e.key === "PageDown") {
+        view.next();
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "PageUp") {
+        view.prev();
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Home" && e.ctrlKey) {
+        view.goTo(0);
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "End" && e.ctrlKey) {
+        view.goTo(view.pageCount - 1);
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Escape" && view.mode === "review") {
+        view.mode = "processing";
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+" || e.key === "-" || e.key === "0")) {
+        if (e.key === "0") view.zoomMode = "fit";
+        else {
+          view.zoom = nextZoom(view.zoom, e.key === "-" ? -1 : 1);
+          view.zoomMode = "custom";
+        }
+        e.preventDefault();
+        return;
+      }
+    }
     if (!(e.ctrlKey || e.metaKey)) return;
     const k = e.key.toLowerCase();
     if (k === "i" && !project.isOpen) void onmenu("import");
@@ -61,6 +99,15 @@
     e.preventDefault();
   }
 
+  // Warm the neighbours of the current page at the current preview scale.
+  $effect(() => {
+    if (!isTauri || view.mode !== "review") return;
+    const scale = pickScale(view.zoomMode === "custom" ? view.zoom : 1, window.devicePixelRatio || 1);
+    for (const i of [view.page + 1, view.page - 1]) {
+      if (i >= 0 && i < view.pageCount) void api.prefetchRender(i, scale).catch(() => {});
+    }
+  });
+
   onMount(() => {
     void project.init();
     if (import.meta.env.DEV) {
@@ -68,9 +115,13 @@
         importPdf: (p: string) => project.importPdf(p),
         open: (p: string) => project.open(p),
         close: () => project.close(),
+        review: (i: number) => view.open(i),
       };
     }
-    if (!isTauri) return;
+    if (!isTauri) {
+      if (import.meta.env.DEV && new URLSearchParams(location.search).get("mock") === "review") setTimeout(() => view.open(47), 50);
+      return;
+    }
     void api.appInfo().then((i) => (version = i.version)).catch(() => {});
     let unlisten: (() => void) | undefined;
     void import("@tauri-apps/api/webview").then(async ({ getCurrentWebview }) => {

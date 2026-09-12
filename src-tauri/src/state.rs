@@ -1,25 +1,30 @@
 //! Application state shared by commands.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use sbwb_store::Project;
 use sbwb_worker::{Worker, WorkerConfig};
 
 use crate::paths::Resources;
+use crate::render::RenderCache;
 
 pub struct OpenProject {
     pub store: Project,
-    /// Extracted source PDF in the cache directory (renderer input, M2).
-    #[allow(dead_code)]
+    /// Extracted source PDF in the cache directory (renderer input).
     pub source_path: PathBuf,
+    /// Preview render cache for this project (D-14).
+    pub render_cache: Arc<RenderCache>,
 }
 
 pub struct AppState {
     pub resources: Resources,
     pub project: Mutex<Option<OpenProject>>,
-    /// A worker kept warm for inspection and single renders.
+    /// A worker kept warm for inspection and OCR probes.
     pub worker: Mutex<Option<Worker>>,
+    /// A separate worker for preview renders so a long OCR call never
+    /// blocks navigation (NFR-03).
+    pub render_worker: Mutex<Option<Worker>>,
 }
 
 impl AppState {
@@ -28,6 +33,7 @@ impl AppState {
             resources,
             project: Mutex::new(None),
             worker: Mutex::new(None),
+            render_worker: Mutex::new(None),
         }
     }
 
@@ -39,13 +45,12 @@ impl AppState {
         }
     }
 
-    /// Run `f` against the shared worker, respawning it if it died.
-    pub fn with_worker<T>(
+    fn with_slot<T>(
         &self,
+        slot: &Mutex<Option<Worker>>,
         f: impl FnOnce(&mut Worker) -> sbwb_core::Result<T>,
     ) -> sbwb_core::Result<T> {
-        let mut guard = self
-            .worker
+        let mut guard = slot
             .lock()
             .map_err(|_| sbwb_core::SbwbError::other("worker mutex poisoned"))?;
         if guard.as_mut().map(|w| !w.is_alive()).unwrap_or(true) {
@@ -57,6 +62,21 @@ impl AppState {
             *guard = None;
         }
         r
+    }
+
+    /// Run `f` against the shared worker, respawning it if it died.
+    pub fn with_worker<T>(
+        &self,
+        f: impl FnOnce(&mut Worker) -> sbwb_core::Result<T>,
+    ) -> sbwb_core::Result<T> {
+        self.with_slot(&self.worker, f)
+    }
+
+    pub fn with_render_worker<T>(
+        &self,
+        f: impl FnOnce(&mut Worker) -> sbwb_core::Result<T>,
+    ) -> sbwb_core::Result<T> {
+        self.with_slot(&self.render_worker, f)
     }
 }
 

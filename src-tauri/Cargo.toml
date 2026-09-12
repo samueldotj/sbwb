@@ -32,3 +32,7 @@ sbwb-pdf.workspace = true
 sbwb-ocr.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
+http = "1"
+
+[dev-dependencies]
+tempfile.workspace = true

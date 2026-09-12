@@ -37,7 +37,7 @@ developer; "week" is a rough unit, not a commitment.
 | --- | --- | --- | --- |
 | M0 | Scaffold and toolchain | 1-2 weeks | Done (CI unverified) |
 | M1 | Projects and import | 2 weeks | Done |
-| M2 | Rendering and page navigation | 1-2 weeks | Not started |
+| M2 | Rendering and page navigation | 1-2 weeks | Done (benchmarks partial) |
 | M3 | OCR pipeline and processing UI | 3 weeks | Not started |
 | M4 | Layout analysis and Layout mode | 3 weeks | Not started |
 | M5 | Text reconstruction and provenance | 3 weeks | Not started |
@@ -92,12 +92,12 @@ Goal: browse the imported book smoothly in the scan pane.
 
 | ID | Task | References | Status |
 | --- | --- | --- | --- |
-| M2.1 | Render service: PDFium worker renders at requested scale, WebP cache directory next to the project with LRU cap | IMG-01, D-14, NFR-04 | Not started |
-| M2.2 | Custom Tauri protocol serving cached renders; coordinate transform helpers PDF points ↔ bitmap pixels | PROV-01 | Not started |
-| M2.3 | Scan pane: header controls, fit/zoom, tiled re-render above cap, pan, previous page kept until next is ready, stale-response guard | UX-03, design 4.3 | Not started |
-| M2.4 | Filmstrip and rail page mini-grid with status dots; page grid for Processing view | design 4.2, 4.3 | Not started |
-| M2.5 | Keyboard navigation for pages and zoom | design 5 | Not started |
-| M2.6 | Benchmarks: cached navigation p95 ≤ 250 ms, uncached ≤ 2 s on the reference machine | NFR-03 | Not started |
+| M2.1 | Render service: PDFium worker renders at requested scale, WebP cache directory next to the project with LRU cap | IMG-01, D-14, NFR-04 | Done |
+| M2.2 | Custom Tauri protocol serving cached renders; coordinate transform helpers PDF points ↔ bitmap pixels | PROV-01 | Done |
+| M2.3 | Scan pane: header controls, fit/zoom, tiled re-render above cap, pan, previous page kept until next is ready, stale-response guard | UX-03, design 4.3 | Done |
+| M2.4 | Filmstrip and rail page mini-grid with status dots; page grid for Processing view | design 4.2, 4.3 | Done |
+| M2.5 | Keyboard navigation for pages and zoom | design 5 | Done |
+| M2.6 | Benchmarks: cached navigation p95 ≤ 250 ms, uncached ≤ 2 s on the reference machine | NFR-03 | In progress |
 
 Exit: A-13 navigation portion passes; no blank flicker between cached pages.
 

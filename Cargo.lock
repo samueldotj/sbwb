@@ -4359,6 +4359,7 @@ name = "sbwb-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "http",
  "sbwb-core",
  "sbwb-ocr",
  "sbwb-pdf",
@@ -4373,6 +4374,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-store",
  "tauri-plugin-window-state",
+ "tempfile",
  "thiserror 2.0.20",
  "tracing",
  "tracing-appender",

@@ -9,6 +9,7 @@ use sbwb_worker::{RequestKind, Response};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
+use crate::render::{RenderCache, DEFAULT_CACHE_CAP};
 use crate::state::{AppState, CmdResult, CommandError, OpenProject};
 
 /// Refuse inputs above this size (PRJ-01 "excessively large").
@@ -248,13 +249,18 @@ pub fn import_pdf(
         env!("CARGO_PKG_VERSION"),
     )?;
     let source_path = store.source_path()?;
+    let render_cache =
+        std::sync::Arc::new(RenderCache::new(&store.cache_dir(), DEFAULT_CACHE_CAP)?);
     let summary = store.summary()?;
     tracing::info!(project = %summary.path.display(), source = %source_path.display(), pages = summary.meta.source.page_count, "imported");
     *state
         .project
         .lock()
-        .map_err(|_| CommandError::new("other", "state poisoned"))? =
-        Some(OpenProject { store, source_path });
+        .map_err(|_| CommandError::new("other", "state poisoned"))? = Some(OpenProject {
+        store,
+        source_path,
+        render_cache,
+    });
     emit_changed(&app);
     Ok(summary)
 }
@@ -300,13 +306,18 @@ pub fn open_project(
     };
     store.verify_source()?;
     let source_path = store.source_path()?;
+    let render_cache =
+        std::sync::Arc::new(RenderCache::new(&store.cache_dir(), DEFAULT_CACHE_CAP)?);
     let summary = store.summary()?;
     tracing::info!(project = %summary.path.display(), source = %source_path.display(), read_only = summary.read_only, "opened");
     *state
         .project
         .lock()
-        .map_err(|_| CommandError::new("other", "state poisoned"))? =
-        Some(OpenProject { store, source_path });
+        .map_err(|_| CommandError::new("other", "state poisoned"))? = Some(OpenProject {
+        store,
+        source_path,
+        render_cache,
+    });
     emit_changed(&app);
     Ok(OpenResult { summary, locked_by })
 }
