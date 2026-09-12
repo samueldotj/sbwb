@@ -147,6 +147,16 @@ impl Renderer {
         })
     }
 
+    /// Size of every page in points.
+    pub fn page_sizes(&self, path: &Path, password: Option<&str>) -> Result<Vec<(f64, f64)>> {
+        let doc = self.load(path, password)?;
+        Ok(doc
+            .pages()
+            .iter()
+            .map(|p| (p.width().value as f64, p.height().value as f64))
+            .collect())
+    }
+
     fn load(&self, path: &Path, password: Option<&str>) -> Result<PdfDocument<'_>> {
         self.pdfium
             .load_pdf_from_file(path, password)

@@ -20,9 +20,9 @@ Everything runs offline; optional AI proofreading is a later phase.
 
 ## Status
 
-Requirements, design, and stack are settled (2026-09-12). M0 (scaffold) is
-complete: the workspace builds, tests pass, and the app window opens in both
-themes. See `docs/dev-setup.md` to build locally.
+Requirements, design, and stack are settled (2026-09-12). M0 (scaffold) and M1 (projects and import) are complete: a PDF imports into
+a `.sbwb` project next to it, reopens with integrity and lock checks, and the
+Welcome and import screens match the mockups. See `docs/dev-setup.md` to build locally.
 
 ## Roadmap
 
@@ -36,7 +36,7 @@ developer; "week" is a rough unit, not a commitment.
 | Milestone | Goal | Estimate | Status |
 | --- | --- | --- | --- |
 | M0 | Scaffold and toolchain | 1-2 weeks | Done (CI unverified) |
-| M1 | Projects and import | 2 weeks | Not started |
+| M1 | Projects and import | 2 weeks | Done |
 | M2 | Rendering and page navigation | 1-2 weeks | Not started |
 | M3 | OCR pipeline and processing UI | 3 weeks | Not started |
 | M4 | Layout analysis and Layout mode | 3 weeks | Not started |
@@ -74,15 +74,15 @@ Goal: import a PDF into a `.sbwb` project, see it on the Welcome page, reopen it
 
 | ID | Task | References | Status |
 | --- | --- | --- | --- |
-| M1.1 | SQLite schema v1 with `rusqlite_migration`: project meta, source blob + checksum, pages, page scope, settings, history, export log | PRJ-01, PRJ-02, D-09 | Not started |
-| M1.2 | Import validation: readability, page count, encryption prompt, disk space, size limits, actionable errors | PRJ-01 | Not started |
-| M1.3 | Source integrity check on open and before dependent operations; mismatch blocks with explanation | PRJ-01 | Not started |
-| M1.4 | Page scope model: processed range separate from source count; extend without re-import | PRJ-03 | Not started |
-| M1.5 | Save, save a copy (consistent portable copy), close, single-writer lock with read-only fallback | PRJ-02, PRJ-04 | Not started |
-| M1.6 | Welcome page: drop zone, Choose PDF, Open project, recent books with scope/stage/approval bar, Continue | design 4.1 | Not started |
-| M1.7 | App settings store separate from project content; recent list clearing does not delete projects | PRJ-05 | Not started |
-| M1.8 | Native File menu wiring | UX-01 | Not started |
-| M1.9 | Tests: import fixture `pages-001-110.pdf`, reopen, checksum mismatch, locked project | PRJ-01, PRJ-02 | Not started |
+| M1.1 | SQLite schema v1 with `rusqlite_migration`: project meta, source blob + checksum, pages, page scope, settings, history, export log | PRJ-01, PRJ-02, D-09 | Done |
+| M1.2 | Import validation: readability, page count, encryption prompt, disk space, size limits, actionable errors | PRJ-01 | Done |
+| M1.3 | Source integrity check on open and before dependent operations; mismatch blocks with explanation | PRJ-01 | Done |
+| M1.4 | Page scope model: processed range separate from source count; extend without re-import | PRJ-03 | Done |
+| M1.5 | Save, save a copy (consistent portable copy), close, single-writer lock with read-only fallback | PRJ-02, PRJ-04 | Done |
+| M1.6 | Welcome page: drop zone, Choose PDF, Open project, recent books with scope/stage/approval bar, Continue | design 4.1 | Done |
+| M1.7 | App settings store separate from project content; recent list clearing does not delete projects | PRJ-05 | Done |
+| M1.8 | Native File menu wiring | UX-01 | Done |
+| M1.9 | Tests: import fixture `pages-001-110.pdf`, reopen, checksum mismatch, locked project | PRJ-01, PRJ-02 | Done |
 
 Exit: A-01 through import step; project survives close and reopen.
 

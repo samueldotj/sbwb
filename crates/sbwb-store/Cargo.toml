@@ -7,6 +7,7 @@ description = "The .sbwb project file: SQLite schema, migrations, repositories"
 
 [dependencies]
 sbwb-core.workspace = true
+sbwb-ocr.workspace = true
 rusqlite.workspace = true
 rusqlite_migration.workspace = true
 serde.workspace = true

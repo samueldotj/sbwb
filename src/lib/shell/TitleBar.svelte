@@ -4,12 +4,15 @@
   import { isTauri } from "$lib/ipc";
   import { ui } from "$lib/stores/ui.svelte";
 
+  import type { Snippet } from "svelte";
+
   type Props = {
     context?: string;
     bookTitle?: string;
     bookMeta?: string;
+    menu_?: Snippet;
   };
-  let { context = "", bookTitle = "", bookMeta = "" }: Props = $props();
+  let { context = "", bookTitle = "", bookMeta = "", menu_ }: Props = $props();
 
   async function win() {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -30,6 +33,7 @@
   <div class="left" data-tauri-drag-region>
     <span class="mark" aria-hidden="true">S</span>
     <span class="name">SBWB</span>
+    {#if menu_}{@render menu_()}{/if}
     {#if context}<span class="context">{context}</span>{/if}
   </div>
   <div class="center" data-tauri-drag-region>

@@ -131,15 +131,22 @@ fn page_info(doc: &lopdf::Document, page_id: lopdf::ObjectId, page_num: u32) -> 
 
 /// Inspect a PDF file. `sample_pages` limits how many pages get per-page
 /// details (image sizes need object walks; 529 pages take a few seconds).
-pub fn inspect_file(path: &Path, sample_pages: u32) -> Result<PdfInfo> {
+pub fn inspect_file(path: &Path, sample_pages: u32, password: Option<&str>) -> Result<PdfInfo> {
     let meta = std::fs::metadata(path)?;
     if !meta.is_file() {
         return Err(SbwbError::invalid("not a file"));
     }
     let blake3 = blake3_file(path)?;
-    let doc = lopdf::Document::load(path)
+    let mut doc = lopdf::Document::load(path)
         .map_err(|e| SbwbError::invalid(format!("cannot read PDF: {e}")))?;
-    let encrypted = doc.is_encrypted();
+    let mut encrypted = doc.is_encrypted();
+    if encrypted {
+        if let Some(pw) = password {
+            doc.decrypt(pw)
+                .map_err(|e| SbwbError::invalid(format!("wrong password: {e}")))?;
+            encrypted = false;
+        }
+    }
     let pages = doc.get_pages();
     let page_count = pages.len() as u32;
     if page_count == 0 && !encrypted {
@@ -175,7 +182,7 @@ mod tests {
 
     #[test]
     fn inspects_fixture() {
-        let info = inspect_file(&fixture(), 3).unwrap();
+        let info = inspect_file(&fixture(), 3, None).unwrap();
         assert_eq!(info.page_count, 110);
         assert!(!info.encrypted);
         assert_eq!(info.author.as_deref(), Some("James Hough"));
@@ -191,7 +198,7 @@ mod tests {
         let p = dir.path().join("x.pdf");
         std::fs::write(&p, b"not a pdf").unwrap();
         assert!(matches!(
-            inspect_file(&p, 1),
+            inspect_file(&p, 1, None),
             Err(SbwbError::InvalidInput(_))
         ));
     }

@@ -9,7 +9,18 @@ function report(level: "error" | "warn" | "info", message: string) {
 }
 
 window.addEventListener("error", (e) => report("error", `${e.message} @ ${e.filename}:${e.lineno}`));
-window.addEventListener("unhandledrejection", (e) => report("error", `unhandled rejection: ${String(e.reason)}`));
+function describe(v: unknown): string {
+  if (v instanceof Error) return v.stack ?? v.message;
+  if (typeof v === "object" && v !== null) {
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return String(v);
+    }
+  }
+  return String(v);
+}
+window.addEventListener("unhandledrejection", (e) => report("error", `unhandled rejection: ${describe(e.reason)}`));
 (window as unknown as { __sbwbProbe: () => void }).__sbwbProbe = () =>
   report("info", `probe: body ${document.body.innerHTML.length} chars, app ${document.getElementById("app")?.childElementCount ?? -1} children`);
 

@@ -31,7 +31,7 @@ tracing-appender = "0.2"
 uuid = { version = "1", features = ["v4", "serde"] }
 jiff = { version = "0.2", features = ["serde"] }
 blake3 = "1"
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled", "blob"] }
 rusqlite_migration = "2"
 image = { version = "0.25", default-features = false, features = ["png", "webp", "jpeg"] }
 imageproc = "0.27"

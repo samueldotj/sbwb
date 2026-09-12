@@ -36,3 +36,9 @@ dist/
 .vcpkg-*.log
 src-tauri/gen/
 *.log
+
+# Projects created while testing against the fixtures
+fixtures/**/*.sbwb
+fixtures/**/*.sbwb-wal
+fixtures/**/*.sbwb-shm
+fixtures/**/*.sbwb.cache/

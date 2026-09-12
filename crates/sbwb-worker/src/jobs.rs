@@ -48,7 +48,11 @@ pub fn handle(ctx: &mut Context, req: Request, emit: &mut dyn FnMut(Message)) ->
             ctx.renderer = None;
             Ok(Response::Ok)
         }
-        RequestKind::InspectPdf { path, sample_pages } => {
+        RequestKind::InspectPdf {
+            path,
+            sample_pages,
+            password,
+        } => {
             emit(Message::Progress {
                 id,
                 activity: "inspecting".into(),
@@ -56,7 +60,14 @@ pub fn handle(ctx: &mut Context, req: Request, emit: &mut dyn FnMut(Message)) ->
             Ok(Response::PdfInfo(sbwb_pdf::inspect_file(
                 &path,
                 sample_pages,
+                password.as_deref(),
             )?))
+        }
+        RequestKind::PageSizes { path, password } => {
+            let r = ctx.renderer()?;
+            Ok(Response::PageSizes {
+                sizes: r.page_sizes(&path, password.as_deref())?,
+            })
         }
         RequestKind::RenderPage {
             path,

@@ -22,6 +22,12 @@ pub enum RequestKind {
     InspectPdf {
         path: PathBuf,
         sample_pages: u32,
+        password: Option<String>,
+    },
+    /// Page sizes in points for every page (fast; used at import).
+    PageSizes {
+        path: PathBuf,
+        password: Option<String>,
     },
     /// Render a page (or crop) and write it to `out` as PNG or WebP.
     RenderPage {
@@ -58,6 +64,9 @@ pub enum Response {
         pid: u32,
     },
     PdfInfo(sbwb_pdf::PdfInfo),
+    PageSizes {
+        sizes: Vec<(f64, f64)>,
+    },
     Rendered {
         out: PathBuf,
         width: u32,

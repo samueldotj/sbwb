@@ -59,7 +59,16 @@ pub fn run_stdio_worker() -> i32 {
         }
         let id = req.id;
         let mut emit = |m: Message| {
-            let _ = writeln!(stdout, "{}", serde_json::to_string(&m).unwrap());
+            // A message that cannot be serialized must not kill the worker;
+            // report it as an error for the same request instead.
+            let line = serde_json::to_string(&m).unwrap_or_else(|e| {
+                serde_json::to_string(&Message::Error {
+                    id: m.id(),
+                    error: format!("serialize reply: {e}"),
+                })
+                .expect("error message serializes")
+            });
+            let _ = writeln!(stdout, "{line}");
             let _ = stdout.flush();
         };
         match jobs::handle(&mut ctx, req, &mut emit) {
