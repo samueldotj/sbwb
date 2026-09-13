@@ -164,6 +164,8 @@ pub fn run() {
             commands::export::export_defaults_get,
             commands::export::export_defaults_set,
             commands::export::open_path,
+            commands::export::open_file,
+            commands::export::exports_list,
             commands::refine::region_ocr,
             commands::refine::second_engine_available,
             commands::ai::ai_status,

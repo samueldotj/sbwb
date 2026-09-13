@@ -29,7 +29,7 @@
   import { confirmDialog } from "$lib/dialogs";
   import type { OcrWord } from "$lib/api";
   import { pipeline } from "$lib/stores/pipeline.svelte";
-  import { api, type ProcessingSettings } from "$lib/api";
+  import { api, errorMessage, type ExportEntry, type ProcessingSettings } from "$lib/api";
   import { isTauri } from "$lib/ipc";
 
   type Props = { summary: ProjectSummary };
@@ -37,6 +37,22 @@
 
   let tab = $state("import");
   let aiEnabled = $state(false);
+  // Word documents exported from this book (PRJ-01: the rail shows the
+  // outputs; clicking opens the file with its default app).
+  let exports = $state<ExportEntry[]>([]);
+  $effect(() => {
+    void summary.counts;
+    if (!isTauri) return;
+    api.exportsList().then((e) => (exports = e)).catch(() => (exports = []));
+  });
+  async function openExport(e: ExportEntry) {
+    try {
+      await api.openFile(e.path);
+    } catch (err) {
+      ui.toast(errorMessage(err), "error", 6000);
+      api.exportsList().then((x) => (exports = x)).catch(() => {});
+    }
+  }
   $effect(() => {
     void tab;
     try {
@@ -206,7 +222,7 @@
       progress: summary.counts.in_scope ? summary.counts.text_done / summary.counts.in_scope : 0,
     },
     { id: "ai", label: "AI proofread", state: aiEnabled ? "queued" : "off", value: aiEnabled ? "on request" : "off" },
-    { id: "export", label: "Export", state: summary.counts.text_done > 0 ? "queued" : "off", value: summary.counts.approved > 0 ? `${summary.counts.approved} approved` : summary.counts.text_done > 0 ? "ready" : "—" },
+    { id: "export", label: "Export", state: exports.some((e) => e.exists) ? "done" : summary.counts.text_done > 0 ? "queued" : "off", value: exports.filter((e) => e.exists).length ? `${exports.filter((e) => e.exists).length} file${exports.filter((e) => e.exists).length === 1 ? "" : "s"}` : summary.counts.text_done > 0 ? "ready" : "—" },
   ]);
 
   const tabs = $derived(
@@ -261,6 +277,25 @@
         </div>
       {/if}
     </div>
+    {#if exports.length}
+      <div class="exports-block">
+        <div class="label">Word output</div>
+        {#each exports.slice(0, 4) as e (e.id)}
+          <div class="file" class:missing={!e.exists}>
+            <button type="button" class="doc" onclick={() => openExport(e)} disabled={!e.exists} title={e.exists ? `Open ${e.path}` : `${e.path} is no longer there`}>
+              <span class="icon" aria-hidden="true">W</span>
+              <span class="fname">{e.name}</span>
+            </button>
+            <div class="fmeta">
+              <span>{e.kind} · {e.pages} pp</span>
+              {#if e.exists}<button type="button" class="link" onclick={() => api.openPath(e.path)} aria-label="Show {e.name} in its folder">folder</button>{/if}
+              {#if e.archive}<button type="button" class="link" onclick={() => api.openPath(e.archive!)} aria-label="Show the archive bundle for {e.name}">archive</button>{/if}
+            </div>
+          </div>
+        {/each}
+        {#if exports.length > 4}<div class="muted small">{exports.length - 4} older in the Export sheet</div>{/if}
+      </div>
+    {/if}
     {#if ui.theme === "bench" && view.mode === "review"}
       <div class="label mini-label">pages</div>
       <PageMiniGrid pages={summary.pages} />
@@ -500,6 +535,74 @@
     background: transparent;
     color: inherit;
     opacity: 0.8;
+  }
+  .exports-block {
+    padding: 10px 14px 4px;
+    border-top: 1px solid var(--border-soft);
+    display: grid;
+    gap: 6px;
+  }
+  .file {
+    display: grid;
+    gap: 2px;
+  }
+  .file.missing {
+    opacity: 0.55;
+  }
+  .doc {
+    all: unset;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 6px;
+    margin: 0 -6px;
+    border-radius: 5px;
+    cursor: pointer;
+    min-width: 0;
+  }
+  .doc:hover:not(:disabled) {
+    background: var(--raised);
+  }
+  .doc:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  .doc:disabled {
+    cursor: default;
+  }
+  .icon {
+    flex: none;
+    width: 16px;
+    height: 18px;
+    border-radius: 3px;
+    background: #2b579a;
+    color: #fff;
+    font: 700 10px var(--font-ui);
+    display: grid;
+    place-items: center;
+  }
+  .fname {
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-decoration: underline;
+    text-decoration-color: var(--border-input);
+  }
+  .fmeta {
+    display: flex;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--muted);
+    padding-left: 23px;
+  }
+  .fmeta .link {
+    all: unset;
+    color: var(--accent-text);
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .fmeta .link:focus-visible {
+    outline: 2px solid var(--accent);
   }
   .review-block {
     padding: 4px 6px;

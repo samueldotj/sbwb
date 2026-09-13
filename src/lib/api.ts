@@ -302,6 +302,7 @@ export type ExportSettings = {
   metadata: { title: string | null; author: string | null; subject: string | null };
 };
 export type ExportRecord = { id: string; ts: string; kind: string; path: string; checksum: string | null; report: unknown };
+export type ExportEntry = { id: string; ts: string; kind: string; path: string; name: string; exists: boolean; pages: number; archive: string | null };
 export type Readiness = {
   pages_in_scope: number;
   pages_indexed: number;
@@ -461,6 +462,8 @@ export const api = {
   exportDefaultsGet: () => invoke<ExportSettings>("export_defaults_get"),
   exportDefaultsSet: (settings: ExportSettings) => invoke<void>("export_defaults_set", { settings }),
   openPath: (path: string) => invoke<void>("open_path", { path }),
+  openFile: (path: string) => invoke<void>("open_file", { path }),
+  exportsList: () => invoke<ExportEntry[]>("exports_list"),
   regionOcr: (index: number, bbox: { x: number; y: number; w: number; h: number }, opts: { enlarge?: number; secondEngine?: boolean; region?: string } = {}) =>
     invoke<RegionOcrResult>("region_ocr", { index, bbox, enlarge: opts.enlarge ?? 3, secondEngine: opts.secondEngine ?? false, region: opts.region ?? null }),
   secondEngineAvailable: () => invoke<boolean>("second_engine_available"),

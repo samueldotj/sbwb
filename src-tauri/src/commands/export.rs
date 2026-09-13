@@ -451,6 +451,88 @@ pub fn export_defaults_set(state: State<'_, AppState>, settings: ExportSettings)
     })
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportEntry {
+    pub id: String,
+    pub ts: String,
+    pub kind: String,
+    pub path: PathBuf,
+    pub name: String,
+    pub exists: bool,
+    pub pages: u32,
+    pub archive: Option<PathBuf>,
+}
+
+/// Previous exports of the open book, newest first, with whether the file
+/// is still there (the rail shows them as clickable documents).
+#[tauri::command]
+pub fn exports_list(state: State<'_, AppState>) -> CmdResult<Vec<ExportEntry>> {
+    let guard = state
+        .project
+        .lock()
+        .map_err(|_| CommandError::new("other", "state poisoned"))?;
+    let Some(p) = guard.as_ref() else {
+        return Ok(vec![]);
+    };
+    Ok(p.store
+        .exports()?
+        .into_iter()
+        .map(|e| {
+            let pages = e
+                .report
+                .as_ref()
+                .and_then(|r| r.pointer("/stats/pages"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
+            let archive = e
+                .report
+                .as_ref()
+                .and_then(|r| r.get("archive_path"))
+                .and_then(|v| v.as_str())
+                .map(PathBuf::from)
+                .filter(|a| a.is_file());
+            ExportEntry {
+                name: e
+                    .path
+                    .file_name()
+                    .map(|f| f.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                exists: e.path.is_file(),
+                id: e.id,
+                ts: e.ts,
+                kind: e.kind,
+                path: e.path,
+                pages,
+                archive,
+            }
+        })
+        .collect())
+}
+
+/// Open a file with its default application (Word for `.docx`).
+#[tauri::command]
+pub fn open_file(path: String) -> CmdResult<()> {
+    let p = PathBuf::from(&path);
+    if !p.is_file() {
+        return Err(CommandError::new(
+            "not_found",
+            format!("{} is no longer there", p.display()),
+        ));
+    }
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &p.to_string_lossy()])
+            .spawn()
+            .map_err(|e| CommandError::new("other", format!("open file: {e}")))?;
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = p;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn open_path(path: String) -> CmdResult<()> {
     let p = PathBuf::from(&path);
