@@ -1208,6 +1208,13 @@ impl Project {
         report: &serde_json::Value,
     ) -> Result<()> {
         self.require_write()?;
+        // An export to the same path replaces the file, so it replaces the record too.
+        self.conn
+            .execute(
+                r#"DELETE FROM exports WHERE lower(replace(path, '\', '/')) = lower(replace(?1, '\', '/'))"#,
+                params![path.to_string_lossy().into_owned()],
+            )
+            .map_err(db)?;
         self.conn
             .execute(
                 "INSERT INTO exports(id, ts, kind, path, checksum, settings, report) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",

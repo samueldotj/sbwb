@@ -334,6 +334,7 @@ export type ExportReport = {
   checksum_blake3: string;
   docx_path: string;
   archive_path: string | null;
+  replaced: boolean;
   validation: { ok: boolean; checks: { name: string; ok: boolean; detail: string }[] };
   elapsed_ms: number;
 };

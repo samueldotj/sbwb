@@ -118,5 +118,7 @@ profile reruns only the text pass.
   `<book>.sbwb.cache` folder of renders that can be cleared from Settings.
 - Logs: `%LOCALAPPDATA%\io.github.samueldotj.sbwb\logs` with home paths
   redacted.
-- Exports: the chosen `.docx`, `<name>.export-report.json`, and optionally
-  `<name>.sbwb-archive.zip`.
+- Exports: `<book>.docx` beside the project file by default (an earlier export
+  there is replaced; pick another destination from the sheet), with
+  `<name>.export-report.json` and optionally `<name>.sbwb-archive.zip`. The
+  Word output list in the rail opens them.

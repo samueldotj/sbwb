@@ -70,6 +70,9 @@ pub struct ExportReport {
     pub checksum_blake3: String,
     pub docx_path: PathBuf,
     pub archive_path: Option<PathBuf>,
+    /// An earlier file at the destination was overwritten.
+    #[serde(default)]
+    pub replaced: bool,
     pub validation: ValidationReport,
     pub elapsed_ms: u64,
 }
@@ -149,9 +152,21 @@ pub fn run(
 
     progress(Phase::Publish, 0, 1);
     let partial = dest.with_extension("docx.partial");
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     std::fs::write(&partial, &emitted.bytes)?;
     let checksum = blake3::hash(&emitted.bytes).to_hex().to_string();
-    std::fs::rename(&partial, dest)?;
+    // Overwrite an earlier export at the same path (a locked file, e.g.
+    // open in Word, fails here with the partial left beside it).
+    let replaced = dest.is_file();
+    if let Err(e) = std::fs::rename(&partial, dest) {
+        let _ = std::fs::remove_file(&partial);
+        return Err(SbwbError::other(format!(
+            "could not replace {}: {e}. Close it in Word and export again.",
+            dest.display()
+        )));
+    }
     progress(Phase::Publish, 1, 1);
 
     let mut report = ExportReport {
@@ -170,6 +185,7 @@ pub fn run(
         checksum_blake3: checksum,
         docx_path: dest.to_path_buf(),
         archive_path: None,
+        replaced,
         validation: validation.clone(),
         elapsed_ms: 0,
     };

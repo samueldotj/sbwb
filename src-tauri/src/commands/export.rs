@@ -474,9 +474,12 @@ pub fn exports_list(state: State<'_, AppState>) -> CmdResult<Vec<ExportEntry>> {
     let Some(p) = guard.as_ref() else {
         return Ok(vec![]);
     };
+    // Newest first; one entry per path however it was spelled.
+    let mut seen = std::collections::HashSet::new();
     Ok(p.store
         .exports()?
         .into_iter()
+        .filter(|e| seen.insert(e.path.to_string_lossy().replace('\\', "/").to_lowercase()))
         .map(|e| {
             let pages = e
                 .report

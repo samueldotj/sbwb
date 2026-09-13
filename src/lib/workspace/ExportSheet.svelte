@@ -17,6 +17,8 @@
   let settings = $state<ExportSettings | null>(null);
   let preview = $state<ExportPreview | null>(null);
   let dest = $state("");
+  let existing = $state<Set<string>>(new Set());
+  const willReplace = $derived(existing.has(dest.replace(/\\/g, "/").toLowerCase()));
   let phase = $state<{ phase: string; done: number; total: number } | null>(null);
   let result = $state<ExportReport | null>(null);
   let failure = $state("");
@@ -34,8 +36,10 @@
       settings = s;
       if (!settings.metadata.title) settings.metadata.title = r.book_title;
       if (!settings.metadata.author) settings.metadata.author = r.book_author;
+      // Default: `<book>.docx` beside the project file; an existing file there is replaced.
       const stem = project.summary?.path.replace(/\.sbwb$/i, "") ?? "";
-      if (!dest) dest = stem ? `${stem}.docx` : r.default_name;
+      dest = stem ? `${stem}.docx` : r.default_name;
+      existing = new Set(r.previous.map((e) => e.path.replace(/\\/g, "/").toLowerCase()));
     } catch (e) {
       ui.toast(errorMessage(e), "error", 6000);
     }
@@ -244,7 +248,7 @@
     {/if}
     {#if result}
       <div class="result">
-        <div><b>Exported {result.copy} copy</b> · {result.stats.pages} pages · {result.stats.words} words · {result.stats.paragraphs} paragraphs · {(result.elapsed_ms / 1000).toFixed(1)} s</div>
+        <div><b>Exported {result.copy} copy{result.replaced ? " (replaced the earlier file)" : ""}</b> · {result.stats.pages} pages · {result.stats.words} words · {result.stats.paragraphs} paragraphs · {(result.elapsed_ms / 1000).toFixed(1)} s</div>
         <div class="muted small">Validation: {result.validation.checks.filter((c) => c.ok).length} / {result.validation.checks.length} checks passed · checksum {result.checksum_blake3.slice(0, 12)}… · {result.comments} comments · {result.exclusions.length} regions excluded{result.archive_path ? " · archive written" : ""}</div>
         {#each result.warnings as w, i (i)}<div class="note warn small">{w}</div>{/each}
         <div class="two">
@@ -254,7 +258,10 @@
     {/if}
   {/if}
   {#snippet footer()}
-    <button type="button" class="dest" onclick={chooseDest} title={dest} disabled={busy}>{dest ? dest.split(/[\\/]/).pop() : "Choose destination…"}</button>
+    <span class="destwrap">
+      <button type="button" class="dest" onclick={chooseDest} title={dest} disabled={busy}>{dest ? dest.split(/[\\/]/).pop() : "Choose destination…"}</button>
+      <span class="muted small">{willReplace ? "replaces the existing file" : "in the project folder"}</span>
+    </span>
     <span class="grow"></span>
     {#if busy}
       <button type="button" class="ctl" onclick={cancel}>Cancel export</button>
@@ -486,6 +493,10 @@
   }
   .grow {
     flex: 1;
+  }
+  .destwrap {
+    display: grid;
+    gap: 2px;
   }
   .dest {
     all: unset;
