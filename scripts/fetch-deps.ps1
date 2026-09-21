@@ -5,6 +5,11 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
+function Assert-Sha256($path, $expected) {
+  $actual = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLower()
+  if ($actual -ne $expected) { throw "checksum mismatch for $path`n expected $expected`n actual   $actual" }
+}
+
 $pdfiumTag = "chromium/8044"
 $pdfiumSha = "04100c03e41cac1f979e36e5e26fb860bcb5a7461f53830d3c098716624a27a9"
 $models = @(
@@ -25,11 +30,6 @@ foreach ($m in $ocrsModels) {
   }
   Assert-Sha256 $file $m.sha
   Write-Host "model ok: $file"
-}
-
-function Assert-Sha256($path, $expected) {
-  $actual = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLower()
-  if ($actual -ne $expected) { throw "checksum mismatch for $path`n expected $expected`n actual   $actual" }
 }
 
 $pdfiumDir = Join-Path $root "third_party/pdfium"

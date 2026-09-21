@@ -62,7 +62,7 @@ crate layout, CI, and design tokens in place.
 | M0.4 | Shell components: custom title bar, status bar, pipeline rail skeleton, inspector frame, sheet, toast | design 3, UX-01 | Done |
 | M0.5 | Windows build of Tesseract + Leptonica via vcpkg; `tesseract-sys` linking proven with a smoke test that OCRs one fixture crop | OCR-01, docs/crates.md | Done |
 | M0.6 | PDFium binary fetch script with checksum, loaded by `pdfium-render`; render one fixture page in a test | D-14, docs/crates.md | Done |
-| M0.7 | CI: `cargo nextest`, `cargo clippy -D warnings`, `cargo deny`, `cargo about` notices, Vitest, Tauri bundle to MSI/NSIS | NFR-12, NFR-13 | In progress |
+| M0.7 | CI: `cargo nextest`, `cargo clippy -D warnings`, `cargo deny`, `cargo about` notices, Vitest, Tauri bundle to MSI/NSIS | NFR-12, NFR-13 | Done (`.github/workflows/ci.yml`: policy job with `cargo deny`; Windows job with svelte-check, Vitest, clippy, nextest including the worker-process tests, doc tests, `cargo about` license texts, installers with `SHA256SUMS.txt`) |
 | M0.8 | Logging with `tracing` to rotated files, path redaction hook, opt-in diagnostics bundle stub | NFR-11 | Done |
 | M0.9 | Worker process mode: same executable launched with `--worker`, IPC channel, heartbeat, kill after grace | NFR-06, NFR-11 | Done |
 
@@ -97,7 +97,7 @@ Goal: browse the imported book smoothly in the scan pane.
 | M2.3 | Scan pane: header controls, fit/zoom, tiled re-render above cap, pan, previous page kept until next is ready, stale-response guard | UX-03, design 4.3 | Done |
 | M2.4 | Filmstrip and rail page mini-grid with status dots; page grid for Processing view | design 4.2, 4.3 | Done |
 | M2.5 | Keyboard navigation for pages and zoom | design 5 | Done |
-| M2.6 | Benchmarks: cached navigation p95 ≤ 250 ms, uncached ≤ 2 s on the reference machine | NFR-03 | In progress |
+| M2.6 | Benchmarks: cached navigation p95 ≤ 250 ms, uncached ≤ 2 s on the reference machine | NFR-03 | Done (`scripts/nav-bench.sh`, measured in the app: cached 48 ms, next page 104 ms, uncached jump 325 ms p95; `docs/benchmarks/2026-09-20-navigation.md`) |
 
 Exit: A-13 navigation portion passes; no blank flicker between cached pages.
 

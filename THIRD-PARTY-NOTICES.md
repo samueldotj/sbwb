@@ -6,8 +6,6 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 
 | Crate | Version | License | Authors |
 | --- | --- | --- | --- |
-| ab_glyph | 0.2.32 | Apache-2.0 | Alex Butler <alexheretic@gmail.com> |
-| ab_glyph_rasterizer | 0.1.10 | Apache-2.0 | Alex Butler <alexheretic@gmail.com> |
 | adler2 | 2.0.1 | 0BSD OR Apache-2.0 OR MIT | Jonas Schievink <jonasschievink@gmail.com>, oyvindln <oyvindln@users.noreply.git |
 | aes | 0.9.3 | Apache-2.0 OR MIT | RustCrypto Developers |
 | aho-corasick | 1.1.5 | MIT OR Unlicense | Andrew Gallant <jamslam@gmail.com> |
@@ -368,7 +366,6 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | openssl-probe | 0.2.1 | Apache-2.0 OR MIT | Alex Crichton <alex@alexcrichton.com> |
 | option-ext | 0.2.0 | MPL-2.0 | Simon Ochsenreither <simon@ochsenreither.de> |
 | ordered-stream | 0.2.0 | Apache-2.0 OR MIT | Daniel De Graaf <code@danieldg.net>, Zeeshan Ali Khan <zeeshanak@gnome.org> |
-| owned_ttf_parser | 0.25.1 | Apache-2.0 | Alex Butler <alexheretic@gmail.com> |
 | pango | 0.18.3 | MIT | The gtk-rs Project Developers |
 | pango-sys | 0.18.0 | MIT | The gtk-rs Project Developers |
 | parking | 2.2.1 | Apache-2.0 OR MIT | Stjepan Glavina <stjepang@gmail.com>, The Rust Project Developers |
@@ -398,7 +395,6 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | powerfmt | 0.2.0 | Apache-2.0 OR MIT | Jacob Pratt <jacob@jhpratt.dev> |
 | ppv-lite86 | 0.2.21 | Apache-2.0 OR MIT | The CryptoCorrosion Contributors |
 | precomputed-hash | 0.1.1 | MIT | Emilio Cobos Álvarez <emilio@crisal.io> |
-| primal-check | 0.3.4 | Apache-2.0 OR MIT | Huon Wilson <dbau.pp@gmail.com> |
 | proc-macro-crate | 1.3.1 | Apache-2.0 OR MIT | Bastian Köcher <git@kchr.de> |
 | proc-macro-crate | 2.0.2 | Apache-2.0 OR MIT | Bastian Köcher <git@kchr.de> |
 | proc-macro-crate | 3.5.0 | Apache-2.0 OR MIT | Bastian Köcher <git@kchr.de> |
@@ -410,7 +406,6 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | pulp | 0.22.3 | MIT | sarah quiñones <sarah@veganb.tw> |
 | pulp-wasm-simd-flag | 0.1.1 | MIT | sarah quiñones <sarah@veganb.tw> |
 | pxfm | 0.1.30 | Apache-2.0 OR BSD-3-Clause | Radzivon Bartoshyk |
-| qoi | 0.4.1 | Apache-2.0 OR MIT | Ivan Smirnov <rust@ivan.smirnov.ie> |
 | quick-error | 2.0.1 | Apache-2.0 OR MIT | Paul Colomiets <paul@colomiets.name>, Colin Kiegel <kiegel@gmx.de> |
 | quick-xml | 0.41.0 | MIT |  |
 | quick-xml | 0.42.0 | MIT |  |
@@ -465,11 +460,9 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | rustc-hash | 1.1.0 | Apache-2.0 OR MIT | The Rust Project Developers |
 | rustc-hash | 2.1.3 | Apache-2.0 OR MIT | The Rust Project Developers |
 | rustc_version | 0.4.1 | Apache-2.0 OR MIT |  |
-| rustdct | 0.7.1 | Apache-2.0 OR MIT | Elliott Mahler <join.together at gmail> |
-| rustfft | 6.4.1 | Apache-2.0 OR MIT | Allen Welkie <allen.welkie at gmail>, Elliott Mahler <join.together at gmail> |
 | rustix | 0.38.44 | Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT | Dan Gohman <dev@sunfishcode.online>, Jakub Konka <kubkon@jakubkonka.com> |
 | rustix | 1.1.4 | Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT | Dan Gohman <dev@sunfishcode.online>, Jakub Konka <kubkon@jakubkonka.com> |
-| rustls | 0.23.44 | Apache-2.0 OR ISC OR MIT |  |
+| rustls | 0.23.45 | Apache-2.0 OR ISC OR MIT |  |
 | rustls-native-certs | 0.8.4 | Apache-2.0 OR ISC OR MIT |  |
 | rustls-pki-types | 1.15.1 | Apache-2.0 OR MIT |  |
 | rustls-platform-verifier | 0.7.0 | Apache-2.0 OR MIT |  |
@@ -540,7 +533,6 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | spellbook | 0.4.2 | MPL-2.0 | Michael Davis <mcarsondavis@gmail.com> |
 | sqlite-wasm-rs | 0.5.5 | MIT | Spxg <unsafe@outlook.es> |
 | stable_deref_trait | 1.2.1 | Apache-2.0 OR MIT | Robert Grosse <n210241048576@gmail.com> |
-| strength_reduce | 0.2.4 | Apache-2.0 OR MIT | Elliott Mahler <join.together@gmail.com> |
 | string_cache | 0.9.0 | Apache-2.0 OR MIT | The Servo Project Developers |
 | string_cache_codegen | 0.6.1 | Apache-2.0 OR MIT | The Servo Project Developers |
 | stringprep | 0.1.5 | Apache-2.0 OR MIT | Steven Fackler <sfackler@gmail.com> |
@@ -614,10 +606,8 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 | tracing-core | 0.1.36 | MIT | Tokio Contributors <team@tokio.rs> |
 | tracing-log | 0.2.0 | MIT | Tokio Contributors <team@tokio.rs> |
 | tracing-subscriber | 0.3.23 | MIT | Eliza Weisman <eliza@buoyant.io>, David Barsky <me@davidbarsky.com>, Tokio Contr |
-| transpose | 0.2.3 | Apache-2.0 OR MIT | Elliott Mahler <join.together@gmail.com> |
 | tray-icon | 0.24.2 | Apache-2.0 OR MIT |  |
 | try-lock | 0.2.5 | MIT | Sean McArthur <sean@seanmonstar.com> |
-| ttf-parser | 0.25.1 | Apache-2.0 OR MIT | Caleb Maclennan <caleb@alerque.com>, Laurenz Stampfl <laurenz.stampfl@gmail.com> |
 | typed-path | 0.12.3 | Apache-2.0 OR MIT | Chip Senkbeil <chip@senkbeil.org> |
 | typeid | 1.0.3 | Apache-2.0 OR MIT | David Tolnay <dtolnay@gmail.com> |
 | typenum | 1.20.1 | Apache-2.0 OR MIT |  |

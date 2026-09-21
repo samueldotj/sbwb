@@ -34,6 +34,28 @@
 
 Tests: `cargo test --workspace` and `npm test`. The Rust tests that need
 PDFium or models skip themselves with a message when the files are absent.
+The tests that start worker processes skip unless `SBWB_TEST_WORKER_EXE`
+names an executable that serves `--worker`; the bench binary does:
+
+```powershell
+cargo build -p sbwb-bench
+$env:SBWB_TEST_WORKER_EXE = "$PWD\target\debug\sbwb-bench.exe"
+cargo nextest run --workspace        # or cargo test --workspace
+```
+
+CI (`.github/workflows/ci.yml`) runs the same checks plus the policy and
+notice tools, which can be run locally after
+`cargo install --locked cargo-deny cargo-nextest` and
+`cargo install --locked cargo-about --features cli`:
+
+```powershell
+cargo deny check                                                  # deny.toml: licenses, sources, advisories
+cargo about generate about.hbs -o THIRD-PARTY-LICENSES.html       # about.toml: full license texts
+```
+
+An advisory that cannot be fixed in this workspace is listed in
+`deny.toml` with the crate it comes from; anything with a fixed release is
+updated instead.
 
 Environment overrides: `SBWB_PDFIUM_DIR`, `SBWB_TESSDATA_DIR`, `SBWB_LEXICON_DIR` (a flat folder with `en_GB-large.aff`, `en_GB-large.dic`, `webster-1913-headwords.txt`; in dev `scripts/fetch-deps.ps1` makes `fixtures/lexicons/dev/`), `SBWB_LOG`
 (tracing filter, default `info`). Logs go to the Tauri app log directory

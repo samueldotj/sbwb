@@ -2,7 +2,17 @@
 targets = [{ triple = "x86_64-pc-windows-msvc" }]
 
 [advisories]
-ignore = []
+# Unmaintained-crate notices with no fix available to this workspace. Each
+# entry says where the crate comes from; remove it when the parent moves on.
+ignore = [
+  # unic-* come from urlpattern, which tauri-utils uses to parse capability
+  # URL patterns at build and start-up. No untrusted input reaches it.
+  { id = "RUSTSEC-2025-0075", reason = "unic-char-range via tauri-utils/urlpattern" },
+  { id = "RUSTSEC-2025-0080", reason = "unic-common via tauri-utils/urlpattern" },
+  { id = "RUSTSEC-2025-0081", reason = "unic-char-property via tauri-utils/urlpattern" },
+  { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version via tauri-utils/urlpattern" },
+  { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident via tauri-utils/urlpattern" },
+]
 
 [licenses]
 allow = [
