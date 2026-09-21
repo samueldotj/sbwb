@@ -43,6 +43,9 @@
   );
   const scale = $derived(pickScale(effectiveZoom, dpr));
   const src = $derived(renderUrl(view.page, scale));
+  $effect(() => {
+    view.renderScale = scale;
+  });
   const label = $derived(current?.printed_label ?? null);
 
   // Request a new render whenever page or scale changes.

@@ -51,6 +51,21 @@ impl RenderCache {
     }
 
     /// Return the cached file, rendering it through `worker` if missing.
+    /// A render already in the cache. The worker writes renders with a
+    /// temporary file and a rename, so a hit never needs the worker lock.
+    pub fn cached(&self, page: PageIndex, scale: f64) -> Option<PathBuf> {
+        let path = self.path_for(page, scale);
+        if !path.is_file() {
+            return None;
+        }
+        // Touch so LRU eviction sees recent use.
+        let _ = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .and_then(|f| f.set_modified(SystemTime::now()));
+        Some(path)
+    }
+
     pub fn ensure(
         &self,
         worker: &mut Worker,
@@ -58,15 +73,10 @@ impl RenderCache {
         page: PageIndex,
         scale: f64,
     ) -> Result<PathBuf> {
-        let path = self.path_for(page, scale);
-        if path.is_file() {
-            // Touch so LRU eviction sees recent use.
-            let _ = std::fs::OpenOptions::new()
-                .write(true)
-                .open(&path)
-                .and_then(|f| f.set_modified(SystemTime::now()));
+        if let Some(path) = self.cached(page, scale) {
             return Ok(path);
         }
+        let path = self.path_for(page, scale);
         let resp = worker.call(
             RequestKind::RenderPage {
                 path: source.to_path_buf(),
@@ -193,7 +203,10 @@ pub fn handle(app: &AppHandle, request: &http::Request<Vec<u8>>) -> http::Respon
             None => return response(404, "text/plain", b"no open book".to_vec()),
         }
     };
-    let result = state.with_render_worker(|w| cache.ensure(w, &source, page, scale));
+    let result = match cache.cached(page, scale) {
+        Some(path) => Ok(path),
+        None => state.with_render_worker(|w| cache.ensure(w, &source, page, scale)),
+    };
     match result {
         Ok(path) => match std::fs::read(&path) {
             Ok(bytes) => response(200, "image/webp", bytes),
@@ -244,5 +257,25 @@ mod tests {
             "oldest should go first"
         );
         assert!(cache.path_for(PageIndex(3), 1.0).exists());
+    }
+
+    #[test]
+    fn cached_hit_needs_no_worker_and_counts_as_recent_use() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = RenderCache::new(dir.path(), 1_000_000).unwrap();
+        assert!(cache.cached(PageIndex(4), 2.0).is_none());
+        let p = cache.path_for(PageIndex(4), 2.0);
+        std::fs::write(&p, b"webp").unwrap();
+        let old = SystemTime::now() - std::time::Duration::from_secs(600);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&p)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        assert_eq!(cache.cached(PageIndex(4), 2.0), Some(p.clone()));
+        assert!(cache.cached(PageIndex(4), 1.5).is_none(), "another scale");
+        let touched = std::fs::metadata(&p).unwrap().modified().unwrap();
+        assert!(touched > old + std::time::Duration::from_secs(300));
     }
 }

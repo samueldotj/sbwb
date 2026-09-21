@@ -19,7 +19,7 @@
   import { pickPdf, pickProject, pickSaveCopy } from "$lib/dialogs";
   import { api } from "$lib/api";
   import { view } from "$lib/stores/view.svelte";
-  import { nextZoom, pickScale } from "$lib/render";
+  import { nextZoom } from "$lib/render";
 
   let version = $state("0.1.0");
   let dragging = $state(false);
@@ -149,10 +149,11 @@
     e.preventDefault();
   }
 
-  // Warm the neighbours of the current page at the current preview scale.
+  // Warm the neighbours of the current page at the scale the scan pane is
+  // showing (fit and width zoom depend on the pane size, so ask the pane).
   $effect(() => {
-    if (!isTauri || view.mode !== "review") return;
-    const scale = pickScale(view.zoomMode === "custom" ? view.zoom : 1, window.devicePixelRatio || 1);
+    if (!isTauri || view.mode !== "review" || !view.renderScale) return;
+    const scale = view.renderScale;
     for (const i of [view.page + 1, view.page - 1]) {
       if (i >= 0 && i < view.pageCount) void api.prefetchRender(i, scale).catch(() => {});
     }

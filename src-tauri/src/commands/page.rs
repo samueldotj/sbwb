@@ -47,9 +47,15 @@ pub fn page_runs(state: State<'_, AppState>, index: u32) -> CmdResult<Vec<RunRec
 }
 
 /// Pre-render a page at a scale so navigation to it is instant (used for
-/// neighbours of the current page).
+/// neighbours of the current page). The render runs on its own thread: the
+/// caller does not wait for it, and it gives way to the page on screen.
 #[tauri::command]
-pub fn prefetch_render(state: State<'_, AppState>, index: u32, scale: f64) -> CmdResult<()> {
+pub fn prefetch_render(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    index: u32,
+    scale: f64,
+) -> CmdResult<()> {
     let (source, cache) = {
         let guard = state
             .project
@@ -60,6 +66,17 @@ pub fn prefetch_render(state: State<'_, AppState>, index: u32, scale: f64) -> Cm
             .ok_or_else(|| CommandError::new("not_found", "no open book"))?;
         (p.source_path.clone(), p.render_cache.clone())
     };
-    state.with_render_worker(|w| cache.ensure(w, &source, PageIndex(index), scale))?;
+    if cache.cached(PageIndex(index), scale).is_some() {
+        return Ok(());
+    }
+    std::thread::spawn(move || {
+        use tauri::Manager;
+        let state = app.state::<AppState>();
+        if let Err(e) =
+            state.with_render_worker_idle(|w| cache.ensure(w, &source, PageIndex(index), scale))
+        {
+            tracing::debug!("prefetch {index} @ {scale}: {e}");
+        }
+    });
     Ok(())
 }

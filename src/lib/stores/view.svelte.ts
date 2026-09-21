@@ -14,6 +14,8 @@ class ViewState {
   zoom = $state(1);
   /** Whether a render for the requested page is still loading. */
   loading = $state(false);
+  /** Backend render scale the scan pane is asking for; neighbours are prefetched at it. */
+  renderScale = $state(0);
 
   reset(pageCount: number) {
     this.pageCount = pageCount;

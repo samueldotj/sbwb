@@ -11,6 +11,13 @@ cargo build -p sbwb-bench
 ./target/debug/sbwb-bench --full --no-throughput   # 529-page scan with resource sampling and resume
 ```
 
+Page navigation is measured in the running app, from asking for a page
+to its scan image being in the DOM (M2.6):
+
+```bash
+scripts/nav-bench.sh path/to/book.sbwb     # Git Bash; Vite dev server running, debug app built
+```
+
 Use a release build (`cargo build --release -p sbwb-bench`) for numbers
 that represent the shipped binary; debug builds are reported as such.
 

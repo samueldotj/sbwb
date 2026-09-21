@@ -1,6 +1,7 @@
 //! Application state shared by commands.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use sbwb_store::Project;
@@ -25,6 +26,9 @@ pub struct AppState {
     /// A separate worker for preview renders so a long OCR call never
     /// blocks navigation (NFR-03).
     pub render_worker: Mutex<Option<Worker>>,
+    /// Renders for the page on screen that are waiting for or using the
+    /// render worker; prefetch gives way to them.
+    render_waiting: AtomicUsize,
 }
 
 impl AppState {
@@ -34,6 +38,7 @@ impl AppState {
             project: Mutex::new(None),
             worker: Mutex::new(None),
             render_worker: Mutex::new(None),
+            render_waiting: AtomicUsize::new(0),
         }
     }
 
@@ -72,11 +77,33 @@ impl AppState {
         self.with_slot(&self.worker, f)
     }
 
+    /// Render for the page on screen.
     pub fn with_render_worker<T>(
         &self,
         f: impl FnOnce(&mut Worker) -> sbwb_core::Result<T>,
     ) -> sbwb_core::Result<T> {
-        self.with_slot(&self.render_worker, f)
+        self.render_waiting.fetch_add(1, Ordering::SeqCst);
+        let r = self.with_slot(&self.render_worker, f);
+        self.render_waiting.fetch_sub(1, Ordering::SeqCst);
+        r
+    }
+
+    /// Speculative render. Returns `None` without doing the work when a
+    /// render for the page on screen is waiting, so navigation is held up by
+    /// at most the one prefetch already running (NFR-03).
+    pub fn with_render_worker_idle<T>(
+        &self,
+        f: impl FnOnce(&mut Worker) -> sbwb_core::Result<T>,
+    ) -> sbwb_core::Result<Option<T>> {
+        if self.render_waiting.load(Ordering::SeqCst) > 0 {
+            return Ok(None);
+        }
+        self.with_slot(&self.render_worker, |w| {
+            if self.render_waiting.load(Ordering::SeqCst) > 0 {
+                return Ok(None);
+            }
+            f(w).map(Some)
+        })
     }
 }
 
