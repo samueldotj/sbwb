@@ -93,8 +93,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Release the lock on close so another instance can write (PRJ-04
-            // close flow with drafts arrives in M6).
+            // Release the lock on close so another instance can write (PRJ-04).
             if let tauri::WindowEvent::Destroyed = event {
                 commands::pipeline::stop_for_close(window.app_handle());
                 if let Some(state) = window.try_state::<state::AppState>() {

@@ -1,10 +1,10 @@
 <script lang="ts">
   // Text pass tab (design 4.6, TXT-03): threshold slider, counters,
   // Re-run pass, Review N →, last-run line. Book-wide; the current page's
-  // own proposals are listed underneath so the pass is inspectable before
-  // the review loop (M6) exists.
+  // own proposals are listed underneath.
   import { api, errorMessage, type PageRow, type ProcessingSettings, type ProjectSummary, type StoredProposal } from "$lib/api";
   import { isTauri } from "$lib/ipc";
+  import { review } from "$lib/stores/review.svelte";
   import { textPass } from "$lib/stores/text.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { view } from "$lib/stores/view.svelte";
@@ -17,6 +17,13 @@
   let rerunPages = $state<number | null>(null);
   let busy = $state(false);
   let proposals = $state<StoredProposal[]>([]);
+
+  /** Enter the review loop at the next issue from this page (REV-04). */
+  async function startReview() {
+    view.open(view.page);
+    review.select(null);
+    await review.step(true);
+  }
 
   $effect(() => {
     if (!isTauri) return;
@@ -137,7 +144,7 @@
 
 <div class="two">
   <button type="button" class="ctl" onclick={() => rerun(true)} disabled={busy || summary.counts.layout_done === 0}>Re-run pass</button>
-  <button type="button" class="ctl primary" onclick={() => ui.toast("The review loop arrives with M6.", "info")} disabled={!s || s.suggested === 0}>Review {s?.suggested ?? 0} →</button>
+  <button type="button" class="ctl primary" onclick={startReview} disabled={!s || s.suggested === 0}>Review {s?.suggested ?? 0} →</button>
 </div>
 <p class="muted small">Last run {when(s?.last_run ?? null)} · {s?.pages_done ?? 0} of {s?.pages_in_scope ?? summary.counts.in_scope} pages</p>
 

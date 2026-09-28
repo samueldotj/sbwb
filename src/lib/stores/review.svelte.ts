@@ -65,6 +65,7 @@ class ReviewState {
   pageCounts = $state<Map<number, PageIssueCounts>>(new Map());
   #unlisten: (() => void) | null = null;
   #loadToken = 0;
+  #latest: Promise<void> = Promise.resolve();
   #prefsLoaded = false;
 
   get filter(): IssueFilter {
@@ -187,8 +188,15 @@ class ReviewState {
   }
 
   /** Load the effective text and issues of a page. Keeps the selection
-   *  when the issue still exists. */
-  async load(index: number) {
+   *  when the issue still exists. A load overtaken by a newer one resolves
+   *  when the newer one does, so callers always see the loaded page. */
+  load(index: number): Promise<void> {
+    const p = this.#load(index);
+    this.#latest = p;
+    return p;
+  }
+
+  async #load(index: number): Promise<void> {
     if (!isTauri) {
       this.page = index;
       return;
@@ -197,7 +205,7 @@ class ReviewState {
     this.loading = true;
     try {
       const [text, issues, layout] = await Promise.all([api.pageText(index), api.pageIssues(index), api.pageLayout(index)]);
-      if (token !== this.#loadToken) return;
+      if (token !== this.#loadToken) return this.#latest;
       this.page = index;
       this.spans = text?.spans ?? [];
       this.proposals = text?.proposals ?? [];
