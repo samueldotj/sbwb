@@ -136,9 +136,12 @@
       <legend>What to export</legend>
       <label class="radio" class:on={settings.copy === "working"}>
         <input type="radio" name="copy" value="working" bind:group={settings.copy} />
-        <span><b>Working copy</b><br /><span class="muted small">Current text as-is. Unresolved words highlighted, one comment per flag.</span></span>
+        <span><b>Working copy</b><br /><span class="muted small">Current text as-is. Unresolved words highlighted{settings.comments ? ", one comment per flag" : ", no comments"}.</span></span>
         <span class="tag ok">ready now</span>
       </label>
+      {#if settings.copy === "working"}
+        <label class="sub"><input type="checkbox" bind:checked={settings.comments} /> Add a Word comment to each flagged word</label>
+      {/if}
       <label class="radio" class:on={settings.copy === "clean"}>
         <input type="radio" name="copy" value="clean" bind:group={settings.copy} />
         <span><b>Clean copy</b><br /><span class="muted small">No annotations. Requires every page in scope approved.</span></span>
@@ -335,6 +338,13 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     font-size: 13px;
+  }
+  .sub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: -2px 0 2px 34px;
+    font-size: 12px;
   }
   .radio.on {
     border-color: var(--accent);

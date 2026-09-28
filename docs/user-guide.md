@@ -66,7 +66,8 @@ across a page boundary belongs to the earlier page and is never duplicated.
 ## 5. Working copy versus clean copy
 
 The working copy highlights every unresolved word below the flag threshold
-and attaches one Word comment per flag. The clean copy has no annotations
+and attaches one Word comment per flag; untick "Add a Word comment to each
+flagged word" to keep the highlights without comments. The clean copy has no annotations
 and is only offered when every page in scope is currently approved. Every
 export writes a report next to the document and, optionally, an archive
 bundle with PAGE XML and a JSON transcript with the source map.

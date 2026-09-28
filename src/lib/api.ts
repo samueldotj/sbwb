@@ -281,6 +281,7 @@ export type ExportSettings = {
   furniture: FurniturePolicy;
   include: { marginalia: boolean; footnotes: boolean; page_numbers: boolean; catchwords: boolean; illustrations: boolean; uncertain: boolean; tables: TablePolicy };
   flag_threshold: number;
+  comments: boolean;
   archive: boolean;
   preset: {
     name: string;

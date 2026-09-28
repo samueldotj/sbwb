@@ -206,6 +206,10 @@ impl<'a> Ctx<'a> {
     ) -> Paragraph {
         let mut run = Run::new().add_text(text);
         match flag {
+            Some(_) if self.settings.copy == CopyKind::Working && !self.settings.comments => {
+                self.highlights += 1;
+                para.add_run(run.highlight("yellow"))
+            }
             Some(f) if self.settings.copy == CopyKind::Working => {
                 run = run.highlight("yellow");
                 self.highlights += 1;

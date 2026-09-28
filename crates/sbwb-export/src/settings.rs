@@ -168,9 +168,17 @@ pub struct ExportSettings {
     /// Working copy: unresolved issues scored strictly below this are
     /// highlighted and commented; unscored ones always are.
     pub flag_threshold: u8,
+    /// Working copy: attach a Word comment to each flagged word. Off keeps
+    /// the highlights only.
+    #[serde(default = "default_true")]
+    pub comments: bool,
     pub archive: bool,
     pub preset: FormatPreset,
     pub metadata: DocMetadata,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for ExportSettings {
@@ -181,6 +189,7 @@ impl Default for ExportSettings {
             furniture: FurniturePolicy::StyledParagraphs,
             include: Inclusion::default(),
             flag_threshold: 90,
+            comments: true,
             archive: false,
             preset: FormatPreset::default(),
             metadata: DocMetadata::default(),

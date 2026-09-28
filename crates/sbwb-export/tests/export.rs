@@ -69,6 +69,19 @@ fn styled_policy_exports_furniture_styles_and_page_breaks() {
 }
 
 #[test]
+fn working_copy_without_comments_keeps_highlights_only() {
+    let mut snap = sample_snapshot(3, false);
+    snap.settings.comments = false;
+    let (report, dest) = export(&snap, "working-no-comments.docx");
+    assert!(report.validation.ok, "{:?}", report.validation.checks);
+    assert_eq!(report.comments, 0);
+    assert!(report.highlights > 0);
+    let doc = read_doc(&dest, "word/document.xml");
+    assert!(doc.contains("<w:highlight"));
+    assert!(!doc.contains("commentReference"));
+}
+
+#[test]
 fn native_policy_exports_sections_with_headers_and_footers() {
     let mut snap = sample_snapshot(3, false);
     snap.settings.furniture = FurniturePolicy::NativeHeadersFooters;

@@ -411,13 +411,24 @@ pub fn validate(
         }
         CopyKind::Working => {
             let flags = plan.stats.flags;
-            let ok = rb.comment_refs == flags && rb.highlights == flags;
+            let want_comments = if snapshot.settings.comments { flags } else { 0 };
+            let no_stray = snapshot.settings.comments
+                || comments_part
+                    .map(|c| !c.contains("<w:comment "))
+                    .unwrap_or(true);
+            let ok = rb.comment_refs == want_comments && rb.highlights == flags && no_stray;
             check(
                 "working copy annotations",
                 ok,
                 format!(
-                    "{flags} flags → {} comments, {} highlights",
-                    rb.comment_refs, rb.highlights
+                    "{flags} flags → {} comments{}, {} highlights",
+                    rb.comment_refs,
+                    if snapshot.settings.comments {
+                        ""
+                    } else {
+                        " (comments off)"
+                    },
+                    rb.highlights
                 ),
             );
         }
