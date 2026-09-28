@@ -81,6 +81,7 @@ class LayoutState {
   tool = $state<Tool>("select");
   showRegions = $state(true);
   #undo: Region[][] = [];
+  #loadToken = 0;
 
   get dirty(): boolean {
     return JSON.stringify(this.regions) !== JSON.stringify(this.saved);
@@ -93,26 +94,32 @@ class LayoutState {
   }
 
   async load(page: number) {
+    const samePage = this.page === page;
     this.page = page;
-    this.selectedId = null;
+    if (!samePage) this.selectedId = null;
     this.#undo = [];
     if (!isTauri) {
       this.regions = [];
       this.saved = [];
       return;
     }
+    const token = ++this.#loadToken;
+    const before = this.regions;
     this.loading = true;
     try {
       const l = await api.pageLayout(page);
+      // A newer load, or an edit made while this one was in flight, wins.
+      if (token !== this.#loadToken || (samePage && this.regions !== before)) return;
       this.regions = l ? structuredClone(l.regions) : [];
       this.saved = l ? structuredClone(l.regions) : [];
       this.report = (l?.report as Record<string, unknown>) ?? null;
       this.manual = l?.manual ?? false;
       this.revision = l?.revision ?? 0;
+      if (this.selectedId && !this.regions.some((r) => r.id === this.selectedId)) this.selectedId = null;
     } catch (e) {
-      ui.toast(errorMessage(e), "error");
+      if (token === this.#loadToken) ui.toast(errorMessage(e), "error");
     } finally {
-      this.loading = false;
+      if (token === this.#loadToken) this.loading = false;
     }
   }
 

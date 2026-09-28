@@ -175,6 +175,7 @@
         decide: (d: { kind: string; text?: string }) => review.decide(d as never),
         approve: (i: number, ack = 0) => review.approve(i, ack),
         review_store: review,
+        layout_store: layout,
         export_open: () => (ui.exportOpen = true),
         queue_open: () => (ui.queueOpen = true),
         layout: (i: number) => {

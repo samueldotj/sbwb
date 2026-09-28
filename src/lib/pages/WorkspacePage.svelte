@@ -1,5 +1,6 @@
 <script lang="ts">
   // Workspace shell (design section 3): rail + mode-specific centre + inspector.
+  import { untrack } from "svelte";
   import PipelineRail, { type StageRow } from "$lib/shell/PipelineRail.svelte";
   import Inspector from "$lib/shell/Inspector.svelte";
   import PageGrid from "$lib/workspace/PageGrid.svelte";
@@ -103,12 +104,17 @@
   let pageWords = $state<OcrWord[]>([]);
 
   // Regions for the current page follow the page and its layout revision.
+  // The dirty check is untracked: reading it subscribes to the regions, so
+  // every finished load (and every edit) would start another load that
+  // overwrites the edit.
   $effect(() => {
     const idx = view.page;
     void currentPage?.layout_revision;
     if (view.mode === "processing") return;
-    if (layout.dirty && layout.page === idx) return;
-    void layout.load(idx);
+    untrack(() => {
+      if (layout.dirty && layout.page === idx) return;
+      void layout.load(idx);
+    });
   });
   $effect(() => {
     const idx = view.page;
@@ -172,6 +178,10 @@
         e.preventDefault();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         void layout.save();
+        e.preventDefault();
+      } else if ((e.key === "Delete" || e.key === "Backspace") && !e.defaultPrevented) {
+        // A focused region handles its own Delete; this covers the selection.
+        if (layout.selectedId) layout.remove(layout.selectedId);
         e.preventDefault();
       } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         const k = e.key.toLowerCase();
@@ -357,6 +367,7 @@
         {#each [["select", "Select", "V"], ["draw", "Draw", "R"], ["split", "Split", "X"], ["merge", "Merge", "M"]] as [id, label, key] (id)}
           <button type="button" class="tool" class:on={layout.tool === id} onclick={() => (layout.tool = id as typeof layout.tool)} aria-pressed={layout.tool === id} title="{label} ({key})" aria-label="{label} ({key})">{label}<span class="key">{key}</span></button>
         {/each}
+        <button type="button" class="tool" onclick={() => layout.selectedId && layout.remove(layout.selectedId)} disabled={!layout.selectedId} title="Delete the selected region (Del)" aria-label="Delete region (Del)">Delete<span class="key">Del</span></button>
         <span class="muted small">{String(layout.report?.columns ?? 1)} col</span>
       {/snippet}
       {#snippet overlay({ page, zoom })}
@@ -465,6 +476,9 @@
     .tool .key {
       display: none;
     }
+  }
+  .tool:disabled {
+    opacity: 0.4;
   }
   .tool:focus-visible {
     outline: 2px solid var(--accent);
