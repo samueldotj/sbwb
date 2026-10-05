@@ -28,6 +28,7 @@
     if (layout.tool === "select") {
       layout.selectedId = r.id;
       drag = { kind: "move", id: r.id, start: p, box: { ...r.bbox } };
+      layout.beginDrag();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } else if (layout.tool === "split") {
       layout.splitAt(r.id, p.y);
@@ -49,6 +50,7 @@
     e.stopPropagation();
     layout.selectedId = r.id;
     drag = { kind: "resize", id: r.id, corner, box: { ...r.bbox } };
+    layout.beginDrag();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
   function onRootDown(e: PointerEvent) {
@@ -88,6 +90,8 @@
       const w = Math.abs(drag.cur.x - drag.start.x);
       const h = Math.abs(drag.cur.y - drag.start.y);
       if (w > 4 && h > 4) layout.add({ x: x0, y: y0, w, h });
+    } else {
+      layout.endDrag();
     }
     drag = null;
   }

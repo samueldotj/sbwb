@@ -1,5 +1,6 @@
 // Layout mode state (LAY-02): the regions of the current page, editing
-// tools, an in-memory undo stack, and save/revert/rerun.
+// tools, an in-memory undo stack, autosave, and rerun. Every committed edit
+// is saved shortly after it is made; there is no explicit save step.
 
 import { api, errorMessage, type Region, type RegionKind, type WordStructure } from "$lib/api";
 import { isTauri } from "$lib/ipc";
@@ -27,7 +28,7 @@ export const KIND_PLACEMENT: Record<RegionKind, string> = {
   heading: "→ body",
   header: "→ running head",
   footer: "→ footer",
-  marginalia: "→ side note",
+  marginalia: "→ text box",
   footnote: "→ footnote",
   page_number: "→ page number",
   catchword: "archive only",
@@ -43,12 +44,12 @@ export const KIND_PLACEMENT_NATIVE: Record<RegionKind, string> = {
   header: "→ Word header",
   page_number: "→ Word header",
   footer: "→ Word footer",
-  marginalia: "→ Word footer",
+  footnote: "→ Word footer",
 };
 
 /// The furniture policy the book exports with; loaded from the export
 /// defaults so Layout mode previews the effect per page.
-export const exportPolicy = $state({ native: false });
+export const exportPolicy = $state({ native: true });
 
 const RANK: Record<RegionKind, number> = {
   header: 0,
@@ -80,8 +81,16 @@ class LayoutState {
   selectedId = $state<string | null>(null);
   tool = $state<Tool>("select");
   showRegions = $state(true);
+  /** A layout save is in flight. */
+  saving = $state(false);
+  /** Depth of the undo stack, kept reactive for the Undo button. */
+  undoDepth = $state(0);
   #undo: Region[][] = [];
   #loadToken = 0;
+  #saveTimer: ReturnType<typeof setTimeout> | null = null;
+  #inFlight: Promise<boolean> | null = null;
+  #dragging = false;
+  #dragStart = "";
 
   get dirty(): boolean {
     return JSON.stringify(this.regions) !== JSON.stringify(this.saved);
@@ -90,14 +99,18 @@ class LayoutState {
     return this.regions.find((r) => r.id === this.selectedId) ?? null;
   }
   get canUndo(): boolean {
-    return this.#undo.length > 0;
+    return this.undoDepth > 0;
   }
 
   async load(page: number) {
+    // Land the previous page's pending edit before switching away from it.
+    await this.flush();
     const samePage = this.page === page;
     this.page = page;
-    if (!samePage) this.selectedId = null;
-    this.#undo = [];
+    if (!samePage) {
+      this.selectedId = null;
+      this.#clearUndo();
+    }
     if (!isTauri) {
       this.regions = [];
       this.saved = [];
@@ -123,14 +136,63 @@ class LayoutState {
     }
   }
 
+  /** Record the state before an edit and schedule the autosave. */
   #push() {
     this.#undo.push(structuredClone($state.snapshot(this.regions)));
     if (this.#undo.length > 50) this.#undo.shift();
+    this.undoDepth = this.#undo.length;
+    this.#schedule();
+  }
+  #clearUndo() {
+    this.#undo = [];
+    this.undoDepth = 0;
   }
 
   undo() {
     const prev = this.#undo.pop();
-    if (prev) this.regions = prev;
+    this.undoDepth = this.#undo.length;
+    if (prev) {
+      this.regions = prev;
+      this.#schedule();
+    }
+  }
+
+  /** A move or resize drag: one undo step, saved when the pointer lifts. */
+  beginDrag() {
+    this.#dragging = true;
+    this.#dragStart = JSON.stringify($state.snapshot(this.regions));
+    this.#push();
+  }
+  endDrag() {
+    if (!this.#dragging) return;
+    this.#dragging = false;
+    if (JSON.stringify($state.snapshot(this.regions)) === this.#dragStart) {
+      // A click without movement: no undo step, nothing to save.
+      this.#undo.pop();
+      this.undoDepth = this.#undo.length;
+      return;
+    }
+    this.#schedule();
+  }
+
+  #schedule() {
+    if (this.#saveTimer) clearTimeout(this.#saveTimer);
+    this.#saveTimer = setTimeout(() => {
+      this.#saveTimer = null;
+      if (this.#dragging) return; // endDrag schedules again
+      void this.save();
+    }, 600);
+  }
+
+  /** Save now if an edit is waiting, and wait for any save in flight. */
+  async flush() {
+    if (this.#saveTimer) {
+      clearTimeout(this.#saveTimer);
+      this.#saveTimer = null;
+      await this.save();
+    } else if (this.#inFlight) {
+      await this.#inFlight;
+    }
   }
 
   #renumber() {
@@ -223,29 +285,42 @@ class LayoutState {
     this.#renumber();
   }
 
+  /** Write the current regions; saves run one at a time. */
   async save(): Promise<boolean> {
-    if (this.page === null) return false;
-    try {
-      const l = await api.layoutSave(this.page, $state.snapshot(this.regions));
-      this.regions = structuredClone(l.regions);
-      this.saved = structuredClone(l.regions);
-      this.manual = l.manual;
-      this.revision = l.revision;
-      this.#undo = [];
-      ui.toast("Layout saved", "ok");
-      return true;
-    } catch (e) {
-      ui.toast(errorMessage(e), "error", 6000);
-      return false;
-    }
-  }
-  revert() {
-    this.regions = structuredClone($state.snapshot(this.saved));
-    this.#undo = [];
-    this.selectedId = null;
+    while (this.#inFlight) await this.#inFlight;
+    if (this.page === null || !this.dirty || !isTauri) return true;
+    const page = this.page;
+    const sent = $state.snapshot(this.regions);
+    const sentJson = JSON.stringify(sent);
+    const run = (async () => {
+      this.saving = true;
+      try {
+        const l = await ui.save(() => api.layoutSave(page, sent));
+        if (this.page !== page) return true;
+        this.saved = structuredClone(l.regions);
+        // Take the stored version unless the user edited while it saved.
+        if (JSON.stringify($state.snapshot(this.regions)) === sentJson) this.regions = structuredClone(l.regions);
+        this.manual = l.manual;
+        this.revision = l.revision;
+        return true;
+      } catch (e) {
+        ui.toast(`Could not save the layout: ${errorMessage(e)}`, "error", 6000);
+        return false;
+      } finally {
+        this.saving = false;
+      }
+    })();
+    this.#inFlight = run;
+    const ok = await run;
+    this.#inFlight = null;
+    // Edits made during the save go out next; a failure waits for the next edit.
+    if (ok && this.dirty && !this.#saveTimer && this.page === page) this.#schedule();
+    return ok;
   }
   async rerun() {
     if (this.page === null) return;
+    await this.flush();
+    this.#clearUndo();
     try {
       await api.layoutRerun(this.page);
       ui.toast("Re-analysing the page layout", "info");

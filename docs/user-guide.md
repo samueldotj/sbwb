@@ -30,7 +30,7 @@ runs on your computer; nothing is uploaded.
 | 1–9 | Choose a candidate |
 | R | Recognise a "missing text" area at 300 dpi ×3 |
 | Ctrl+Enter | Approve the page (or remove the approval) |
-| Ctrl+L | Layout mode; V / R / X / M select, draw, split, merge; Esc returns |
+| Ctrl+L | Layout mode; V / R / X / M select, draw, split, merge; Del deletes the selected region; Ctrl+Z undoes; Esc returns. Layout edits save automatically |
 | PgUp / PgDn | Previous / next page |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Zoom in / out / fit |
 | Ctrl+E | Export to Word |
@@ -55,8 +55,12 @@ The Layout mode reading-order list shows where each region goes.
 
 | Policy | Running heads | Page numbers | Side notes | Footers | Footnotes |
 | --- | --- | --- | --- | --- | --- |
-| Styled paragraphs (default) | "Running head" style at the top of the page's text | "Printed page number" style | "Side note" style before the paragraph they annotate | "Footer note" style after the page | "Footnote text" style after the body |
-| Native headers and footers | Word page header | Word page header | Word page footer | Word page footer | "Footnote text" paragraphs |
+| Native headers and footers (default) | Word page header | Word page header | Bordered text box beside the paragraph they annotate | Word page footer | Word page footer, above the footer line |
+| Styled paragraphs | "Running head" style at the top of the page's text | "Printed page number" style | Bordered text box beside the paragraph they annotate | "Footer note" style after the page | "Footnote text" style after the body |
+
+Side-note boxes float on the side of the page the note was printed on and
+the body text wraps around them; in Word they are text frames, so they can
+be moved or resized like a text box.
 
 "Mirror the scan" puts a page break (or a next-page section break under the
 native policy) after each source page. "Continuous text" has no breaks and

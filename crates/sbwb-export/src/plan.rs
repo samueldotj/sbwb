@@ -373,24 +373,13 @@ pub fn compose(snapshot: &ExportSnapshot) -> Plan {
                     }
                 }
                 RegionKind::Marginalia => {
+                    // Under both policies a side note stays beside the body
+                    // text it annotates; the writer draws it as a bordered
+                    // text frame.
                     if settings.include.marginalia {
-                        let ps = paragraphs_of(
-                            page,
-                            r,
-                            if native {
-                                Placement::NativeFooter
-                            } else {
-                                Placement::SideNote
-                            },
-                            settings,
-                            &mut stats,
-                        );
+                        let ps = paragraphs_of(page, r, Placement::SideNote, settings, &mut stats);
                         stats.side_notes += ps.len() as u32;
-                        if native {
-                            footers.extend(ps);
-                        } else {
-                            notes.push((r.anchor_y.unwrap_or(r.bbox.y), ps));
-                        }
+                        notes.push((r.anchor_y.unwrap_or(r.bbox.y), ps));
                     } else {
                         exclude("marginal notes not included");
                     }
@@ -512,8 +501,10 @@ pub fn compose(snapshot: &ExportSnapshot) -> Plan {
             );
         }
         insert_side_notes(&mut body, notes, page);
-        let (header, footer, mut body_all) = if native {
-            (head, footers, body)
+        let (header, footer, body_all) = if native {
+            // Footnotes sit in the page footer, above the footer line.
+            footnotes.append(&mut footers);
+            (head, footnotes, body)
         } else {
             let mut all = head;
             all.append(&mut body);
@@ -521,9 +512,6 @@ pub fn compose(snapshot: &ExportSnapshot) -> Plan {
             all.append(&mut footers);
             (vec![], vec![], all)
         };
-        if native {
-            body_all.append(&mut footnotes);
-        }
         stats.paragraphs += body_all.len() as u32 + header.len() as u32 + footer.len() as u32;
         let last = pi + 1 == n;
         let break_after = match settings.structure {
@@ -557,7 +545,8 @@ mod tests {
 
     #[test]
     fn styled_policy_places_furniture_in_order() {
-        let snap = sample_snapshot(3, false);
+        let mut snap = sample_snapshot(3, false);
+        snap.settings.furniture = FurniturePolicy::StyledParagraphs;
         let plan = compose(&snap);
         assert_eq!(plan.pages.len(), 3);
         let p0 = &plan.pages[0];
@@ -591,14 +580,16 @@ mod tests {
             .header
             .iter()
             .all(|p| p.placement == Placement::NativeHeader));
+        // footnotes go to the page footer; side notes stay beside the body
         assert!(p0
             .footer
             .iter()
-            .any(|p| p.placement == Placement::NativeFooter));
-        assert!(p0
-            .body
-            .iter()
-            .all(|p| !matches!(p.placement, Placement::RunningHead | Placement::SideNote)));
+            .any(|p| p.placement == Placement::FootnoteText));
+        assert!(p0.body.iter().all(|p| !matches!(
+            p.placement,
+            Placement::RunningHead | Placement::FootnoteText
+        )));
+        assert!(p0.body.iter().any(|p| p.placement == Placement::SideNote));
         assert_eq!(p0.break_after, PageBreak::Section);
     }
 }

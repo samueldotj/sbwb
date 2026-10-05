@@ -42,10 +42,8 @@
   });
   async function recognise() {
     if (!r) return;
-    if (layout.dirty) {
-      const ok = await layout.save();
-      if (!ok) return;
-    }
+    await layout.flush();
+    if (layout.dirty && !(await layout.save())) return;
     busy = true;
     await review.regionOcr(view.page, r.bbox, { secondEngine, region: r.id });
     busy = false;

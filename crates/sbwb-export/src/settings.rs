@@ -27,9 +27,11 @@ pub enum PageStructure {
 #[serde(rename_all = "snake_case")]
 pub enum FurniturePolicy {
     /// Running head, page number, side note, footer note styles (D-12).
-    #[default]
     StyledParagraphs,
-    /// Native Word headers and footers, one next-page section per page.
+    /// Native Word headers and footers, one next-page section per page:
+    /// running heads and page numbers in the header, footnotes and footer
+    /// lines in the footer.
+    #[default]
     NativeHeadersFooters,
 }
 
@@ -186,7 +188,7 @@ impl Default for ExportSettings {
         Self {
             copy: CopyKind::Working,
             structure: PageStructure::Mirror,
-            furniture: FurniturePolicy::StyledParagraphs,
+            furniture: FurniturePolicy::NativeHeadersFooters,
             include: Inclusion::default(),
             flag_threshold: 90,
             comments: true,
@@ -202,10 +204,10 @@ impl ExportSettings {
     /// (EXP-02 "must state how page-specific furniture is handled").
     pub fn furniture_explanation(&self) -> String {
         match (self.structure, self.furniture) {
-            (PageStructure::Mirror, FurniturePolicy::StyledParagraphs) => "Running heads, page numbers, side notes, and footnotes become styled paragraphs in the text; a page break follows each source page.".into(),
-            (PageStructure::Mirror, FurniturePolicy::NativeHeadersFooters) => "Running heads go into Word page headers, footers and side notes into Word page footers; every source page ends in a next-page section break.".into(),
-            (PageStructure::Continuous, FurniturePolicy::StyledParagraphs) => "No page breaks. Running heads are omitted (recorded as excluded); page numbers, side notes, and footnotes stay as styled paragraphs where they occur.".into(),
-            (PageStructure::Continuous, FurniturePolicy::NativeHeadersFooters) => "No page breaks, so native per-page headers are not possible: running heads are omitted (recorded as excluded) and the remaining furniture falls back to styled paragraphs.".into(),
+            (PageStructure::Mirror, FurniturePolicy::StyledParagraphs) => "Running heads, page numbers, and footnotes become styled paragraphs in the text, and side notes bordered text boxes beside it; a page break follows each source page.".into(),
+            (PageStructure::Mirror, FurniturePolicy::NativeHeadersFooters) => "Running heads and page numbers go into Word page headers, footnotes and footer lines into Word page footers, and side notes into bordered text boxes beside the text; every source page ends in a next-page section break.".into(),
+            (PageStructure::Continuous, FurniturePolicy::StyledParagraphs) => "No page breaks. Running heads are omitted (recorded as excluded); page numbers and footnotes stay as styled paragraphs where they occur, side notes as bordered text boxes.".into(),
+            (PageStructure::Continuous, FurniturePolicy::NativeHeadersFooters) => "No page breaks, so native per-page headers are not possible: running heads are omitted (recorded as excluded), side notes stay bordered text boxes, and the remaining furniture falls back to styled paragraphs.".into(),
         }
     }
 }

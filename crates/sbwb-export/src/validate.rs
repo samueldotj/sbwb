@@ -57,13 +57,18 @@ fn node_text(n: roxmltree::Node) -> String {
     s
 }
 
+const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
 fn norm(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 struct ReadBack {
-    /// (text, has a frame)
+    /// (text, is a drop-cap frame)
     body_paragraphs: Vec<(String, bool)>,
+    /// Side-note paragraphs, and how many of them are bordered frames.
+    side_notes: u32,
+    side_note_boxes: u32,
     page_breaks: u32,
     sections: u32,
     header_rids: Vec<String>,
@@ -89,14 +94,30 @@ fn read_document(xml: &str) -> Result<ReadBack> {
         highlights: 0,
         comment_refs: 0,
         frames: 0,
+        side_notes: 0,
+        side_note_boxes: 0,
     };
     for n in body.descendants().filter(|n| n.is_element()) {
         match n.tag_name().name() {
             "p" => {
-                let framed = n
-                    .descendants()
-                    .any(|d| d.is_element() && d.tag_name().name() == "framePr");
-                rb.body_paragraphs.push((node_text(n), framed));
+                let has = |name: &str| {
+                    n.descendants()
+                        .any(|d| d.is_element() && d.tag_name().name() == name)
+                };
+                let side_note = n.descendants().any(|d| {
+                    d.is_element()
+                        && d.tag_name().name() == "pStyle"
+                        && d.attribute((W_NS, "val")) == Some("SideNote")
+                });
+                let framed = has("framePr");
+                if side_note {
+                    rb.side_notes += 1;
+                    if framed && has("pBdr") {
+                        rb.side_note_boxes += 1;
+                    }
+                }
+                rb.body_paragraphs
+                    .push((node_text(n), framed && !side_note));
             }
             "br" if n.attribute((
                 "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
@@ -180,12 +201,38 @@ pub fn validate(
         report.ok = false;
         return Ok(report);
     };
+    let bad_attrs = doc_xml.contains("w:h_space=") || doc_xml.contains("w:v_space=");
+    check(
+        "frame attributes",
+        !bad_attrs,
+        if bad_attrs {
+            "frame spacing written with non-schema attribute names".into()
+        } else {
+            "frame attributes use schema names".into()
+        },
+    );
     let rb = read_document(&doc_xml)?;
     report.paragraphs_read = rb.body_paragraphs.len() as u32;
     report.page_breaks_read = rb.page_breaks;
     report.sections_read = rb.sections;
     report.highlights_read = rb.highlights;
     report.comments_read = rb.comment_refs;
+
+    let planned_notes = plan
+        .pages
+        .iter()
+        .flat_map(|p| p.body.iter())
+        .filter(|q| q.placement == crate::plan::Placement::SideNote)
+        .count() as u32;
+    let boxes_ok = rb.side_notes == planned_notes && rb.side_note_boxes == planned_notes;
+    check(
+        "side note boxes",
+        boxes_ok,
+        format!(
+            "{} of {planned_notes} side-note paragraphs in bordered text frames",
+            rb.side_note_boxes
+        ),
+    );
 
     // text parity: body paragraphs in order (frames from drop caps merge back)
     let expected: Vec<String> = plan
@@ -336,13 +383,20 @@ pub fn validate(
     let rel_map = rels(&doc_rels)?;
     let mut link_ok = true;
     let mut missing = Vec::new();
+    // highlights in the header and footer parts the sections use
+    let mut furniture_highlights = 0u32;
     for rid in rb.header_rids.iter().chain(rb.footer_rids.iter()) {
         match rel_map.get(rid) {
             Some(target) => {
                 let name = format!("word/{target}");
-                if read_entry(&mut zip, &name)?.is_none() {
-                    link_ok = false;
-                    missing.push(name);
+                match read_entry(&mut zip, &name)? {
+                    Some(part) => {
+                        furniture_highlights += part.matches("<w:highlight").count() as u32
+                    }
+                    None => {
+                        link_ok = false;
+                        missing.push(name);
+                    }
                 }
             }
             None => {
@@ -411,12 +465,25 @@ pub fn validate(
         }
         CopyKind::Working => {
             let flags = plan.stats.flags;
-            let want_comments = if snapshot.settings.comments { flags } else { 0 };
+            // Word has no comments in headers and footers: only body flags get one.
+            let body_flags = plan
+                .pages
+                .iter()
+                .flat_map(|p| p.body.iter())
+                .flat_map(|q| q.runs.iter())
+                .filter(|r| r.flag.is_some())
+                .count() as u32;
+            let want_comments = if snapshot.settings.comments {
+                body_flags
+            } else {
+                0
+            };
+            let highlights = rb.highlights + furniture_highlights;
             let no_stray = snapshot.settings.comments
                 || comments_part
                     .map(|c| !c.contains("<w:comment "))
                     .unwrap_or(true);
-            let ok = rb.comment_refs == want_comments && rb.highlights == flags && no_stray;
+            let ok = rb.comment_refs == want_comments && highlights == flags && no_stray;
             check(
                 "working copy annotations",
                 ok,
@@ -428,7 +495,7 @@ pub fn validate(
                     } else {
                         " (comments off)"
                     },
-                    rb.highlights
+                    highlights
                 ),
             );
         }

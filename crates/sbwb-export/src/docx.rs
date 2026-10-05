@@ -4,9 +4,12 @@
 
 use std::io::{Read, Write};
 
+use std::collections::HashSet;
+
 use docx_rs::{
-    AlignmentType, BreakType, Comment, Docx, Footer, FrameProperty, Header, LineSpacing,
-    PageMargin, Paragraph, Pic, Run, RunFonts, Section, Style, StyleType,
+    AlignmentType, BorderType, BreakType, Comment, Docx, Footer, FrameProperty, Header,
+    LineSpacing, PageMargin, Paragraph, ParagraphBorder, ParagraphBorderPosition, ParagraphBorders,
+    Pic, Run, RunFonts, Section, Style, StyleType,
 };
 use sbwb_core::{Rect, Result, SbwbError};
 
@@ -84,8 +87,7 @@ fn styles(settings: &ExportSettings) -> Vec<Style> {
             .based_on("SbwbBody")
             .size(note_half)
             .italic()
-            .indent(Some(360), None, Some(360), None)
-            .line_spacing(LineSpacing::new().after(60))
+            .line_spacing(LineSpacing::new().after(0))
             .color("444444"),
         Style::new("FooterNote", StyleType::Paragraph)
             .name("Footer note")
@@ -130,6 +132,13 @@ struct Ctx<'a> {
     image_failures: Vec<String>,
     drop_caps: u32,
     now: String,
+    /// Marginalia regions printed in the left half of their source page.
+    left_notes: HashSet<sbwb_core::RegionId>,
+    /// Width of a side-note text box, in twips.
+    note_width: u32,
+    /// Writing a page header or footer: Word has no comments there, so a
+    /// flagged word is highlighted only.
+    furniture: bool,
 }
 
 fn style_for(p: &PlannedParagraph) -> &'static str {
@@ -148,6 +157,9 @@ impl<'a> Ctx<'a> {
         }
         let mut out = Vec::new();
         let mut para = Paragraph::new().style(style_for(p));
+        if p.placement == Placement::SideNote {
+            para.property = self.side_note_box(p, para.property);
+        }
         let mut runs = p.runs.iter().peekable();
         // Drop cap: the first letter of the first body paragraph of a page
         // becomes its own framed paragraph (Word's drop-cap construction).
@@ -196,6 +208,39 @@ impl<'a> Ctx<'a> {
         out
     }
 
+    /// A side note is a bordered text frame floating beside the body text on
+    /// the side it was printed on. Consecutive paragraphs of one note share
+    /// the frame and the border, so Word draws them as one box.
+    fn side_note_box(
+        &self,
+        p: &PlannedParagraph,
+        property: docx_rs::ParagraphProperty,
+    ) -> docx_rs::ParagraphProperty {
+        let left = p.region.is_some_and(|r| self.left_notes.contains(&r));
+        let frame = FrameProperty::new()
+            .wrap("around")
+            .h_anchor("margin")
+            .x_align(if left { "left" } else { "right" })
+            .v_anchor("text")
+            .width(self.note_width)
+            .h_space(180)
+            .v_space(60);
+        let edge = |pos| {
+            ParagraphBorder::new(pos)
+                .val(BorderType::Single)
+                .size(4)
+                .space(4)
+                .color("666666")
+        };
+        property.frame_property(frame).set_borders(
+            ParagraphBorders::with_empty()
+                .set(edge(ParagraphBorderPosition::Top))
+                .set(edge(ParagraphBorderPosition::Left))
+                .set(edge(ParagraphBorderPosition::Bottom))
+                .set(edge(ParagraphBorderPosition::Right)),
+        )
+    }
+
     fn push_run(
         &mut self,
         para: Paragraph,
@@ -206,7 +251,10 @@ impl<'a> Ctx<'a> {
     ) -> Paragraph {
         let mut run = Run::new().add_text(text);
         match flag {
-            Some(_) if self.settings.copy == CopyKind::Working && !self.settings.comments => {
+            Some(_)
+                if self.settings.copy == CopyKind::Working
+                    && (!self.settings.comments || self.furniture) =>
+            {
                 self.highlights += 1;
                 para.add_run(run.highlight("yellow"))
             }
@@ -312,6 +360,24 @@ pub fn write(
         now: jiff::Timestamp::now()
             .strftime("%Y-%m-%dT%H:%M:%SZ")
             .to_string(),
+        left_notes: snapshot
+            .pages
+            .iter()
+            .flat_map(|pg| {
+                pg.regions
+                    .iter()
+                    .filter(|r| {
+                        r.kind == sbwb_layout::RegionKind::Marginalia
+                            && r.bbox.x + r.bbox.w / 2.0 < pg.width_pt / 2.0
+                    })
+                    .map(|r| r.id)
+            })
+            .collect(),
+        note_width: {
+            let text_w = pw - (p.margin_left_mm + p.margin_right_mm) * 72.0 / 25.4;
+            ((text_w * 0.3).max(90.0) * TWIP) as u32
+        },
+        furniture: false,
     };
     let n = plan.pages.len();
     for (i, page) in plan.pages.iter().enumerate() {
@@ -341,6 +407,7 @@ pub fn write(
             for para in paras {
                 section = section.add_paragraph(para);
             }
+            ctx.furniture = true;
             let mut header = Header::new();
             for hp in &page.header {
                 for para in ctx.paragraph(hp, page_w, false) {
@@ -353,6 +420,7 @@ pub fn write(
                     footer = footer.add_paragraph(para);
                 }
             }
+            ctx.furniture = false;
             docx = docx.add_section(section.header(header).footer(footer));
         } else {
             for para in paras {
@@ -360,6 +428,7 @@ pub fn write(
             }
             if page.break_after == PageBreak::Section {
                 // Last page: the document-level section carries its furniture.
+                ctx.furniture = true;
                 let mut header = Header::new();
                 for hp in &page.header {
                     for para in ctx.paragraph(hp, page_w, false) {
@@ -372,6 +441,7 @@ pub fn write(
                         footer = footer.add_paragraph(para);
                     }
                 }
+                ctx.furniture = false;
                 docx = docx.header(header).footer(footer);
             }
         }
@@ -446,6 +516,8 @@ fn post_process(bytes: Vec<u8>, snapshot: &ExportSnapshot, plan: &Plan) -> Resul
     );
     // docx-rs registers headers for each Section but not footers; add the
     // footer parts for every section except the last (document-level one).
+    // A section without its own footer would inherit the previous one, so
+    // pages with nothing in the footer get an empty part.
     let section_pages: Vec<&crate::plan::PlannedPage> = plan
         .pages
         .iter()
@@ -454,14 +526,32 @@ fn post_process(bytes: Vec<u8>, snapshot: &ExportSnapshot, plan: &Plan) -> Resul
     let mut extra_footers: Vec<(String, String)> = Vec::new(); // (part name, xml)
     if section_pages.len() > 1 {
         for (i, page) in section_pages[..section_pages.len() - 1].iter().enumerate() {
-            if page.footer.is_empty() {
-                continue;
-            }
             let mut xml = String::from(
                 r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">"#,
             );
+            let working = settings.copy == CopyKind::Working;
             for fp in &page.footer {
-                xml.push_str(&format!(r#"<w:p><w:pPr><w:pStyle w:val="{}" /></w:pPr><w:r><w:t xml:space="preserve">{}</w:t></w:r></w:p>"#, style_for(fp), xml_escape(&fp.text())));
+                xml.push_str(&format!(
+                    r#"<w:p><w:pPr><w:pStyle w:val="{}" /></w:pPr>"#,
+                    style_for(fp)
+                ));
+                for run in &fp.runs {
+                    // Flagged words keep their highlight; Word has no
+                    // comments in footers.
+                    let rpr = if working && run.flag.is_some() {
+                        r#"<w:rPr><w:highlight w:val="yellow" /></w:rPr>"#
+                    } else {
+                        ""
+                    };
+                    xml.push_str(&format!(
+                        r#"<w:r>{rpr}<w:t xml:space="preserve">{}</w:t></w:r>"#,
+                        xml_escape(&run.text)
+                    ));
+                }
+                xml.push_str("</w:p>");
+            }
+            if page.footer.is_empty() {
+                xml.push_str("<w:p />");
             }
             xml.push_str("</w:ftr>");
             extra_footers.push((format!("footerS{}.xml", i + 1), xml));
@@ -470,8 +560,8 @@ fn post_process(bytes: Vec<u8>, snapshot: &ExportSnapshot, plan: &Plan) -> Resul
     let footer_for_section: Vec<Option<String>> = section_pages
         .iter()
         .enumerate()
-        .map(|(i, page)| {
-            if i + 1 < section_pages.len() && !page.footer.is_empty() {
+        .map(|(i, _)| {
+            if i + 1 < section_pages.len() {
                 Some(format!("footerS{}.xml", i + 1))
             } else {
                 None
@@ -497,6 +587,11 @@ fn post_process(bytes: Vec<u8>, snapshot: &ExportSnapshot, plan: &Plan) -> Resul
             let s = String::from_utf8_lossy(&data).into_owned();
             let s = re_sz(&s, "<w:pgSz ", "/>", &pg_sz);
             let s = re_sz(&s, "<w:pgMar ", "/>", &pg_mar);
+            // docx-rs spells the frame spacing attributes h_space / v_space;
+            // the schema names are hSpace / vSpace.
+            let s = s
+                .replace(" w:h_space=", " w:hSpace=")
+                .replace(" w:v_space=", " w:vSpace=");
             // every section break is a next-page break; sections get their footers
             let mut pieces = s.split("<w:sectPr>");
             let mut rebuilt = String::from(pieces.next().unwrap_or(""));

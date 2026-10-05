@@ -34,15 +34,35 @@ fn read_doc(path: &std::path::Path, entry: &str) -> String {
     s
 }
 
+/// The text of a part with the markup removed (runs split words apart).
+fn text_of(xml: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for c in xml.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
 #[test]
 fn styled_policy_exports_furniture_styles_and_page_breaks() {
-    let snap = sample_snapshot(3, false);
+    let mut snap = sample_snapshot(3, false);
+    snap.settings.furniture = FurniturePolicy::StyledParagraphs;
     let (report, dest) = export(&snap, "styled.docx");
     assert!(report.validation.ok, "{:?}", report.validation.checks);
     let doc = read_doc(&dest, "word/document.xml");
     assert!(doc.contains(r#"w:val="RunningHead""#));
     assert!(doc.contains(r#"w:val="PrintedPageNumber""#));
     assert!(doc.contains(r#"w:val="SideNote""#));
+    assert!(
+        doc.contains("<w:framePr"),
+        "side notes are bordered text frames"
+    );
     assert!(doc.contains(r#"w:val="FootnoteText""#));
     assert_eq!(
         doc.matches(r#"w:type="page""#).count(),
@@ -82,6 +102,67 @@ fn working_copy_without_comments_keeps_highlights_only() {
 }
 
 #[test]
+fn pages_without_footnotes_get_an_empty_footer_not_the_previous_one() {
+    let mut snap = sample_snapshot(3, false);
+    snap.settings.furniture = FurniturePolicy::NativeHeadersFooters;
+    // only the first page keeps its footnote
+    for page in snap.pages.iter_mut().skip(1) {
+        let foot: Vec<_> = page
+            .regions
+            .iter()
+            .filter(|r| r.kind == sbwb_layout::RegionKind::Footnote)
+            .map(|r| r.id)
+            .collect();
+        page.regions.retain(|r| !foot.contains(&r.id));
+        page.spans
+            .retain(|s| !s.region.is_some_and(|r| foot.contains(&r)));
+    }
+    let (report, dest) = export(&snap, "footer-inherit.docx");
+    assert!(report.validation.ok, "{:?}", report.validation.checks);
+    let doc = read_doc(&dest, "word/document.xml");
+    assert_eq!(
+        doc.matches("<w:footerReference").count(),
+        3,
+        "every section has its own footer"
+    );
+    assert!(text_of(&read_doc(&dest, "word/footerS1.xml")).contains("Note 1"));
+    assert!(!text_of(&read_doc(&dest, "word/footerS2.xml")).contains("Note"));
+}
+
+#[test]
+fn flagged_words_in_footers_are_highlighted_without_comments() {
+    let mut snap = sample_snapshot(3, false);
+    snap.settings.furniture = FurniturePolicy::NativeHeadersFooters;
+    // flag a word of each page's footnote (it lands in the page footer)
+    for page in &mut snap.pages {
+        let foot = page
+            .regions
+            .iter()
+            .find(|r| r.kind == sbwb_layout::RegionKind::Footnote)
+            .unwrap()
+            .id;
+        let span = page
+            .spans
+            .iter_mut()
+            .find(|s| s.region == Some(foot) && s.text == "margin")
+            .unwrap();
+        span.flag = Some(sbwb_export::FlagSnap {
+            kind: "risky_substitution".into(),
+            score: Some(40),
+            reason: "test".into(),
+            deferred: false,
+        });
+    }
+    let (report, dest) = export(&snap, "footer-flags.docx");
+    assert!(report.validation.ok, "{:?}", report.validation.checks);
+    for part in ["word/footerS1.xml", "word/footerS2.xml", "word/footer1.xml"] {
+        let xml = read_doc(&dest, part);
+        assert!(xml.contains("<w:highlight"), "{part} keeps the highlight");
+        assert!(!xml.contains("commentReference"), "{part} has no comments");
+    }
+}
+
+#[test]
 fn native_policy_exports_sections_with_headers_and_footers() {
     let mut snap = sample_snapshot(3, false);
     snap.settings.furniture = FurniturePolicy::NativeHeadersFooters;
@@ -104,12 +185,25 @@ fn native_policy_exports_sections_with_headers_and_footers() {
         h1.contains("CHRISTIANITY") && h2.contains("INDIA") && !h2.contains("CHRISTIANITY"),
         "page-specific headers do not inherit"
     );
-    let f1 = read_doc(&dest, "word/footerS1.xml");
-    let f_last = read_doc(&dest, "word/footer1.xml");
+    let f1 = text_of(&read_doc(&dest, "word/footerS1.xml"));
+    let f_last = text_of(&read_doc(&dest, "word/footer1.xml"));
     assert!(
-        f1.contains("A.D. 1500") && f_last.contains("1502"),
-        "side notes in page-specific footers"
+        f1.contains("Note 1 in the margin") && f_last.contains("Note 3 in the margin"),
+        "footnotes in page-specific footers"
     );
+    assert!(
+        !f1.contains("A.D. 1500") && text_of(&doc).contains("A.D. 1500"),
+        "side notes stay in the body"
+    );
+    assert!(
+        !text_of(&doc).contains("Note 1 in the margin"),
+        "footnotes not in the body"
+    );
+    // side notes: one bordered frame per note, on the side they were printed
+    assert_eq!(doc.matches("<w:framePr").count(), 3);
+    assert!(doc.contains(r#"w:xAlign="left""#));
+    assert_eq!(doc.matches("<w:pBdr>").count(), 3);
+    assert!(doc.contains(r#"w:hSpace="180""#) && !doc.contains("w:h_space"));
     // clean copy: nothing review-related
     assert_eq!(report.comments, 0);
     assert!(!doc.contains("<w:highlight"));

@@ -19,7 +19,7 @@ pub use plan::{compose, Exclusion, Placement, Plan, PlanStats};
 pub use settings::{
     CopyKind, ExportSettings, FormatPreset, FurniturePolicy, Inclusion, PageStructure, TablePolicy,
 };
-pub use snapshot::{ExportSnapshot, PageSnap, RegionSnap, SpanSnap};
+pub use snapshot::{ExportSnapshot, FlagSnap, PageSnap, RegionSnap, SpanSnap};
 pub use validate::ValidationReport;
 
 pub(crate) fn docx_escape(s: &str) -> String {

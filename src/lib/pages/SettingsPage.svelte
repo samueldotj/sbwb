@@ -212,7 +212,7 @@
             </div>
           </div>
           <div class="row">
-            <div><div class="name">Page furniture</div><div class="hint">Styled paragraphs (default) or native Word headers and footers with a section per page.</div></div>
+            <div><div class="name">Page furniture</div><div class="hint">Native Word headers and footers with a section per page (default), or styled paragraphs. Side notes are bordered text boxes either way.</div></div>
             <div class="seg" role="radiogroup" aria-label="Page furniture">
               <button type="button" role="radio" aria-checked={exportDefaults.furniture === "styled_paragraphs"} class:on={exportDefaults.furniture === "styled_paragraphs"} onclick={() => setExport({ furniture: "styled_paragraphs" })}>Styled</button>
               <button type="button" role="radio" aria-checked={exportDefaults.furniture === "native_headers_footers"} class:on={exportDefaults.furniture === "native_headers_footers"} onclick={() => setExport({ furniture: "native_headers_footers" })}>Native</button>

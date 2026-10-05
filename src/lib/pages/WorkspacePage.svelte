@@ -107,12 +107,13 @@
   // The dirty check is untracked: reading it subscribes to the regions, so
   // every finished load (and every edit) would start another load that
   // overwrites the edit.
+  // An autosave bumps the revision; the store already holds that version.
   $effect(() => {
     const idx = view.page;
-    void currentPage?.layout_revision;
+    const rev = currentPage?.layout_revision;
     if (view.mode === "processing") return;
     untrack(() => {
-      if (layout.dirty && layout.page === idx) return;
+      if (layout.page === idx && (layout.dirty || layout.saving || rev === layout.revision)) return;
       void layout.load(idx);
     });
   });
@@ -141,11 +142,7 @@
   }
 
   async function leaveLayout() {
-    if (layout.dirty) {
-      const ok = await confirmDialog("Discard the unsaved layout changes on this page?", "Layout");
-      if (!ok) return;
-      layout.revert();
-    }
+    await layout.flush();
     view.mode = "review";
   }
   function onkeydown(e: KeyboardEvent) {
@@ -177,7 +174,7 @@
         layout.undo();
         e.preventDefault();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
-        void layout.save();
+        void layout.flush();
         e.preventDefault();
       } else if ((e.key === "Delete" || e.key === "Backspace") && !e.defaultPrevented) {
         // A focused region handles its own Delete; this covers the selection.
@@ -419,8 +416,8 @@
       {/if}
       {#if view.mode === "layout"}
         <div class="two">
-          <button type="button" class="ctl" onclick={() => layout.revert()} disabled={!layout.dirty}>Revert</button>
-          <button type="button" class="ctl primary" onclick={() => layout.save()} disabled={!layout.dirty}>Save layout</button>
+          <button type="button" class="ctl" onclick={() => layout.undo()} disabled={!layout.canUndo} title="Undo (Ctrl+Z)">Undo <kbd>Ctrl+Z</kbd></button>
+          <span class="muted small autosave" aria-live="polite">{layout.saving ? "Saving…" : layout.dirty ? "Changes pending" : "All changes saved"}</span>
         </div>
         <div class="two">
           <button type="button" class="ctl muted" onclick={() => layout.rerun()}>Re-analyse page</button>
@@ -487,6 +484,10 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 6px;
+  }
+  .autosave {
+    align-self: center;
+    text-align: center;
   }
   .workspace.review.strip {
     grid-template-columns: var(--rail-w) var(--filmstrip-w) minmax(0, 1fr) minmax(0, 1fr) auto;
