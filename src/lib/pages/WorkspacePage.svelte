@@ -27,6 +27,7 @@
   import { ui } from "$lib/stores/ui.svelte";
   import PageMiniGrid from "$lib/workspace/PageMiniGrid.svelte";
   import Sheet from "$lib/shell/Sheet.svelte";
+  import ChoiceDialog from "$lib/shell/ChoiceDialog.svelte";
   import RegionOverlay from "$lib/workspace/RegionOverlay.svelte";
   import ReadingOrder from "$lib/workspace/ReadingOrder.svelte";
   import RegionInspector from "$lib/workspace/RegionInspector.svelte";
@@ -191,13 +192,36 @@
       if (ok) await review.unapprove(currentPage.index);
       return;
     }
-    const outstanding = review.page === currentPage.index ? review.pageUnresolved : 0;
-    if (outstanding > 0) {
-      const ok = await confirmDialog(`${outstanding} issue${outstanding === 1 ? " is" : "s are"} still unresolved or deferred on page ${currentPage.index + 1}. Approve anyway and record them as acknowledged?`, "Approve page");
-      if (!ok) return;
+    const page = currentPage.index;
+    const open = review.page === page ? review.issues.filter((i) => i.status === "open" || i.status === "deferred") : [];
+    // What review showed: below the threshold and not filtered out, or
+    // deferred by the reviewer. Issues scored at or above the threshold were
+    // never shown; approving records them as acknowledged without asking.
+    const shown = open.filter((i) => i.status === "deferred" || (!review.excludeKinds.includes(i.kind) && (i.score === null || i.score < review.threshold)));
+    const hidden = open.length - shown.length;
+    if (shown.length > 0) {
+      const words = shown.map((i) => `“${i.original}”`);
+      const list = words.length > 6 ? `${words.slice(0, 6).join(", ")} and ${words.length - 6} more` : words.join(", ");
+      approveMessage = `${shown.length} issue${shown.length === 1 ? " is" : "s are"} still open on page ${page + 1}: ${list}.${hidden ? ` ${hidden} more scored ${review.threshold}% or above and are not shown; they are recorded as acknowledged too.` : ""} Approving records them as acknowledged.`;
+      const choice = await new Promise<string>((resolve) => {
+        approveResolve = resolve;
+        approveDialog = true;
+      });
+      approveDialog = false;
+      if (choice === "show") {
+        review.select(shown[0]!.id);
+        return;
+      }
+      if (choice !== "approve") return;
     }
-    await review.approve(currentPage.index, outstanding);
+    await review.approve(page, open.length);
+    if (shown.length === 0 && hidden > 0) {
+      ui.toast(`Page ${page + 1} approved · ${hidden} issue${hidden === 1 ? "" : "s"} above your ${review.threshold}% threshold recorded as acknowledged`, "ok", 5000);
+    }
   }
+  let approveDialog = $state(false);
+  let approveMessage = $state("");
+  let approveResolve: ((id: string) => void) | null = null;
 
   async function leaveLayout() {
     await layout.flush();
@@ -457,6 +481,13 @@
       </div>
     {/snippet}
   </PipelineRail>
+  <ChoiceDialog
+    open={approveDialog}
+    title="Approve page {view.page + 1}?"
+    message={approveMessage}
+    choices={[{ id: "show", label: "Show them", kind: "primary" }, { id: "approve", label: "Approve anyway" }, { id: "cancel", label: "Cancel" }]}
+    onchoose={(id) => approveResolve?.(id)}
+  />
   <Sheet open={logOpen} title="Pipeline log" subtitle="{pipeline.state} · {settingsLine}" width="680px" onclose={() => (logOpen = false)}>
     <div class="log" role="log" aria-live="polite">
       {#each pipeline.log as l, i (i)}
