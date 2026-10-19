@@ -210,11 +210,12 @@
     if (summary.counts.in_scope > 0 && summary.counts.done >= summary.counts.in_scope) return "done";
     return "queued";
   });
+  // Pages recognised in the whole book, like the Layout and Text pass rows;
+  // a run's own count restarts when processing resumes, so it goes in the
+  // detail line instead.
   const ocrValue = $derived.by(() => {
-    const o = pipeline.ocr;
     if (pipeline.state === "paused") return "paused";
-    if (o && pipeline.active) return `${o.done + o.failed} / ${o.total}`;
-    if (summary.counts.done > 0 || summary.counts.failed > 0) return `${summary.counts.done} / ${summary.counts.in_scope}`;
+    if (summary.counts.ocr_done > 0 || summary.counts.failed > 0) return `${summary.counts.ocr_done} / ${summary.counts.in_scope}`;
     return "queued";
   });
   // Speed, time left and failures under the OCR row (the former job monitor).
@@ -222,6 +223,7 @@
     const o = pipeline.ocr;
     const parts: string[] = [];
     if (o && pipeline.active) {
+      parts.push(`this run ${o.done + o.failed} / ${o.total}`);
       if (o.secs_per_unit) parts.push(`${o.secs_per_unit.toFixed(1)} s/page`);
       if (o.eta_ms !== null && pipeline.state === "running") parts.push(formatEta(o.eta_ms));
       if (o.failed) parts.push(`${o.failed} failed`);
@@ -237,7 +239,7 @@
       label: "OCR",
       state: ocrState,
       value: ocrValue,
-      progress: pipeline.ocr && pipeline.ocr.total ? (pipeline.ocr.done + pipeline.ocr.failed) / pipeline.ocr.total : summary.counts.in_scope ? summary.counts.done / summary.counts.in_scope : 0,
+      progress: summary.counts.in_scope ? summary.counts.ocr_done / summary.counts.in_scope : 0,
       detail: ocrDetail,
       detailTitle: settingsLine,
     },
