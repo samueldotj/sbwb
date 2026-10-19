@@ -86,10 +86,22 @@
     const original = issue.original;
     const kind = issue.kind;
     const out = await review.decide({ kind: "accept", text });
-    if (out && text !== original && kind === "risky_substitution") ongroup(original, text);
+    if (out && text !== original && kind === "risky_substitution") await offerGroup(original, text);
+  }
+  /** Offer the grouped correction only when something else could be
+   *  replaced; a sheet that can only say "Replace 0" is noise. */
+  async function offerGroup(original: string, replacement: string) {
+    try {
+      const matches = await api.groupPreview(original, replacement);
+      if (matches.some((m) => m.conflict === null)) ongroup(original, replacement);
+    } catch {
+      // no offer; the decision itself is already saved
+    }
   }
   function startEdit() {
     if (!issue) return;
+    // Start from the chosen suggestion so a small fix is a small edit.
+    editText = chooseText();
     editOpen = true;
     review.editing = { span: issue.span, text: editText };
     setTimeout(() => editBox?.focus(), 0);
@@ -112,8 +124,12 @@
       return;
     }
     if (draftTimer) clearTimeout(draftTimer);
+    const original = issue.original;
+    const kind = issue.kind;
     const out = await review.decide({ kind: "edit", text: t });
-    if (out) editOpen = false;
+    if (!out) return;
+    editOpen = false;
+    if (t !== original && kind === "risky_substitution") await offerGroup(original, t);
   }
   async function cancelEdit() {
     if (draftTimer) clearTimeout(draftTimer);
@@ -237,13 +253,13 @@
       <input id="issue-edit" type="text" bind:value={editText} bind:this={editBox} oninput={onEditInput} onkeydown={(e) => { if (e.key === "Enter") { e.preventDefault(); void saveEdit(); } else if (e.key === "Escape") { e.preventDefault(); void cancelEdit(); } }} class="serif" />
       <div class="two">
         <button type="button" class="ctl" onclick={cancelEdit}>Discard</button>
-        <button type="button" class="ctl primary" onclick={saveEdit}>Save edit</button>
+        <button type="button" class="ctl primary" onclick={saveEdit} disabled={ui.saveState === "saving"}>Accept edit <kbd>Enter</kbd></button>
       </div>
     </div>
   {:else}
     <div class="decisions">
       <button type="button" class="ctl primary" onclick={accept} disabled={ui.saveState === "saving"}>Accept <kbd>A</kbd></button>
-      <button type="button" class="ctl" onclick={startEdit}>Edit <kbd>E</kbd></button>
+      <button type="button" class="ctl" onclick={startEdit}>Edit &amp; accept <kbd>E</kbd></button>
       <button type="button" class="ctl" onclick={() => review.decide({ kind: "skip" })} disabled={ui.saveState === "saving"}>Skip <kbd>S</kbd></button>
       <button type="button" class="ctl" onclick={() => review.decide({ kind: "later" })} disabled={ui.saveState === "saving" || issue.status === "deferred"}>Later <kbd>L</kbd></button>
     </div>
