@@ -13,6 +13,9 @@ export type Toast = {
 
 const THEME_KEY = "sbwb.theme";
 const SIZE_KEY = "sbwb.textsize";
+const TRANSCRIPT_ZOOM_KEY = "sbwb.transcriptzoom";
+/** Transcript zoom steps, in percent of the theme's transcript size. */
+export const TRANSCRIPT_ZOOMS = [70, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 350, 400];
 
 function readStoredTheme(): Theme {
   try {
@@ -33,10 +36,22 @@ function readStoredSize(): TextSize {
   return "normal";
 }
 
+function readStoredTranscriptZoom(): number {
+  try {
+    const v = Number(localStorage.getItem(TRANSCRIPT_ZOOM_KEY));
+    if (TRANSCRIPT_ZOOMS.includes(v)) return v;
+  } catch {
+    /* storage unavailable */
+  }
+  return 100;
+}
+
 class UiState {
   theme = $state<Theme>(readStoredTheme());
   /** Enlarged text for the whole interface (UX-05). */
   textSize = $state<TextSize>(readStoredSize());
+  /** Transcript text zoom in percent, independent of the scan zoom. */
+  transcriptZoom = $state<number>(readStoredTranscriptZoom());
   /** Polite live-region text for screen readers (UX-05). */
   announcement = $state("");
   /** Durable-write state shown in the status bar (PRJ-04). */
@@ -68,6 +83,13 @@ class UiState {
         document.documentElement.dataset.textsize = this.textSize;
         try {
           localStorage.setItem(SIZE_KEY, this.textSize);
+        } catch {
+          /* ignore */
+        }
+      });
+      $effect(() => {
+        try {
+          localStorage.setItem(TRANSCRIPT_ZOOM_KEY, String(this.transcriptZoom));
         } catch {
           /* ignore */
         }
@@ -104,6 +126,17 @@ class UiState {
 
   toggleTheme() {
     this.theme = this.theme === "paper" ? "bench" : "paper";
+  }
+
+  /** Step the transcript zoom; 0 resets it to 100%. */
+  zoomTranscript(dir: -1 | 0 | 1) {
+    if (dir === 0) {
+      this.transcriptZoom = 100;
+      return;
+    }
+    const i = TRANSCRIPT_ZOOMS.indexOf(this.transcriptZoom);
+    const next = TRANSCRIPT_ZOOMS[Math.max(0, Math.min(TRANSCRIPT_ZOOMS.length - 1, (i < 0 ? 3 : i) + dir))];
+    if (next !== undefined) this.transcriptZoom = next;
   }
 
   toast(text: string, kind: Toast["kind"] = "info", timeoutMs = 2500) {

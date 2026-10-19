@@ -9,7 +9,7 @@
   import { api, errorMessage, type OcrWord, type PageRow, type Span } from "$lib/api";
   import { KIND_LABEL } from "$lib/stores/layout.svelte";
   import { review } from "$lib/stores/review.svelte";
-  import { ui } from "$lib/stores/ui.svelte";
+  import { TRANSCRIPT_ZOOMS, ui } from "$lib/stores/ui.svelte";
   import { view } from "$lib/stores/view.svelte";
   import type { Snippet } from "svelte";
 
@@ -218,10 +218,26 @@
       />
       <span class="mono">{review.threshold}%</span>
     </label>
+    <span class="zoom" role="group" aria-label="Transcript zoom">
+      <button type="button" class="zbtn" onclick={() => ui.zoomTranscript(-1)} disabled={ui.transcriptZoom <= TRANSCRIPT_ZOOMS[0]!} aria-label="Zoom transcript out">−</button>
+      <button type="button" class="zpct" onclick={() => ui.zoomTranscript(0)} title="Reset to 100%" aria-live="polite">{ui.transcriptZoom}%</button>
+      <button type="button" class="zbtn" onclick={() => ui.zoomTranscript(1)} disabled={ui.transcriptZoom >= TRANSCRIPT_ZOOMS[TRANSCRIPT_ZOOMS.length - 1]!} aria-label="Zoom transcript in">+</button>
+    </span>
     {#if header}{@render header()}{/if}
   </div>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="body" bind:this={bodyEl} onmouseup={onSelect} onkeyup={(e) => { if (e.shiftKey) onSelect(); }}>
+  <div
+    class="scroller"
+    bind:this={bodyEl}
+    style="font-size:calc(var(--font-size-transcript) * {ui.transcriptZoom / 100})"
+    onmouseup={onSelect}
+    onkeyup={(e) => { if (e.shiftKey) onSelect(); }}
+    onwheel={(e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      ui.zoomTranscript(e.deltaY < 0 ? 1 : -1);
+    }}
+  >
     {#if lastEdit}
       <p class="undo-bar small" aria-live="polite">Edited {lastEdit.words} word{lastEdit.words === 1 ? "" : "s"}. <button type="button" class="link" onclick={undoLast}>Undo</button> <button type="button" class="link" onclick={() => (lastEdit = null)}>Dismiss</button></p>
     {/if}
@@ -345,12 +361,62 @@
       display: none;
     }
   }
+  /* Keep the zoom buttons reachable in a narrow pane. */
+  @container (max-width: 420px) {
+    .count,
+    .slider > .muted,
+    .slider .mono {
+      display: none;
+    }
+    .slider input {
+      width: 56px;
+    }
+  }
+  @container (max-width: 360px) {
+    .zoom .zpct {
+      display: none;
+    }
+  }
+  .zoom {
+    flex-shrink: 0;
+  }
+  .zoom {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+  }
+  .zbtn,
+  .zpct {
+    all: unset;
+    padding: 3px 8px;
+    border-radius: 5px;
+    border: 1px solid var(--border-input);
+    background: var(--paper);
+    cursor: default;
+    line-height: 1.2;
+  }
+  .zpct {
+    min-width: 36px;
+    text-align: center;
+    border-color: transparent;
+    background: none;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+  }
+  .zbtn:disabled {
+    opacity: 0.4;
+  }
+  .zbtn:focus-visible,
+  .zpct:focus-visible {
+    outline: 2px solid var(--accent);
+  }
   .mono {
     font-family: var(--font-mono);
     font-size: 11.5px;
     min-width: 32px;
   }
-  .body {
+  .scroller {
     position: relative;
     overflow: auto;
     padding: 18px 26px;
