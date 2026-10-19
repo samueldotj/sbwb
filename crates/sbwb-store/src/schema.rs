@@ -4,7 +4,7 @@
 use rusqlite_migration::{Migrations, M};
 
 /// Current project schema version. Bumped by every migration.
-pub const SCHEMA_VERSION: u32 = 6;
+pub const SCHEMA_VERSION: u32 = 7;
 
 pub fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
@@ -14,6 +14,7 @@ pub fn migrations() -> Migrations<'static> {
         M::up(V4),
         M::up(V5),
         M::up(V6),
+        M::up(V7),
     ])
 }
 
@@ -235,4 +236,21 @@ CREATE TABLE ai_runs (
   error TEXT,
   elapsed_ms INTEGER
 );
+"#;
+
+/// v7: free text edits from the transcript (REV-03, A-09). Kept so a text-pass
+/// rerun can re-apply them: `original` is the JSON word list the edit
+/// replaced, `seq` where it started; `applied` is cleared by a rerun.
+const V7: &str = r#"
+CREATE TABLE text_edits (
+  id TEXT PRIMARY KEY,
+  page_index INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  original TEXT NOT NULL,
+  replacement TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  applied INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX text_edits_page ON text_edits(page_index, active);
 "#;

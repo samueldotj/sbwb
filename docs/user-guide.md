@@ -15,6 +15,12 @@ runs on your computer; nothing is uploaded.
    marks are accepted or automatic changes. The Issue tab shows the scan
    evidence, the current reading, numbered candidates, and the decision
    buttons. J and K move through the issues of the whole book.
+   Edit (E) starts from the chosen candidate, so a near miss can be fixed and
+   accepted in one step. To correct text that has no issue, select any words
+   in the transcript and choose **Edit text**: what you type replaces the
+   selection (Enter saves, Esc cancels), and Undo appears above the
+   transcript. Each typed word stays tied to the scan word it replaces, and
+   the edit is re-applied if the text pass runs on the page again.
 3. **Approve** a page when you are done with it (Ctrl+Enter). Unresolved
    issues can be acknowledged; the approval records exactly what was covered
    and turns "outdated" if the page changes later.
@@ -26,7 +32,7 @@ runs on your computer; nothing is uploaded.
 | Key | Action |
 | --- | --- |
 | J / K | Next / previous issue across the book |
-| A / E / S / L | Accept the chosen candidate / Edit the word / Skip (keep the original) / Later (defer) |
+| A / E / S / L | Accept the chosen candidate / Edit and accept / Skip (keep the original) / Later (defer) |
 | 1–9 | Choose a candidate |
 | R | Recognise a "missing text" area at 300 dpi ×3 |
 | Ctrl+Enter | Approve the page (or remove the approval) |

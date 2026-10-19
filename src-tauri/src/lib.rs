@@ -149,6 +149,7 @@ pub fn run() {
             commands::review::page_unapprove,
             commands::review::group_preview,
             commands::review::group_apply,
+            commands::review::text_edit,
             commands::review::history_list,
             commands::review::history_undo,
             commands::review::draft_put,

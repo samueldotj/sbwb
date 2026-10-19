@@ -57,6 +57,15 @@ pub struct GroupOutcome {
     pub stale: Vec<SpanId>,
 }
 
+/// Result of a free text edit from the transcript.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextEditOutcome {
+    /// Words whose text or spacing changed.
+    pub changed: u32,
+    /// None when the edit changed nothing.
+    pub history: Option<HistoryId>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub id: HistoryId,
@@ -224,6 +233,7 @@ impl Project {
     /// re-applying accepted readings to the fresh text (A-09).
     pub fn rebuild_issues(&mut self, page: PageIndex) -> Result<()> {
         self.require_write()?;
+        self.reapply_text_edits(page)?;
         let spans = self.page_spans(page)?;
         let proposals: Vec<sbwb_text::Proposal> = self
             .page_proposals(page)?
@@ -1059,6 +1069,140 @@ impl Project {
         })
     }
 
+    // ----- free text edits (REV-03, A-09) -----
+
+    /// Replace a run of consecutive words on one page with typed text.
+    /// Unchanged words keep their place; changed runs are rewritten in
+    /// place so every word keeps its scan anchor, and words the edit
+    /// removes are left empty. One undoable history entry. The edit is
+    /// recorded so a text-pass rerun re-applies it.
+    pub fn edit_text(&mut self, items: &[(SpanId, u64)], text: &str) -> Result<TextEditOutcome> {
+        self.require_write()?;
+        let Some(&(first, _)) = items.first() else {
+            return Err(SbwbError::InvalidInput("select some text to edit".into()));
+        };
+        let page = span_page(&self.conn, first)?;
+        let spans = self.page_spans(page)?;
+        let start = spans
+            .iter()
+            .position(|s| s.id == first)
+            .ok_or_else(|| SbwbError::NotFound("the word no longer exists".into()))?;
+        let sel = spans
+            .get(start..start + items.len())
+            .filter(|sel| sel.iter().zip(items).all(|(s, (id, _))| s.id == *id))
+            .ok_or_else(|| {
+                SbwbError::InvalidInput(
+                    "the selection must be consecutive words on one page".into(),
+                )
+            })?;
+        if sel
+            .iter()
+            .zip(items)
+            .any(|(s, (_, rev))| s.revision != *rev)
+        {
+            return Err(SbwbError::Conflict(
+                "this text changed since it was loaded; reload the page".into(),
+            ));
+        }
+        let tokens: Vec<&str> = text.split_whitespace().collect();
+        let original: Vec<&str> = sel
+            .iter()
+            .map(|s| s.text.as_str())
+            .filter(|t| !t.is_empty())
+            .collect();
+        if original == tokens {
+            return Ok(TextEditOutcome {
+                changed: 0,
+                history: None,
+            });
+        }
+        let tx = self.conn.transaction().map_err(db)?;
+        let undo_items = apply_text_edit(&tx, sel, &tokens)?;
+        let history = HistoryId::new();
+        let to = tokens.join(" ");
+        let label = format!(
+            "Edited “{}” → “{}” · page {}",
+            clip(&original.join(" ")),
+            clip(&to),
+            page.number()
+        );
+        let payload = serde_json::json!({ "kind": "edit", "page": page.0, "items": undo_items });
+        tx.execute(
+            "INSERT INTO history(id, ts, kind, label, payload) VALUES (?1, ?2, 'edit', ?3, ?4)",
+            params![
+                history.to_string(),
+                now(),
+                label,
+                serde_json::to_string(&payload)?
+            ],
+        )
+        .map_err(db)?;
+        tx.execute(
+            "INSERT INTO text_edits(id, page_index, seq, original, replacement, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                history.to_string(),
+                page.0 as i64,
+                sel[0].seq as i64,
+                serde_json::to_string(&original)?,
+                to,
+                now()
+            ],
+        )
+        .map_err(db)?;
+        tx.commit().map_err(db)?;
+        Ok(TextEditOutcome {
+            changed: undo_items.len() as u32,
+            history: Some(history),
+        })
+    }
+
+    /// After a rerun replaced the page's words, put free edits back where
+    /// their original words are found again, nearest to where they were.
+    /// An edit whose words are gone is dropped.
+    fn reapply_text_edits(&mut self, page: PageIndex) -> Result<()> {
+        let pending: Vec<(String, i64, String, String)> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, seq, original, replacement FROM text_edits WHERE page_index = ?1 AND active = 1 AND applied = 0 ORDER BY created_at, rowid")
+                .map_err(db)?;
+            let rows = stmt
+                .query_map(params![page.0 as i64], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+                })
+                .map_err(db)?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(db)?
+        };
+        for (id, seq, original, replacement) in pending {
+            let spans = self.page_spans(page)?;
+            let want: Vec<String> = serde_json::from_str(&original).unwrap_or_default();
+            let words: Vec<usize> = (0..spans.len())
+                .filter(|&i| !spans[i].text.is_empty())
+                .collect();
+            let found = if want.is_empty() {
+                None
+            } else {
+                words
+                    .windows(want.len())
+                    .filter(|w| w.iter().zip(&want).all(|(&i, t)| spans[i].text == *t))
+                    .min_by_key(|w| (spans[w[0]].seq as i64 - seq).abs())
+                    .map(|w| (w[0], w[w.len() - 1]))
+            };
+            let tx = self.conn.transaction().map_err(db)?;
+            if let Some((a, b)) = found {
+                let tokens: Vec<&str> = replacement.split_whitespace().collect();
+                apply_text_edit(&tx, &spans[a..=b], &tokens)?;
+            }
+            tx.execute(
+                "UPDATE text_edits SET applied = 1 WHERE id = ?1",
+                params![id],
+            )
+            .map_err(db)?;
+            tx.commit().map_err(db)?;
+        }
+        Ok(())
+    }
+
     // ----- history and undo (PRJ-05) -----
 
     pub fn history(&self, limit: u32) -> Result<Vec<HistoryEntry>> {
@@ -1078,7 +1222,7 @@ impl Project {
                     undone: r.get::<_, i64>(4)? != 0,
                     undoable: matches!(
                         v.get("kind").and_then(|k| k.as_str()),
-                        Some("decision") | Some("group") | Some("approve")
+                        Some("decision") | Some("group") | Some("edit") | Some("approve")
                     ),
                     page: v.get("page").and_then(|p| p.as_u64()).map(|p| p as u32),
                 })
@@ -1191,6 +1335,68 @@ impl Project {
                     }
                     tx.execute("UPDATE proposals SET status = 'open', decided_at = NULL WHERE span_id = ?1 AND status IN ('accepted', 'rejected')", params![item["span"].as_str().unwrap_or("")]).map_err(db)?;
                 }
+            }
+            "edit" => {
+                let items = v["items"].as_array().cloned().unwrap_or_default();
+                // Guard first: all or nothing.
+                for item in &items {
+                    let span = item["span"].as_str().unwrap_or("");
+                    let want = item["new_revision"].as_i64().unwrap_or(-1);
+                    let cur: Option<i64> = tx
+                        .query_row(
+                            "SELECT revision FROM spans WHERE id = ?1",
+                            params![span],
+                            |r| r.get(0),
+                        )
+                        .optional()
+                        .map_err(db)?;
+                    if cur != Some(want) {
+                        return Err(SbwbError::Conflict(
+                            "this text changed again since the edit; undo blocked".into(),
+                        ));
+                    }
+                }
+                for item in &items {
+                    let span = item["span"].as_str().unwrap_or("");
+                    let new_rev = item["new_revision"].as_i64().unwrap_or(0) + 1;
+                    tx.execute(
+                        "UPDATE spans SET text = ?2, trailing = ?3, origin = ?4, confidence = ?5, revision = ?6 WHERE id = ?1",
+                        params![
+                            span,
+                            item["old_text"].as_str().unwrap_or(""),
+                            item["old_trailing"].as_str().unwrap_or(" "),
+                            item["old_origin"].as_str().unwrap_or("ocr"),
+                            item["old_confidence"].as_f64(),
+                            new_rev
+                        ],
+                    )
+                    .map_err(db)?;
+                    tx.execute("UPDATE issues SET span_revision = ?2 WHERE span_id = ?1 AND status IN ('open', 'deferred')", params![span, new_rev]).map_err(db)?;
+                    for i in item["issues"].as_array().into_iter().flatten() {
+                        let (iid, st) =
+                            (i[0].as_str().unwrap_or(""), i[1].as_str().unwrap_or("open"));
+                        tx.execute("UPDATE issues SET status = ?2, decision = NULL, decided_at = NULL, span_revision = ?3 WHERE id = ?1", params![iid, st, new_rev]).map_err(db)?;
+                    }
+                    for p in item["proposals"].as_array().into_iter().flatten() {
+                        let (pid, st) =
+                            (p[0].as_str().unwrap_or(""), p[1].as_str().unwrap_or("open"));
+                        tx.execute(
+                            "UPDATE proposals SET status = ?2, decided_at = NULL WHERE id = ?1",
+                            params![pid, st],
+                        )
+                        .map_err(db)?;
+                    }
+                }
+                tx.execute(
+                    "UPDATE pages SET text_revision = text_revision + 1 WHERE page_index = ?1",
+                    params![v["page"].as_i64().unwrap_or(-1)],
+                )
+                .map_err(db)?;
+                tx.execute(
+                    "UPDATE text_edits SET active = 0 WHERE id = ?1",
+                    params![id.to_string()],
+                )
+                .map_err(db)?;
             }
             "approve" => {
                 let page = v["page"].as_i64().unwrap_or(-1);
@@ -1305,6 +1511,273 @@ fn undo_span_item(tx: &Transaction, item: &serde_json::Value) -> Result<()> {
     )
     .map_err(db)?;
     Ok(())
+}
+
+/// Shorten one side of a history label.
+fn clip(s: &str) -> String {
+    const MAX: usize = 40;
+    if s.chars().count() <= MAX {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(MAX - 1).collect::<String>())
+    }
+}
+
+/// Write a planned edit over `sel` inside a transaction: text, spacing,
+/// superseded issues and proposals. Returns the undo items.
+fn apply_text_edit(
+    tx: &Transaction,
+    sel: &[sbwb_text::Span],
+    tokens: &[&str],
+) -> Result<Vec<serde_json::Value>> {
+    let old: Vec<&str> = sel.iter().map(|s| s.text.as_str()).collect();
+    let texts = plan_text_edit(&old, tokens);
+    // A removed word hands the gap after it to the word before it, so a
+    // line break is not lost.
+    let mut trailing: Vec<String> = sel.iter().map(|s| s.trailing.clone()).collect();
+    let mut last_word: Option<usize> = None;
+    for k in 0..sel.len() {
+        if texts[k].is_empty() {
+            if let Some(p) = last_word {
+                let keep_break = trailing[p].contains('\n') && !sel[k].trailing.contains('\n');
+                if !sel[k].trailing.is_empty() && !keep_break {
+                    trailing[p] = sel[k].trailing.clone();
+                }
+            }
+            trailing[k] = String::new();
+        } else {
+            last_word = Some(k);
+        }
+    }
+    let mut items = Vec::new();
+    for (k, s) in sel.iter().enumerate() {
+        let text_changed = texts[k] != s.text;
+        if !text_changed && trailing[k] == s.trailing {
+            continue;
+        }
+        let id = s.id.to_string();
+        let new_rev = s.revision + 1;
+        let old_origin = serde_json::to_value(s.origin)?
+            .as_str()
+            .unwrap_or("ocr")
+            .to_string();
+        if text_changed {
+            tx.execute(
+                "UPDATE spans SET text = ?2, trailing = ?3, origin = 'manual', confidence = NULL, revision = ?4 WHERE id = ?1",
+                params![id, texts[k], trailing[k], new_rev as i64],
+            )
+            .map_err(db)?;
+        } else {
+            tx.execute(
+                "UPDATE spans SET trailing = ?2, revision = ?3 WHERE id = ?1",
+                params![id, trailing[k], new_rev as i64],
+            )
+            .map_err(db)?;
+        }
+        let open_rows = |sql: &str| -> Result<Vec<(String, String)>> {
+            let mut stmt = tx.prepare(sql).map_err(db)?;
+            let rows = stmt
+                .query_map(params![id], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })
+                .map_err(db)?;
+            rows.collect::<std::result::Result<Vec<_>, _>>().map_err(db)
+        };
+        let issues = open_rows(
+            "SELECT id, status FROM issues WHERE span_id = ?1 AND status IN ('open', 'deferred')",
+        )?;
+        let mut superseded = (vec![], vec![]);
+        if text_changed {
+            let proposals = open_rows("SELECT id, status FROM proposals WHERE span_id = ?1 AND status IN ('open', 'deferred')")?;
+            for (iid, _) in &issues {
+                tx.execute("UPDATE issues SET status = 'resolved', decision = 'superseded', decided_at = ?2, span_revision = ?3 WHERE id = ?1", params![iid, now(), new_rev as i64]).map_err(db)?;
+            }
+            for (pid, _) in &proposals {
+                tx.execute(
+                    "UPDATE proposals SET status = 'rejected', decided_at = ?2 WHERE id = ?1",
+                    params![pid, now()],
+                )
+                .map_err(db)?;
+            }
+            superseded = (issues, proposals);
+        } else {
+            for (iid, _) in &issues {
+                tx.execute(
+                    "UPDATE issues SET span_revision = ?2 WHERE id = ?1",
+                    params![iid, new_rev as i64],
+                )
+                .map_err(db)?;
+            }
+        }
+        items.push(serde_json::json!({
+            "span": s.id, "old_text": s.text, "new_text": texts[k],
+            "old_trailing": s.trailing, "new_trailing": trailing[k],
+            "old_origin": old_origin, "old_confidence": s.confidence,
+            "old_revision": s.revision, "new_revision": new_rev,
+            "issues": superseded.0, "proposals": superseded.1,
+        }));
+    }
+    if !items.is_empty() {
+        tx.execute(
+            "UPDATE pages SET text_revision = text_revision + 1 WHERE page_index = ?1",
+            params![sel[0].page.0 as i64],
+        )
+        .map_err(db)?;
+    }
+    Ok(items)
+}
+
+/// Spread typed words over the selected words, one entry per old word.
+/// A normal selection is fitted whole by `spread_run`. A very long one is
+/// first split on the words common to both, in order; each changed run
+/// between them is fitted, and words typed where nothing stood join the
+/// word before (or the first word).
+fn plan_text_edit(old: &[&str], new: &[&str]) -> Vec<String> {
+    let (n, m) = (old.len(), new.len());
+    if n * m <= SPREAD_LIMIT {
+        return spread_run(old, new);
+    }
+    let same = |i: usize, j: usize| !old[i].is_empty() && old[i] == new[j];
+    let mut lcs = vec![vec![0u32; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lcs[i][j] = if same(i, j) {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+    let mut out: Vec<String> = old.iter().map(|s| s.to_string()).collect();
+    let mut lead = String::new();
+    let mut prev: Option<usize> = None;
+    let (mut i, mut j, mut gi, mut gj) = (0, 0, 0, 0);
+    loop {
+        let done = i == n && j == m;
+        let matched = i < n && j < m && same(i, j) && lcs[i][j] == lcs[i + 1][j + 1] + 1;
+        if matched || done {
+            let (a, b, toks) = (gi, i, &new[gj..j]);
+            if a == b {
+                if !toks.is_empty() {
+                    match prev {
+                        Some(p) => out[p] = format!("{} {}", out[p], toks.join(" ")),
+                        None => lead = toks.join(" "),
+                    }
+                }
+            } else {
+                for (slot, text) in out[a..b].iter_mut().zip(spread_run(&old[a..b], toks)) {
+                    *slot = text;
+                }
+            }
+            if done {
+                break;
+            }
+            prev = Some(i);
+            i += 1;
+            j += 1;
+            gi = i;
+            gj = j;
+        } else if j < m && (i == n || lcs[i][j + 1] >= lcs[i + 1][j]) {
+            j += 1;
+        } else {
+            i += 1;
+        }
+    }
+    if !lead.is_empty() {
+        match out.iter().position(|t| !t.is_empty()) {
+            Some(p) => out[p] = format!("{lead} {}", out[p]),
+            None => out[0] = lead,
+        }
+    }
+    out
+}
+
+/// Fit a changed run of typed words onto old words (one entry per old
+/// word), so each typed word lands on the box it most resembles: several
+/// old words may become one ("in to" → "into", the rest left empty), one
+/// old word may take several typed words, and an old word may be dropped.
+/// Minimises the edit distance; falls back to word-for-word on long runs.
+/// Old words × typed words above which fitting falls back to cheaper steps.
+const SPREAD_LIMIT: usize = 40_000;
+
+fn spread_run(old: &[&str], toks: &[&str]) -> Vec<String> {
+    const MAX_GROUP: usize = 8;
+    let (k, t) = (old.len(), toks.len());
+    let simple = || -> Vec<String> {
+        let mut out: Vec<String> = (0..k)
+            .map(|i| toks.get(i).map(|s| s.to_string()).unwrap_or_default())
+            .collect();
+        if t > k {
+            out[k - 1] = toks[k - 1..].join(" ");
+        }
+        out
+    };
+    if t == 0 || k * t > SPREAD_LIMIT {
+        return simple();
+    }
+    // Costs are doubled edit distances; joining words adds 1, so a
+    // one-for-one swap wins a tie.
+    let len = |s: &str| 2 * s.chars().count() as u32;
+    // cost[i][j]: old[..i] against toks[..j]; back: the (g, h) step taken.
+    let mut cost = vec![vec![u32::MAX; t + 1]; k + 1];
+    let mut back = vec![vec![(0usize, 0usize); t + 1]; k + 1];
+    cost[0][0] = 0;
+    for i in 1..=k {
+        for j in 0..=t {
+            let mut best = (u32::MAX, (0, 0));
+            if cost[i - 1][j] != u32::MAX {
+                best = (cost[i - 1][j] + len(old[i - 1]), (1, 0));
+            }
+            for g in 1..=i.min(MAX_GROUP) {
+                for h in 1..=j.min(MAX_GROUP) {
+                    if g > 1 && h > 1 {
+                        break;
+                    }
+                    let from = cost[i - g][j - h];
+                    if from == u32::MAX {
+                        continue;
+                    }
+                    let c = from
+                        + 2 * levenshtein(&old[i - g..i].concat(), &toks[j - h..j].concat())
+                        + u32::from(g > 1 || h > 1);
+                    if c < best.0 {
+                        best = (c, (g, h));
+                    }
+                }
+            }
+            cost[i][j] = best.0;
+            back[i][j] = best.1;
+        }
+    }
+    if cost[k][t] == u32::MAX {
+        return simple();
+    }
+    let mut out = vec![String::new(); k];
+    let (mut i, mut j) = (k, t);
+    while i > 0 {
+        let (g, h) = back[i][j];
+        if h > 0 {
+            out[i - g] = toks[j - h..j].join(" ");
+        }
+        i -= g;
+        j -= h;
+    }
+    out
+}
+
+fn levenshtein(a: &str, b: &str) -> u32 {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<u32> = (0..=b.len() as u32).collect();
+    for ca in a.chars() {
+        let mut diag = row[0];
+        row[0] += 1;
+        for (x, cb) in b.iter().enumerate() {
+            let up = row[x + 1];
+            row[x + 1] = (up + 1).min(row[x] + 1).min(diag + u32::from(ca != *cb));
+            diag = up;
+        }
+    }
+    row[b.len()]
 }
 
 #[cfg(test)]
@@ -1519,6 +1992,120 @@ mod tests {
         assert!(h[0].label.contains("outstanding"));
         p.put_draft(low[1].id, "sailed").unwrap();
         assert_eq!(p.drafts(Some(PageIndex(1))).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn plan_text_edit_keeps_unchanged_words_in_place() {
+        let plan = |old: &str, new: &str| {
+            let old: Vec<&str> = old.split(' ').collect();
+            let new: Vec<&str> = new.split_whitespace().collect();
+            plan_text_edit(&old, &new)
+        };
+        assert_eq!(plan("the cat sat", "the dog sat"), ["the", "dog", "sat"]);
+        // a split word: the extra word joins the changed word
+        assert_eq!(plan("in to the", "into the"), ["into", "", "the"]);
+        // each typed word lands on the box it resembles
+        assert_eq!(
+            plan("in to carricd", "into carried"),
+            ["into", "", "carried"]
+        );
+        assert_eq!(
+            plan("teh quick brwn fox", "the brown fox"),
+            ["the", "", "brown", "fox"]
+        );
+        // a repeated word does not pull the change onto the wrong box
+        assert_eq!(
+            plan("OF ETC. ETC.", "OF EDITED ETC."),
+            ["OF", "EDITED", "ETC."]
+        );
+        assert_eq!(
+            plan("the bigcat sat", "the big cat sat"),
+            ["the", "big cat", "sat"]
+        );
+        // insertions with nothing to replace join the word before, or lead
+        assert_eq!(plan("the sat", "the cat sat"), ["the cat", "sat"]);
+        assert_eq!(plan("cat sat", "the cat sat"), ["the cat", "sat"]);
+        // deletions empty the words
+        assert_eq!(plan("a b c", "a c"), ["a", "", "c"]);
+        assert_eq!(plan("a b c", ""), ["", "", ""]);
+        // emptied words are refilled before anything is joined
+        assert_eq!(plan("a  c", "a b c"), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn free_edit_undo_and_rerun() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path(), 1);
+        let page = PageIndex(0);
+        let mut spans = vec![
+            span(0, 0, "It", 95.0),
+            span(0, 1, "was", 95.0),
+            span(0, 2, "in", 95.0),
+            span(0, 3, "to", 95.0),
+            span(0, 4, "carricd", 60.0),
+            span(0, 5, "home", 95.0),
+        ];
+        spans[3].trailing = "\n".into();
+        let props = vec![proposal(&spans[4], "carried", 66)];
+        p.put_page_text(page, None, &spans, &props).unwrap();
+        let s = p.page_spans(page).unwrap();
+        let items = |s: &[Span], a: usize, b: usize| -> Vec<(SpanId, u64)> {
+            s[a..=b].iter().map(|x| (x.id, x.revision)).collect()
+        };
+        // not consecutive: refused
+        assert!(p.edit_text(&[(s[0].id, 1), (s[2].id, 1)], "x").is_err());
+        // unchanged: no history
+        let out = p.edit_text(&items(&s, 0, 1), " It  was ").unwrap();
+        assert!(out.history.is_none());
+        // "in to carricd" -> "into carried": a join and a fix
+        let out = p.edit_text(&items(&s, 2, 4), "into carried").unwrap();
+        let s2 = p.page_spans(page).unwrap();
+        let texts: Vec<&str> = s2.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, ["It", "was", "into", "", "carried", "home"]);
+        assert_eq!(
+            s2[2].trailing, "\n",
+            "the line break moves to the kept word"
+        );
+        assert_eq!(s2[3].trailing, "");
+        assert_eq!(s2[4].origin, SpanOrigin::Manual);
+        let carricd = p
+            .issues_for_page(page)
+            .unwrap()
+            .into_iter()
+            .find(|i| i.original == "carricd")
+            .unwrap();
+        assert_eq!(carricd.status, IssueStatus::Resolved);
+        assert!(p.history(5).unwrap()[0].undoable);
+        // undo restores words, spacing and the issue
+        p.undo(out.history.unwrap()).unwrap();
+        let s3 = p.page_spans(page).unwrap();
+        let texts: Vec<&str> = s3.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, ["It", "was", "in", "to", "carricd", "home"]);
+        assert_eq!(
+            (s3[2].trailing.as_str(), s3[3].trailing.as_str()),
+            (" ", "\n")
+        );
+        assert_eq!(
+            p.issue(carricd.id).unwrap().unwrap().status,
+            IssueStatus::Open
+        );
+        // edit again, then rerun the page: the edit is re-applied
+        p.edit_text(&items(&s3, 2, 4), "into carried").unwrap();
+        let fresh = vec![
+            span(0, 0, "It", 95.0),
+            span(0, 1, "was", 95.0),
+            span(0, 2, "in", 95.0),
+            span(0, 3, "to", 95.0),
+            span(0, 4, "carricd", 61.0),
+            span(0, 5, "home", 95.0),
+        ];
+        p.put_page_text(page, None, &fresh, &[]).unwrap();
+        let s4 = p.page_spans(page).unwrap();
+        let texts: Vec<&str> = s4.iter().map(|x| x.text.as_str()).collect();
+        assert_eq!(texts, ["It", "was", "into", "", "carried", "home"]);
+        // a second rebuild does not apply it twice
+        p.rebuild_issues(page).unwrap();
+        assert_eq!(p.page_spans(page).unwrap()[2].text, "into");
     }
 
     #[test]

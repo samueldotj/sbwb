@@ -21,6 +21,7 @@ pub use project::{
 pub use refine::{AiRunRecord, MergeOutcome};
 pub use review::{
     Decision, DecisionOutcome, Draft, GroupOutcome, HistoryEntry, NextIssue, PageIssueCounts,
+    TextEditOutcome,
 };
 pub use schema::SCHEMA_VERSION;
 

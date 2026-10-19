@@ -6,9 +6,10 @@
   // auto-applied (light green); the focused issue carries a ring. Hover or
   // focus on a mark highlights the source word on the scan; click selects
   // the issue. Falls back to raw OCR lines before the text pass has run.
-  import { api, type OcrWord, type PageRow, type Span } from "$lib/api";
+  import { api, errorMessage, type OcrWord, type PageRow, type Span } from "$lib/api";
   import { KIND_LABEL } from "$lib/stores/layout.svelte";
   import { review } from "$lib/stores/review.svelte";
+  import { ui } from "$lib/stores/ui.svelte";
   import { view } from "$lib/stores/view.svelte";
   import type { Snippet } from "svelte";
 
@@ -99,6 +100,91 @@
       if (w.mark.issue) review.select(w.mark.issue.id);
     }
   }
+  // ----- free edit of selected text -----
+  // Select any words in the transcript, then Edit text: the typed text
+  // replaces them in one undoable step.
+  type Picked = { from: number; to: number; x: number; y: number };
+  let picked = $state<Picked | null>(null);
+  let editor = $state<{ from: number; to: number; x: number; y: number; text: string } | null>(null);
+  let editorBox = $state<HTMLTextAreaElement | null>(null);
+  let saving = $state(false);
+  let lastEdit = $state<{ history: string; words: number } | null>(null);
+
+  function onSelect() {
+    if (editor) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !bodyEl || !bodyEl.contains(sel.anchorNode) || !bodyEl.contains(sel.focusNode)) {
+      picked = null;
+      return;
+    }
+    const range = sel.getRangeAt(0);
+    // Every word the selection touches, ignoring one it only ends at.
+    const touched = [...bodyEl.querySelectorAll<HTMLElement>("[data-span]")].filter(
+      (el) => range.intersectsNode(el) && !(range.endOffset === 0 && el.contains(range.endContainer) && !el.contains(range.startContainer)),
+    );
+    const idx = touched.map((el) => review.spans.findIndex((s) => s.id === el.dataset.span)).filter((i) => i >= 0);
+    if (idx.length === 0) {
+      picked = null;
+      return;
+    }
+    const a = Math.min(...idx);
+    const b = Math.max(...idx);
+    const rect = range.getBoundingClientRect();
+    const host = bodyEl.getBoundingClientRect();
+    picked = { from: Math.min(a, b), to: Math.max(a, b), x: rect.left - host.left + bodyEl.scrollLeft, y: rect.bottom - host.top + bodyEl.scrollTop + 4 };
+  }
+  function openEditor() {
+    if (!picked) return;
+    const words = review.spans.slice(picked.from, picked.to + 1);
+    const text = words
+      .map((s, i) => (s.text ? s.text + (i < words.length - 1 ? s.trailing : "") : ""))
+      .join("")
+      .replace(/\s+/g, " ")
+      .trim();
+    editor = { ...picked, text };
+    picked = null;
+    window.getSelection()?.removeAllRanges();
+    setTimeout(() => {
+      editorBox?.focus();
+      editorBox?.select();
+    }, 0);
+  }
+  function closeEditor() {
+    editor = null;
+  }
+  async function saveEditor() {
+    if (!editor || saving) return;
+    const words = review.spans.slice(editor.from, editor.to + 1);
+    saving = true;
+    try {
+      const out = await ui.save(() => api.textEdit(words.map((s) => ({ span: s.id, revision: s.revision })), editor!.text));
+      editor = null;
+      if (out.history) {
+        lastEdit = { history: out.history, words: out.changed };
+        ui.announce(`Edited ${out.changed} word${out.changed === 1 ? "" : "s"}`);
+        await review.reload();
+      }
+    } catch (e) {
+      ui.toast(errorMessage(e), "error", 6000);
+    } finally {
+      saving = false;
+    }
+  }
+  // A page change drops the pick and any open editor.
+  $effect(() => {
+    void view.page;
+    picked = null;
+    editor = null;
+    lastEdit = null;
+  });
+  async function undoLast() {
+    if (!lastEdit) return;
+    const id = lastEdit.history;
+    lastEdit = null;
+    await review.undo(id);
+  }
+  const editWords = $derived(editor ? editor.to - editor.from + 1 : 0);
+
   function title(w: Word): string {
     const i = w.mark.issue;
     if (i) return `${i.reason}${i.score !== null ? ` · ${i.score}% · ${i.score_source}` : ""}`;
@@ -134,7 +220,34 @@
     </label>
     {#if header}{@render header()}{/if}
   </div>
-  <div class="body" bind:this={bodyEl}>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="body" bind:this={bodyEl} onmouseup={onSelect} onkeyup={(e) => { if (e.shiftKey) onSelect(); }}>
+    {#if lastEdit}
+      <p class="undo-bar small" aria-live="polite">Edited {lastEdit.words} word{lastEdit.words === 1 ? "" : "s"}. <button type="button" class="link" onclick={undoLast}>Undo</button> <button type="button" class="link" onclick={() => (lastEdit = null)}>Dismiss</button></p>
+    {/if}
+    {#if picked}
+      <button type="button" class="pick" style="left:{picked.x}px;top:{picked.y}px" onmousedown={(e) => e.preventDefault()} onclick={openEditor}>Edit text</button>
+    {/if}
+    {#if editor}
+      <div class="editor" style="left:{editor.x}px;top:{editor.y}px" role="dialog" aria-label="Edit selected text">
+        <textarea
+          bind:this={editorBox}
+          bind:value={editor.text}
+          rows="3"
+          aria-label="Text"
+          onkeydown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void saveEditor(); }
+            else if (e.key === "Escape") { e.preventDefault(); closeEditor(); }
+          }}
+        ></textarea>
+        <div class="editor-row">
+          <span class="muted small">{editWords} word{editWords === 1 ? "" : "s"} · Esc cancels</span>
+          <span class="grow"></span>
+          <button type="button" class="ctl" onclick={closeEditor}>Cancel</button>
+          <button type="button" class="ctl primary" onclick={saveEditor} disabled={saving}>Save <kbd>Enter</kbd></button>
+        </div>
+      </div>
+    {/if}
     {#if paras.length}
       {#if headLine}
         <p class="runhead" aria-label="Running head">{headLine}</p>
@@ -238,6 +351,7 @@
     min-width: 32px;
   }
   .body {
+    position: relative;
     overflow: auto;
     padding: 18px 26px;
     font-family: var(--font-serif);
@@ -245,6 +359,103 @@
     line-height: var(--line-height-transcript);
     color: var(--text);
     user-select: text;
+  }
+  .pick {
+    position: absolute;
+    z-index: 3;
+    padding: 3px 9px;
+    border-radius: 6px;
+    border: 1px solid var(--primary-bg);
+    background: var(--primary-bg);
+    color: var(--primary-fg);
+    font: 600 12px var(--font-ui);
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.18);
+  }
+  .editor {
+    position: absolute;
+    z-index: 3;
+    width: min(420px, calc(100% - 32px));
+    display: grid;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--raised);
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
+    font-family: var(--font-ui);
+  }
+  .editor textarea {
+    resize: vertical;
+    padding: 6px 8px;
+    border: 1px solid var(--border-input);
+    border-radius: 6px;
+    background: var(--paper);
+    color: var(--text);
+    font: inherit;
+    font-family: var(--font-serif);
+    font-size: 15px;
+  }
+  .editor textarea:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  .editor-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ctl {
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--raised);
+    color: var(--text);
+    font: 500 12px var(--font-ui);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ctl.primary {
+    background: var(--primary-bg);
+    border-color: var(--primary-bg);
+    color: var(--primary-fg);
+    font-weight: 600;
+  }
+  .ctl:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .ctl kbd {
+    background: transparent;
+    color: inherit;
+    font: 500 10px var(--font-mono);
+    padding: 0 4px;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    opacity: 0.8;
+  }
+  .small {
+    font-size: 12px;
+  }
+  .undo-bar {
+    position: sticky;
+    top: -18px;
+    z-index: 2;
+    margin: -18px -26px 12px;
+    padding: 6px 26px;
+    background: var(--raised);
+    border-bottom: 1px solid var(--border-soft);
+    font-family: var(--font-ui);
+  }
+  .link {
+    all: unset;
+    color: var(--accent-text);
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .link:focus-visible {
+    outline: 2px solid var(--accent);
   }
   .runhead {
     margin: 0 0 14px;
@@ -297,6 +508,7 @@
     text-decoration-thickness: 2px;
     text-underline-offset: 3px;
     cursor: pointer;
+    user-select: text;
   }
   .mark.accepted {
     background: var(--ok-bg);

@@ -5,6 +5,7 @@ use sbwb_core::{HistoryId, IssueId, PageIndex, SpanId};
 use sbwb_review::{GroupMatch, Issue, IssueCounts, IssueFilter};
 use sbwb_store::{
     Decision, DecisionOutcome, Draft, GroupOutcome, HistoryEntry, NextIssue, PageIssueCounts,
+    TextEditOutcome,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -158,6 +159,27 @@ pub fn group_apply(
     let out = with_project(&state, |p| {
         Ok(p.group_apply(&original, &replacement, &items)?)
     })?;
+    changed(&app);
+    Ok(out)
+}
+
+/// Free edit of consecutive words selected in the transcript.
+#[tauri::command]
+pub fn text_edit(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    items: Vec<GroupItem>,
+    text: String,
+) -> CmdResult<TextEditOutcome> {
+    let items: Vec<(SpanId, u64)> = items
+        .iter()
+        .map(|i| {
+            SpanId::parse(&i.span)
+                .map(|s| (s, i.revision))
+                .ok_or_else(|| CommandError::new("invalid_input", "bad span id"))
+        })
+        .collect::<CmdResult<_>>()?;
+    let out = with_project(&state, |p| Ok(p.edit_text(&items, &text)?))?;
     changed(&app);
     Ok(out)
 }

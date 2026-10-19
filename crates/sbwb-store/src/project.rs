@@ -935,6 +935,12 @@ impl Project {
             params![page.0 as i64],
         )
         .map_err(db)?;
+        // Free edits are re-applied to the new words by rebuild_issues.
+        tx.execute(
+            "UPDATE text_edits SET applied = 0 WHERE page_index = ?1 AND active = 1",
+            params![page.0 as i64],
+        )
+        .map_err(db)?;
         tx.execute(
             "UPDATE proposals SET status = 'stale' WHERE page_index = ?1 AND status IN ('accepted', 'rejected', 'deferred')",
             params![page.0 as i64],
