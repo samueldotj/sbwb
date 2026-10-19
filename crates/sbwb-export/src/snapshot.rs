@@ -56,6 +56,17 @@ pub struct SpanSnap {
     pub flag: Option<FlagSnap>,
 }
 
+/// A linked footnote reference: the note paragraph starting at `note`
+/// becomes a Word footnote called from after the word `anchor`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FootnoteSnap {
+    pub anchor: SpanId,
+    pub note: SpanId,
+    pub number: u32,
+    /// Printed marker to strip from both words ("*", "1"); may be empty.
+    pub marker: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageSnap {
     pub index: u32,
@@ -70,6 +81,8 @@ pub struct PageSnap {
     pub text_done: bool,
     pub regions: Vec<RegionSnap>,
     pub spans: Vec<SpanSnap>,
+    #[serde(default)]
+    pub footnotes: Vec<FootnoteSnap>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

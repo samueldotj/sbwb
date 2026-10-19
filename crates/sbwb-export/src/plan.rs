@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::settings::{CopyKind, ExportSettings, FurniturePolicy, PageStructure, TablePolicy};
 use crate::snapshot::{ExportSnapshot, FlagSnap, PageSnap, RegionSnap, SpanSnap};
+use sbwb_text::footnote::{strip_note_marker, strip_word_marker};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -64,6 +65,18 @@ pub struct PlannedRun {
     pub text: String,
     pub span: Option<SpanId>,
     pub flag: Option<FlagSnap>,
+    /// A Word footnote called right after this run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<PlannedNote>,
+}
+
+/// A footnote linked to a word in the text (TXT-02): written as a real Word
+/// footnote whose reference follows the word.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlannedNote {
+    /// Number on its source page, from 1.
+    pub number: u32,
+    pub paragraphs: Vec<PlannedParagraph>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -84,8 +97,21 @@ impl PlannedParagraph {
             .map(|r| r.text.as_str())
             .collect::<String>()
     }
+    /// Every word this paragraph emits, including the words of footnotes
+    /// called from it.
     pub fn spans(&self) -> Vec<SpanId> {
-        self.runs.iter().filter_map(|r| r.span).collect()
+        let mut out = Vec::new();
+        for r in &self.runs {
+            out.extend(r.span);
+            if let Some(n) = &r.note {
+                out.extend(n.paragraphs.iter().flat_map(|p| p.spans()));
+            }
+        }
+        out
+    }
+    /// Footnotes called from this paragraph.
+    pub fn notes(&self) -> impl Iterator<Item = &PlannedNote> {
+        self.runs.iter().filter_map(|r| r.note.as_ref())
     }
 }
 
@@ -126,6 +152,9 @@ pub struct PlanStats {
     pub side_notes: u32,
     pub footer_notes: u32,
     pub footnotes: u32,
+    /// Footnotes written as Word footnotes linked to a word (TXT-02).
+    #[serde(default)]
+    pub linked_footnotes: u32,
     pub headings: u32,
     pub images: u32,
     pub tables: u32,
@@ -214,6 +243,7 @@ fn paragraphs_of(
             text,
             span: Some(s.id),
             flag,
+            note: None,
         });
     }
     // Trim trailing spaces at paragraph ends.
@@ -264,6 +294,63 @@ fn insert_side_notes(
         let mut tail = body.split_off(at);
         body.extend(paras);
         body.append(&mut tail);
+    }
+}
+
+/// Move each linked footnote paragraph out of the page's footnote list and
+/// onto the body word that calls it, stripping the printed markers. A note
+/// whose word is not in the body (excluded, or furniture) stays a footnote
+/// paragraph, with a warning.
+fn link_footnotes(
+    page: &PageSnap,
+    body: &mut [PlannedParagraph],
+    footnotes: &mut Vec<PlannedParagraph>,
+    stats: &mut PlanStats,
+    warnings: &mut Vec<String>,
+) {
+    for f in &page.footnotes {
+        let Some(at) = footnotes
+            .iter()
+            .position(|p| p.runs.first().and_then(|r| r.span) == Some(f.note))
+        else {
+            continue;
+        };
+        let run = body
+            .iter_mut()
+            .filter(|p| p.placement != Placement::Image)
+            .flat_map(|p| p.runs.iter_mut())
+            .find(|r| r.span == Some(f.anchor) && r.note.is_none());
+        let Some(run) = run else {
+            warnings.push(format!(
+                "page {}: footnote {} stays at the foot of the page; the word that calls it is not in the body text",
+                page.index + 1,
+                f.number
+            ));
+            continue;
+        };
+        let mut note = footnotes.remove(at);
+        note.placement = Placement::FootnoteText;
+        if let Some(first) = note.runs.first_mut() {
+            let core_len = first.text.trim_end().len();
+            let gap = first.text[core_len..].to_string();
+            let stripped = strip_note_marker(&first.text[..core_len], &f.marker);
+            first.text = if stripped.is_empty() {
+                String::new()
+            } else {
+                format!("{stripped}{gap}")
+            };
+        }
+        let core_len = run.text.trim_end().len();
+        let gap = run.text[core_len..].to_string();
+        run.text = format!(
+            "{}{gap}",
+            strip_word_marker(&run.text[..core_len], &f.marker)
+        );
+        run.note = Some(PlannedNote {
+            number: f.number,
+            paragraphs: vec![note],
+        });
+        stats.linked_footnotes += 1;
     }
 }
 
@@ -485,6 +572,7 @@ pub fn compose(snapshot: &ExportSnapshot) -> Plan {
                     ),
                     span: Some(s.id),
                     flag: None,
+                    note: None,
                 });
             }
             body.push(para);
@@ -501,6 +589,7 @@ pub fn compose(snapshot: &ExportSnapshot) -> Plan {
             );
         }
         insert_side_notes(&mut body, notes, page);
+        link_footnotes(page, &mut body, &mut footnotes, &mut stats, &mut warnings);
         let (header, footer, body_all) = if native {
             // Footnotes sit in the page footer, above the footer line.
             footnotes.append(&mut footers);

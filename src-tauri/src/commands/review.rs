@@ -4,8 +4,8 @@
 use sbwb_core::{HistoryId, IssueId, PageIndex, SpanId};
 use sbwb_review::{GroupMatch, Issue, IssueCounts, IssueFilter};
 use sbwb_store::{
-    Decision, DecisionOutcome, Draft, GroupOutcome, HistoryEntry, NextIssue, PageIssueCounts,
-    TextEditOutcome,
+    Decision, DecisionOutcome, Draft, FootnotePage, GroupOutcome, HistoryEntry, NextIssue,
+    PageIssueCounts, TextEditOutcome,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -180,6 +180,65 @@ pub fn text_edit(
         })
         .collect::<CmdResult<_>>()?;
     let out = with_project(&state, |p| Ok(p.edit_text(&items, &text)?))?;
+    changed(&app);
+    Ok(out)
+}
+
+/// The page's footnotes and references (TXT-02).
+#[tauri::command]
+pub fn footnotes_page(state: State<'_, AppState>, index: u32) -> CmdResult<FootnotePage> {
+    with_project(&state, |p| Ok(p.footnotes(PageIndex(index))?))
+}
+
+/// Link a word in the text to a footnote paragraph.
+#[tauri::command]
+pub fn footnote_link(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    anchor: String,
+    note: String,
+) -> CmdResult<FootnotePage> {
+    let parse =
+        |s: &str| SpanId::parse(s).ok_or_else(|| CommandError::new("invalid_input", "bad span id"));
+    let (anchor, note) = (parse(&anchor)?, parse(&note)?);
+    let out = with_project(&state, |p| Ok(p.footnote_link(anchor, note)?))?;
+    changed(&app);
+    Ok(out)
+}
+
+/// Accept a suggested reference, or reject / remove one.
+#[tauri::command]
+pub fn footnote_decide(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    accept: bool,
+) -> CmdResult<FootnotePage> {
+    let out = with_project(&state, |p| Ok(p.footnote_decide(&id, accept)?))?;
+    changed(&app);
+    Ok(out)
+}
+
+/// Look for printed footnote markers on a page now.
+#[tauri::command]
+pub fn footnote_detect(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    index: u32,
+) -> CmdResult<FootnotePage> {
+    let out = with_project(&state, |p| Ok(p.footnote_detect(PageIndex(index))?))?;
+    changed(&app);
+    Ok(out)
+}
+
+/// Accept every suggested reference on a page.
+#[tauri::command]
+pub fn footnote_accept_all(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    index: u32,
+) -> CmdResult<FootnotePage> {
+    let out = with_project(&state, |p| Ok(p.footnote_accept_all(PageIndex(index))?))?;
     changed(&app);
     Ok(out)
 }

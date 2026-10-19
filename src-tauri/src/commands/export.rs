@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use sbwb_core::{PageIndex, Rect, Result as CoreResult, SbwbError};
-use sbwb_export::snapshot::{BookInfo, FlagSnap, PageSnap, RegionSnap, SpanSnap};
+use sbwb_export::snapshot::{BookInfo, FlagSnap, FootnoteSnap, PageSnap, RegionSnap, SpanSnap};
 use sbwb_export::{ExportReport, ExportSettings, ExportSnapshot, Phase, RenderProvider};
 use sbwb_review::IssueFilter;
 use sbwb_store::{ExportRecord, Project};
@@ -84,6 +84,19 @@ fn build_snapshot(
             .map(|l| serde_json::from_value(l.regions).unwrap_or_default())
             .unwrap_or_default();
         let issues = store.issues_for_page(row.index)?;
+        let footnotes: Vec<FootnoteSnap> = store
+            .footnotes(row.index)?
+            .refs
+            .into_iter()
+            .filter_map(|r| {
+                r.number.map(|number| FootnoteSnap {
+                    anchor: r.anchor,
+                    note: r.note,
+                    number,
+                    marker: r.marker,
+                })
+            })
+            .collect();
         let mut unresolved = 0;
         let mut deferred = 0;
         let flags: std::collections::HashMap<_, FlagSnap> = issues
@@ -147,6 +160,7 @@ fn build_snapshot(
                     flag: flags.get(&s.id).cloned(),
                 })
                 .collect(),
+            footnotes,
         };
         pages.push(page);
     }

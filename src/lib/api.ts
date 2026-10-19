@@ -258,6 +258,9 @@ export type DecisionOutcome = { issue: Issue; history: string; span_text: string
 export type GroupMatch = { span: string; page: number; seq: number; revision: number; text: string; replacement: string; context: string; conflict: string | null };
 export type GroupOutcome = { applied: number; history: string | null; stale: string[] };
 export type TextEditOutcome = { changed: number; history: string | null };
+export type FootnoteRef = { id: string; page: number; anchor: string; note: string; marker: string; status: "linked" | "suggested" | "rejected"; source: "manual" | "detected"; number: number | null };
+export type FootnoteNote = { span: string; preview: string; marker: string };
+export type FootnotePage = { notes: FootnoteNote[]; refs: FootnoteRef[] };
 export type HistoryEntry = { id: string; ts: string; kind: string; label: string; undone: boolean; undoable: boolean; page: number | null };
 export type Draft = { span: string; page: number; text: string; updated_at: string };
 
@@ -451,6 +454,11 @@ export const api = {
   groupPreview: (original: string, replacement: string) => invoke<GroupMatch[]>("group_preview", { original, replacement }),
   groupApply: (original: string, replacement: string, items: { span: string; revision: number }[]) =>
     invoke<GroupOutcome>("group_apply", { original, replacement, items }),
+  footnotesPage: (index: number) => invoke<FootnotePage>("footnotes_page", { index }),
+  footnoteLink: (anchor: string, note: string) => invoke<FootnotePage>("footnote_link", { anchor, note }),
+  footnoteDecide: (id: string, accept: boolean) => invoke<FootnotePage>("footnote_decide", { id, accept }),
+  footnoteDetect: (index: number) => invoke<FootnotePage>("footnote_detect", { index }),
+  footnoteAcceptAll: (index: number) => invoke<FootnotePage>("footnote_accept_all", { index }),
   textEdit: (items: { span: string; revision: number }[], text: string) => invoke<TextEditOutcome>("text_edit", { items, text }),
   historyList: (opts: { limit?: number; span?: string } = {}) => invoke<HistoryEntry[]>("history_list", { limit: opts.limit ?? null, span: opts.span ?? null }),
   historyUndo: (id: string) => invoke<void>("history_undo", { id }),

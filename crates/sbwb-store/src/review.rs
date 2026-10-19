@@ -197,7 +197,7 @@ fn update_span_text(
     Ok(next)
 }
 
-fn span_page(tx: &Connection, span: SpanId) -> Result<PageIndex> {
+pub(crate) fn span_page(tx: &Connection, span: SpanId) -> Result<PageIndex> {
     tx.query_row(
         "SELECT page_index FROM spans WHERE id = ?1",
         params![span.to_string()],
@@ -234,6 +234,7 @@ impl Project {
     pub fn rebuild_issues(&mut self, page: PageIndex) -> Result<()> {
         self.require_write()?;
         self.reapply_text_edits(page)?;
+        self.refresh_footnotes(page)?;
         let spans = self.page_spans(page)?;
         let proposals: Vec<sbwb_text::Proposal> = self
             .page_proposals(page)?

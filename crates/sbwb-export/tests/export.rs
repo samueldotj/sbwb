@@ -294,3 +294,71 @@ fn large_fixture_exports_within_budget() {
         assert!(secs <= 60.0, "{secs:.1} s");
     }
 }
+
+/// A linked footnote (TXT-02) becomes a real Word footnote under both
+/// furniture policies: the reference follows its word, the printed markers
+/// are gone, and the note no longer sits at the foot of the page text.
+#[test]
+fn linked_footnotes_become_word_footnotes() {
+    for (policy, name) in [
+        (FurniturePolicy::StyledParagraphs, "fn-styled.docx"),
+        (FurniturePolicy::NativeHeadersFooters, "fn-native.docx"),
+    ] {
+        let mut snap = sample_snapshot(2, false);
+        snap.settings.furniture = policy;
+        for page in &mut snap.pages {
+            let foot = page
+                .regions
+                .iter()
+                .find(|r| r.kind == sbwb_layout::RegionKind::Footnote)
+                .unwrap()
+                .id;
+            let note = page
+                .spans
+                .iter()
+                .find(|s| s.region == Some(foot))
+                .unwrap()
+                .id;
+            let anchor = page.spans.iter_mut().find(|s| s.text == "Second").unwrap();
+            anchor.text = "Second*".into();
+            let anchor = anchor.id;
+            page.footnotes = vec![sbwb_export::FootnoteSnap {
+                anchor,
+                note,
+                number: 1,
+                marker: "*".into(),
+            }];
+        }
+        let (report, dest) = export(&snap, name);
+        assert!(
+            report.validation.ok,
+            "{name}: {:?}",
+            report.validation.checks
+        );
+        assert_eq!(report.stats.linked_footnotes, 2);
+        let doc = read_doc(&dest, "word/document.xml");
+        assert_eq!(doc.matches("<w:footnoteReference ").count(), 2);
+        assert!(doc.contains(r#"<w:numRestart w:val="eachPage" />"#));
+        let body = text_of(&doc);
+        assert!(
+            body.contains("Second paragraph"),
+            "marker stripped from the word"
+        );
+        assert!(!body.contains("Second*"));
+        assert!(
+            !body.contains("margin of history"),
+            "note left the page text"
+        );
+        let notes = read_doc(&dest, "word/footnotes.xml");
+        assert!(notes.contains("<w:footnoteRef />"));
+        assert!(notes.contains(r#"w:type="separator""#));
+        let note_text = text_of(&notes);
+        assert!(note_text.contains("Note 1 in the margin of history."));
+        assert!(
+            !note_text.contains("* Note"),
+            "marker stripped from the note"
+        );
+        let rels = read_doc(&dest, "word/_rels/document.xml.rels");
+        assert!(rels.contains("footnotes.xml"));
+    }
+}

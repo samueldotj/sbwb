@@ -429,6 +429,52 @@ pub fn validate(
         },
     );
 
+    // linked footnotes: one reference each, and each note's text in the
+    // footnotes part
+    let notes: Vec<String> = plan
+        .pages
+        .iter()
+        .flat_map(|p| p.body.iter())
+        .flat_map(|q| q.notes())
+        .map(|n| {
+            norm(
+                &n.paragraphs
+                    .iter()
+                    .map(|p| p.text())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            )
+        })
+        .collect();
+    let footnotes_part = read_entry(&mut zip, "word/footnotes.xml")?.unwrap_or_default();
+    let refs = doc_xml.matches("<w:footnoteReference ").count();
+    let note_texts: Vec<String> = match roxmltree::Document::parse(&footnotes_part) {
+        Ok(d) => d
+            .descendants()
+            .filter(|n| {
+                n.is_element()
+                    && n.tag_name().name() == "footnote"
+                    && n.attribute((W_NS, "type")).is_none()
+            })
+            .map(|n| norm(&node_text(n)))
+            .collect(),
+        Err(_) => vec![],
+    };
+    let notes_ok = refs == notes.len()
+        && notes.iter().all(|t| note_texts.iter().any(|x| x == t))
+        && (notes.is_empty() || footnotes_part.contains("<w:footnoteRef"));
+    check(
+        "linked footnotes",
+        notes_ok,
+        format!(
+            "{} references for {} linked footnotes; {} notes in the footnotes part",
+            refs,
+            notes.len(),
+            note_texts.len()
+        ),
+    );
+    let footnote_highlights = footnotes_part.matches("<w:highlight").count() as u32;
+
     // no source marker strings
     let markers = all_text.contains("[Source page") || all_text.contains("[Page ");
     check(
@@ -478,7 +524,7 @@ pub fn validate(
             } else {
                 0
             };
-            let highlights = rb.highlights + furniture_highlights;
+            let highlights = rb.highlights + furniture_highlights + footnote_highlights;
             let no_stray = snapshot.settings.comments
                 || comments_part
                     .map(|c| !c.contains("<w:comment "))

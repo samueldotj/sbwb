@@ -15,11 +15,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use sbwb_core::{Rect, Result, SbwbError};
 use serde::{Deserialize, Serialize};
 
-pub use plan::{compose, Exclusion, Placement, Plan, PlanStats};
+pub use plan::{compose, Exclusion, Placement, Plan, PlanStats, PlannedNote};
 pub use settings::{
     CopyKind, ExportSettings, FormatPreset, FurniturePolicy, Inclusion, PageStructure, TablePolicy,
 };
-pub use snapshot::{ExportSnapshot, FlagSnap, PageSnap, RegionSnap, SpanSnap};
+pub use snapshot::{ExportSnapshot, FlagSnap, FootnoteSnap, PageSnap, RegionSnap, SpanSnap};
 pub use validate::ValidationReport;
 
 pub(crate) fn docx_escape(s: &str) -> String {
@@ -346,6 +346,7 @@ pub mod test_support {
                 text_done: true,
                 regions: vec![head, num, body1, note, body2, foot, catch],
                 spans,
+                footnotes: vec![],
             };
             if i == 0 && n > 1 {
                 // "communica-" + "tion" joined: whole word on page 0 with two anchors

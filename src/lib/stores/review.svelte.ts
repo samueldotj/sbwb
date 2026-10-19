@@ -7,6 +7,7 @@ import {
   api,
   errorMessage,
   type Decision,
+  type FootnotePage,
   type Issue,
   type IssueCounts,
   type IssueFilter,
@@ -51,12 +52,16 @@ class ReviewState {
   proposals = $state<PageText["proposals"]>([]);
   regions = $state<Region[]>([]);
   issues = $state<Issue[]>([]);
+  /** Footnotes on the page and the words that call them (TXT-02). */
+  footnotes = $state<FootnotePage>({ notes: [], refs: [] });
   textRevision = $state(0);
   loading = $state(false);
 
   // ----- selection and hover -----
   selectedId = $state<string | null>(null);
   hoverSpan = $state<string | null>(null);
+  /** The word last selected in the transcript; a footnote can be linked to it. */
+  pickedSpan = $state<string | null>(null);
   /** Set while the Edit box is open: the draft text (PRJ-04). */
   editing = $state<{ span: string; text: string } | null>(null);
 
@@ -169,6 +174,8 @@ class ReviewState {
     this.proposals = [];
     this.regions = [];
     this.issues = [];
+    this.footnotes = { notes: [], refs: [] };
+    this.pickedSpan = null;
     this.selectedId = null;
     this.editing = null;
     this.counts = EMPTY_COUNTS;
@@ -204,7 +211,12 @@ class ReviewState {
     const token = ++this.#loadToken;
     this.loading = true;
     try {
-      const [text, issues, layout] = await Promise.all([api.pageText(index), api.pageIssues(index), api.pageLayout(index)]);
+      const [text, issues, layout, footnotes] = await Promise.all([
+        api.pageText(index),
+        api.pageIssues(index),
+        api.pageLayout(index),
+        api.footnotesPage(index).catch(() => ({ notes: [], refs: [] }) as FootnotePage),
+      ]);
       if (token !== this.#loadToken) return this.#latest;
       this.page = index;
       this.spans = text?.spans ?? [];
@@ -212,11 +224,22 @@ class ReviewState {
       this.textRevision = text?.text_revision ?? 0;
       this.regions = layout?.regions ?? [];
       this.issues = issues;
+      this.footnotes = footnotes;
+      if (this.pickedSpan && !this.spans.some((s) => s.id === this.pickedSpan)) this.pickedSpan = null;
       if (this.selectedId && !issues.some((i) => i.id === this.selectedId)) this.selectedId = null;
     } catch (e) {
       if (token === this.#loadToken) ui.toast(`Could not load page ${index + 1}: ${errorMessage(e)}`, "error", 6000);
     } finally {
       if (token === this.#loadToken) this.loading = false;
+    }
+  }
+
+  /** Run a footnote change and show its result. */
+  async footnote(work: () => Promise<FootnotePage>) {
+    try {
+      this.footnotes = await ui.save(work);
+    } catch (e) {
+      ui.toast(errorMessage(e), "error", 6000);
     }
   }
 

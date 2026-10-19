@@ -64,6 +64,18 @@ The Layout mode reading-order list shows where each region goes.
 | Native headers and footers (default) | Word page header | Word page header | Bordered text box beside the paragraph they annotate | Word page footer | Word page footer, above the footer line |
 | Styled paragraphs | "Running head" style at the top of the page's text | "Printed page number" style | Bordered text box beside the paragraph they annotate | "Footer note" style after the page | "Footnote text" style after the body |
 
+**Footnote references.** The Text pass tab lists the footnotes on the page.
+A footnote linked to a word in the text exports as a real Word footnote:
+the reference follows that word, and the note moves into Word's footnote
+area under either policy. Numbers are automatic: 1, 2, 3 in the order of
+the linked words, restarting on each page. **Find printed markers**
+suggests links where a word ends with the mark a note starts with (*, †, a
+digit, or the "!" and "?" OCR often makes of a dagger); accept or reject
+each. To link by hand, select a word in the transcript and choose **Link
+to selected** beside the note. The printed marks are removed from both the
+word and the note in the export. Links follow their words when the text
+pass runs again.
+
 Side-note boxes float on the side of the page the note was printed on and
 the body text wraps around them; in Word they are text frames, so they can
 be moved or resized like a text box.

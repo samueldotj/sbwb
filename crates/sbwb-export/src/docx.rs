@@ -7,13 +7,13 @@ use std::io::{Read, Write};
 use std::collections::HashSet;
 
 use docx_rs::{
-    AlignmentType, BorderType, BreakType, Comment, Docx, Footer, FrameProperty, Header,
+    AlignmentType, BorderType, BreakType, Comment, Docx, Footer, Footnote, FrameProperty, Header,
     LineSpacing, PageMargin, Paragraph, ParagraphBorder, ParagraphBorderPosition, ParagraphBorders,
-    Pic, Run, RunFonts, Section, Style, StyleType,
+    Pic, Run, RunFonts, Section, Style, StyleType, VertAlignType,
 };
 use sbwb_core::{Rect, Result, SbwbError};
 
-use crate::plan::{PageBreak, Placement, Plan, PlannedParagraph};
+use crate::plan::{PageBreak, Placement, Plan, PlannedNote, PlannedParagraph};
 use crate::settings::{CopyKind, ExportSettings};
 use crate::snapshot::ExportSnapshot;
 use crate::RenderProvider;
@@ -110,6 +110,12 @@ fn styles(settings: &ExportSettings) -> Vec<Style> {
         Style::new("SbwbFlag", StyleType::Character)
             .name("Review flag")
             .highlight("yellow"),
+        {
+            let mut s =
+                Style::new("FootnoteReference", StyleType::Character).name("footnote reference");
+            s.run_property = s.run_property.vert_align(VertAlignType::SuperScript);
+            s
+        },
     ]
 }
 
@@ -120,6 +126,8 @@ pub struct Emitted {
     pub images: u32,
     pub image_failures: Vec<String>,
     pub drop_caps: u32,
+    /// Word footnotes written for linked footnote references.
+    pub footnotes: u32,
 }
 
 struct Ctx<'a> {
@@ -131,6 +139,7 @@ struct Ctx<'a> {
     images: u32,
     image_failures: Vec<String>,
     drop_caps: u32,
+    footnotes: u32,
     now: String,
     /// Marginalia regions printed in the left half of their source page.
     left_notes: HashSet<sbwb_core::RegionId>,
@@ -190,19 +199,29 @@ impl<'a> Ctx<'a> {
                         self.drop_caps += 1;
                         let rest: String = chars.collect();
                         let first = runs.next().unwrap();
-                        para = self.push_run(
+                        para = self.push_text_and_note(
                             para,
                             &rest,
                             first.span.is_some(),
                             first.flag.as_ref(),
+                            first.note.as_ref(),
                             p.page,
+                            page_w,
                         );
                     }
                 }
             }
         }
         for r in runs {
-            para = self.push_run(para, &r.text, r.span.is_some(), r.flag.as_ref(), p.page);
+            para = self.push_text_and_note(
+                para,
+                &r.text,
+                r.span.is_some(),
+                r.flag.as_ref(),
+                r.note.as_ref(),
+                p.page,
+                page_w,
+            );
         }
         out.push(para);
         out
@@ -239,6 +258,48 @@ impl<'a> Ctx<'a> {
                 .set(edge(ParagraphBorderPosition::Bottom))
                 .set(edge(ParagraphBorderPosition::Right)),
         )
+    }
+
+    /// A word, then the footnote it calls (between the word and the space
+    /// after it), then that space.
+    #[allow(clippy::too_many_arguments)]
+    fn push_text_and_note(
+        &mut self,
+        para: Paragraph,
+        text: &str,
+        anchored: bool,
+        flag: Option<&crate::snapshot::FlagSnap>,
+        note: Option<&PlannedNote>,
+        page: u32,
+        page_w: f64,
+    ) -> Paragraph {
+        let Some(note) = note else {
+            return self.push_run(para, text, anchored, flag, page);
+        };
+        let core = text.trim_end();
+        let gap = &text[core.len()..];
+        let mut para = if core.is_empty() {
+            para
+        } else {
+            self.push_run(para, core, anchored, flag, page)
+        };
+        // Word allows no comments inside footnotes here: flags are highlighted.
+        let furniture = std::mem::replace(&mut self.furniture, true);
+        let mut content = Vec::new();
+        for np in &note.paragraphs {
+            content.extend(self.paragraph(np, page_w, false));
+        }
+        self.furniture = furniture;
+        self.footnotes += 1;
+        let footnote = Footnote {
+            id: self.footnotes as usize,
+            content,
+        };
+        para = para.add_run(Run::new().add_footnote_reference(footnote));
+        if !gap.is_empty() {
+            para = para.add_run(Run::new().add_text(gap));
+        }
+        para
     }
 
     fn push_run(
@@ -357,6 +418,7 @@ pub fn write(
         images: 0,
         image_failures: vec![],
         drop_caps: 0,
+        footnotes: 0,
         now: jiff::Timestamp::now()
             .strftime("%Y-%m-%dT%H:%M:%SZ")
             .to_string(),
@@ -458,6 +520,7 @@ pub fn write(
         images: ctx.images,
         image_failures: ctx.image_failures,
         drop_caps: ctx.drop_caps,
+        footnotes: ctx.footnotes,
     })
 }
 
@@ -585,6 +648,12 @@ fn post_process(bytes: Vec<u8>, snapshot: &ExportSnapshot, plan: &Plan) -> Resul
             core.clone().into_bytes()
         } else if name == "word/document.xml" {
             let s = String::from_utf8_lossy(&data).into_owned();
+            // Footnote numbers restart on every page, as in the source.
+            let pg_sz = if plan.stats.linked_footnotes > 0 {
+                format!(r#"<w:footnotePr><w:numRestart w:val="eachPage" /></w:footnotePr>{pg_sz}"#)
+            } else {
+                pg_sz.clone()
+            };
             let s = re_sz(&s, "<w:pgSz ", "/>", &pg_sz);
             let s = re_sz(&s, "<w:pgMar ", "/>", &pg_mar);
             // docx-rs spells the frame spacing attributes h_space / v_space;
@@ -606,6 +675,8 @@ fn post_process(bytes: Vec<u8>, snapshot: &ExportSnapshot, plan: &Plan) -> Resul
                 rebuilt.push_str(rest);
             }
             rebuilt.into_bytes()
+        } else if name == "word/footnotes.xml" {
+            footnotes_part(&String::from_utf8_lossy(&data)).into_bytes()
         } else if name == "word/_rels/document.xml.rels" {
             let mut s = String::from_utf8_lossy(&data).into_owned();
             for (part, _) in &extra_footers {
@@ -634,6 +705,38 @@ fn post_process(bytes: Vec<u8>, snapshot: &ExportSnapshot, plan: &Plan) -> Resul
         .finish()
         .map_err(|e| SbwbError::other(format!("zip finish: {e}")))?;
     Ok(cursor.into_inner())
+}
+
+/// Complete the footnotes part docx-rs writes: Word's separator and
+/// continuation-separator notes, and the note's own number (footnoteRef)
+/// at the start of each footnote.
+fn footnotes_part(xml: &str) -> String {
+    const SEPARATORS: &str = r#"<w:footnote w:type="separator" w:id="-1"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto" /></w:pPr><w:r><w:separator /></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto" /></w:pPr><w:r><w:continuationSeparator /></w:r></w:p></w:footnote>"#;
+    const MARK: &str = r#"<w:r><w:rPr><w:rStyle w:val="FootnoteReference" /></w:rPr><w:footnoteRef /></w:r><w:r><w:t xml:space="preserve"> </w:t></w:r>"#;
+    let mut out = String::with_capacity(xml.len() + 1024);
+    let mut rest = xml;
+    // after the opening <w:footnotes ...> tag
+    if let Some(open) = rest.find("<w:footnotes") {
+        if let Some(end) = rest[open..].find('>') {
+            let at = open + end + 1;
+            if !rest[open..at].ends_with("/>") {
+                out.push_str(&rest[..at]);
+                out.push_str(SEPARATORS);
+                rest = &rest[at..];
+            }
+        }
+    }
+    while let Some(at) = rest.find("<w:footnote ") {
+        let Some(p_props_end) = rest[at..].find("</w:pPr>") else {
+            break;
+        };
+        let insert = at + p_props_end + "</w:pPr>".len();
+        out.push_str(&rest[..insert]);
+        out.push_str(MARK);
+        rest = &rest[insert..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Replace every `<prefix ... suffix>` element with `with`.

@@ -7,6 +7,7 @@
 //!   with source anchors, plus proposals (hyphen joins, spelling) and the
 //!   auto-apply policy (threshold + eligible rule + no protection).
 
+pub mod footnote;
 pub mod lexicon;
 pub mod reconstruct;
 pub mod rules;

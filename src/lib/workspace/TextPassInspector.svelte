@@ -106,6 +106,17 @@
     }
   }
 
+  // ----- footnote references (TXT-02) -----
+  const onPage = $derived(review.page === view.page);
+  const fnRefByNote = $derived(new Map(review.footnotes.refs.map((r) => [r.note, r])));
+  const spanText = (id: string) => review.spans.find((s) => s.id === id)?.text ?? "";
+  const pickedText = $derived(review.pickedSpan ? spanText(review.pickedSpan) : "");
+  const suggested = $derived(review.footnotes.refs.filter((r) => r.status === "suggested").length);
+  function showWord(id: string) {
+    review.hoverSpan = id;
+    document.querySelector(`.transcript [data-span="${id}"]`)?.scrollIntoView({ block: "center" });
+  }
+
   const KIND: Record<string, string> = { hyphen_join: "join", ocr_confusion: "confusion", spelling: "spelling", proper_name: "name" };
   function when(iso: string | null): string {
     if (!iso) return "never";
@@ -149,6 +160,54 @@
 <p class="muted small">Last run {when(s?.last_run ?? null)} · {s?.pages_done ?? 0} of {s?.pages_in_scope ?? summary.counts.in_scope} pages</p>
 
 {#if page}
+  {#if page.text_done && onPage}
+    <div class="footnotes">
+      <div class="label">Footnotes</div>
+      {#if review.footnotes.notes.length === 0}
+        <p class="muted small">No footnote regions on page {page.index + 1}. Mark one in Layout to link references to it.</p>
+      {:else}
+        <p class="muted small">
+          Numbers follow the order of the linked words: 1, 2, 3 on each page. Linked notes export as Word footnotes.
+          {#if pickedText}Selected word: <b>{pickedText}</b>.{:else}Select a word in the transcript to link a note to it.{/if}
+        </p>
+        <ul>
+          {#each review.footnotes.notes as n (n.span)}
+            {@const r = fnRefByNote.get(n.span)}
+            <li class:linked={r?.status === "linked"} class:sug={r?.status === "suggested"}>
+              <span class="num mono">{r?.number ?? (r ? "?" : "–")}</span>
+              <span class="note">
+                <span class="preview">{n.preview}</span>
+                {#if r}
+                  <button type="button" class="link" onmouseenter={() => showWord(r.anchor)} onmouseleave={() => (review.hoverSpan = null)} onclick={() => showWord(r.anchor)}>
+                    {r.status === "suggested" ? "suggested after" : "after"} “{spanText(r.anchor)}”
+                  </button>
+                {:else}
+                  <span class="muted">not linked</span>
+                {/if}
+              </span>
+              <span class="acts">
+                {#if r?.status === "suggested"}
+                  <button type="button" class="ctl small-btn primary" onclick={() => review.footnote(() => api.footnoteDecide(r.id, true))}>Accept</button>
+                  <button type="button" class="ctl small-btn" onclick={() => review.footnote(() => api.footnoteDecide(r.id, false))}>Reject</button>
+                {:else if r}
+                  <button type="button" class="ctl small-btn" onclick={() => review.footnote(() => api.footnoteDecide(r.id, false))}>Remove</button>
+                {/if}
+                {#if review.pickedSpan && review.pickedSpan !== r?.anchor}
+                  <button type="button" class="ctl small-btn" title="Link this note to “{pickedText}”" onclick={() => review.footnote(() => api.footnoteLink(review.pickedSpan!, n.span))}>{r ? "Move here" : "Link to selected"}</button>
+                {/if}
+              </span>
+            </li>
+          {/each}
+        </ul>
+        <div class="two">
+          <button type="button" class="ctl" onclick={() => review.footnote(() => api.footnoteDetect(page.index))} title="Suggest links where a word ends with the mark a footnote starts with (*, †, 1)">Find printed markers</button>
+          {#if suggested > 1}
+            <button type="button" class="ctl primary" onclick={() => review.footnote(() => api.footnoteAcceptAll(page.index))}>Accept {suggested} suggestions</button>
+          {/if}
+        </div>
+      {/if}
+    </div>
+  {/if}
   <div class="pagelist">
     <div class="label">This page</div>
     {#if !page.text_done}
@@ -171,6 +230,7 @@
       </div>
     {/if}
   </div>
+
 {/if}
 
 <style>
@@ -298,5 +358,63 @@
   }
   li.open .status {
     color: var(--accent-text);
+  }
+  .footnotes ul {
+    list-style: none;
+    margin: 6px 0 8px;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+    font-size: 12px;
+  }
+  .footnotes li {
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 4px 8px;
+    padding: 6px;
+    border-radius: 6px;
+    background: var(--raised);
+    border: 1px solid transparent;
+  }
+  .footnotes li.sug {
+    border-color: var(--border);
+    border-style: dashed;
+  }
+  .footnotes .num {
+    text-align: center;
+    font-weight: 600;
+    color: var(--accent-text);
+  }
+  .footnotes li:not(.linked) .num {
+    color: var(--muted);
+  }
+  .footnotes .note {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+  .footnotes .preview {
+    font-family: var(--font-serif);
+    overflow-wrap: anywhere;
+  }
+  .footnotes .acts {
+    grid-column: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .small-btn {
+    padding: 2px 8px;
+    font-size: 11.5px;
+  }
+  .link {
+    all: unset;
+    color: var(--accent-text);
+    cursor: pointer;
+    text-decoration: underline;
+    justify-self: start;
+  }
+  .link:focus-visible {
+    outline: 2px solid var(--accent);
   }
 </style>

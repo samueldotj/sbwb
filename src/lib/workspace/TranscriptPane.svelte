@@ -131,6 +131,7 @@
     const b = Math.max(...idx);
     const rect = range.getBoundingClientRect();
     const host = bodyEl.getBoundingClientRect();
+    review.pickedSpan = review.spans[b]?.id ?? null;
     picked = { from: Math.min(a, b), to: Math.max(a, b), x: rect.left - host.left + bodyEl.scrollLeft, y: rect.bottom - host.top + bodyEl.scrollTop + 4 };
   }
   function openEditor() {
@@ -185,6 +186,10 @@
   }
   const editWords = $derived(editor ? editor.to - editor.from + 1 : 0);
 
+  // ----- footnote references (TXT-02) -----
+  const fnByAnchor = $derived(new Map(review.footnotes.refs.map((r) => [r.anchor, r])));
+  const fnByNote = $derived(new Map(review.footnotes.refs.filter((r) => r.status === "linked").map((r) => [r.note, r])));
+
   function title(w: Word): string {
     const i = w.mark.issue;
     if (i) return `${i.reason}${i.score !== null ? ` · ${i.score}% · ${i.score_source}` : ""}`;
@@ -193,6 +198,15 @@
     return "";
   }
 </script>
+
+{#snippet fnref(id: string)}
+  {@const r = fnByAnchor.get(id)}
+  {#if r}<sup class="fnref" class:sug={r.status === "suggested"} title={r.status === "suggested" ? "Suggested footnote reference: accept or reject it in the Text pass tab" : `Footnote ${r.number}`}>{r.number ?? "?"}</sup>{/if}
+{/snippet}
+{#snippet fnnum(id: string)}
+  {@const r = fnByNote.get(id)}
+  {#if r}<sup class="fnnum" title="Footnote {r.number}">{r.number}</sup>{/if}
+{/snippet}
 
 <section class="transcript" aria-label="Transcript">
   <div class="header">
@@ -270,7 +284,7 @@
       {/if}
       {#each body as p, pi (pi)}
         <p class="para {p.kind}" data-label={p.label}>
-          {#each p.words as w (w.span.id)}{#if w.mark.issue && w.mark.kind !== "none"}<button
+          {#each p.words as w (w.span.id)}{@render fnnum(w.span.id)}{#if w.mark.issue && w.mark.kind !== "none"}<button
               type="button"
               class="mark {w.mark.kind}"
               class:focused={review.selected?.span === w.span.id}
@@ -289,14 +303,14 @@
               data-span={w.span.id}
               title={title(w)}>{w.span.text}</mark>{:else}<span
               data-span={w.span.id}
-              class:focused={review.selected?.span === w.span.id}>{w.span.text}</span>{/if}{w.span.trailing}{/each}
+              class:focused={review.selected?.span === w.span.id}>{w.span.text}</span>{/if}{@render fnref(w.span.id)}{w.span.trailing}{/each}
         </p>
       {/each}
       {#if foot.length}
         <hr class="divider" />
         {#each foot as p, pi (pi)}
           <p class="para {p.kind}" data-label={p.label}>
-            {#each p.words as w (w.span.id)}{#if w.mark.issue && w.mark.kind !== "none"}<button type="button" class="mark {w.mark.kind}" class:focused={review.selected?.span === w.span.id} data-span={w.span.id} aria-label="{w.span.text}: {w.mark.issue.kind.replace('_', ' ')}" title={title(w)} onmouseenter={() => (review.hoverSpan = w.span.id)} onmouseleave={() => (review.hoverSpan = null)} onfocus={() => (review.hoverSpan = w.span.id)} onblur={() => (review.hoverSpan = null)} onclick={() => review.select(w.mark.issue!.id)} onkeydown={(e) => onMarkKey(e, w)}>{w.span.text}</button>{:else if w.mark.kind !== "none"}<mark class="mark {w.mark.kind}" data-span={w.span.id} title={title(w)}>{w.span.text}</mark>{:else}<span data-span={w.span.id}>{w.span.text}</span>{/if}{w.span.trailing}{/each}
+            {#each p.words as w (w.span.id)}{@render fnnum(w.span.id)}{#if w.mark.issue && w.mark.kind !== "none"}<button type="button" class="mark {w.mark.kind}" class:focused={review.selected?.span === w.span.id} data-span={w.span.id} aria-label="{w.span.text}: {w.mark.issue.kind.replace('_', ' ')}" title={title(w)} onmouseenter={() => (review.hoverSpan = w.span.id)} onmouseleave={() => (review.hoverSpan = null)} onfocus={() => (review.hoverSpan = w.span.id)} onblur={() => (review.hoverSpan = null)} onclick={() => review.select(w.mark.issue!.id)} onkeydown={(e) => onMarkKey(e, w)}>{w.span.text}</button>{:else if w.mark.kind !== "none"}<mark class="mark {w.mark.kind}" data-span={w.span.id} title={title(w)}>{w.span.text}</mark>{:else}<span data-span={w.span.id}>{w.span.text}</span>{/if}{@render fnref(w.span.id)}{w.span.trailing}{/each}
           </p>
         {/each}
       {/if}
@@ -604,6 +618,20 @@
   .mark:focus-visible {
     outline: 2px solid var(--text);
     outline-offset: 2px;
+  }
+  .fnref,
+  .fnnum {
+    font: 600 0.62em var(--font-ui);
+    color: var(--accent-text);
+    padding: 0 1px;
+    user-select: none;
+  }
+  .fnref.sug {
+    color: var(--muted);
+    border-bottom: 1px dashed currentColor;
+  }
+  .fnnum {
+    margin-right: 3px;
   }
   .line {
     margin: 0;

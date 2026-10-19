@@ -7,12 +7,14 @@
 //! source PDF for the renderer and page renders; it is never required to
 //! open or export a project.
 
+pub mod footnotes;
 pub mod lock;
 pub mod project;
 pub mod refine;
 pub mod review;
 pub mod schema;
 
+pub use footnotes::{FootnoteNote, FootnotePage, FootnoteRef};
 pub use lock::{LockState, WriterLock};
 pub use project::{
     ExportRecord, OpenMode, PageCounts, PageLayout, PageOcr, PageRow, Project, ProjectMeta,
