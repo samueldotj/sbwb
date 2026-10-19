@@ -49,6 +49,7 @@
     class="hl {b.kind}"
     class:focused={b.focused}
     class:hovered={b.hovered}
+    class:track={review.trackChanges && (b.kind === "accepted" || b.kind === "auto")}
     style="left:{b.x - 1.5}px;top:{b.y - 1.5}px;width:{b.w + 3}px;height:{b.h + 3}px;--ring:{ring}px"
     title={b.title}
   ></div>
@@ -78,6 +79,10 @@
   }
   .hl.auto {
     outline: var(--ring) dotted var(--ok);
+  }
+  /* track corrections: every corrected word in a solid green box */
+  .hl.track {
+    outline: calc(var(--ring) * 1.5) solid var(--ok);
   }
   /* the word under the pointer in the transcript: outline plus a bar
      under the word, never a fill over it */

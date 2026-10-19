@@ -6,12 +6,12 @@
   // auto-applied (light green); the focused issue carries a ring. Hover or
   // focus on a mark highlights the source word on the scan; click selects
   // the issue. Falls back to raw OCR lines before the text pass has run.
-  import { api, errorMessage, type OcrWord, type PageRow, type Span } from "$lib/api";
+  import { api, errorMessage, type HistoryEntry, type OcrWord, type PageRow, type Span } from "$lib/api";
   import { KIND_LABEL } from "$lib/stores/layout.svelte";
   import { review } from "$lib/stores/review.svelte";
   import { TRANSCRIPT_ZOOMS, ui } from "$lib/stores/ui.svelte";
   import { view } from "$lib/stores/view.svelte";
-  import type { Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
 
   type Props = { page: PageRow | null; header?: Snippet };
   let { page, header }: Props = $props();
@@ -41,6 +41,104 @@
   const foot = $derived(paras.filter((p) => p.kind === "footer" || p.kind === "footnote"));
   const headLine = $derived(head.map((p) => p.words.map((w) => w.span.text).join(" ")).join(" · "));
   const onPage = $derived(review.page === view.page ? review.matching.length : 0);
+  const corrections = $derived(review.page === view.page ? review.spans.filter((s) => s.origin !== "ocr" && s.text).length : 0);
+
+  // ----- candidates at the word (the selected issue) -----
+  // The selected issue's candidates (one or more) in an editable dropdown under its word:
+  // pick one to accept it, or type a reading and press Enter.
+  let candText = $state("");
+  let candPos = $state<{ x: number; y: number } | null>(null);
+  let candDismissed = $state<string | null>(null);
+  let candBusy = $state(false);
+  const candIssue = $derived.by(() => {
+    const i = review.selected;
+    if (!i || i.status !== "open" || review.page !== view.page || candDismissed === i.id) return null;
+    // every word issue, even with one candidate (or none: type a reading);
+    // structural issues have a box instead of a word
+    return i.bbox !== null && i.candidates.length === 0 ? null : i;
+  });
+  // Reset only when a different issue is selected: a refresh of the page's
+  // issues must not throw away what the reader typed.
+  const candId = $derived(candIssue?.id ?? null);
+  $effect(() => {
+    const id = candId;
+    const i = untrack(() => candIssue);
+    candText = i ? (i.candidates.find((c) => c.proposal)?.text ?? i.candidates[0]?.text ?? i.original) : "";
+    void id;
+  });
+  $effect(() => {
+    const id = candId;
+    void ui.transcriptZoom; // re-place after a zoom
+    const i = untrack(() => candIssue);
+    candPos = null;
+    if (!id || !i || !bodyEl) return;
+    // place it under the word once the word is on screen
+    requestAnimationFrame(() => {
+      const el = bodyEl?.querySelector<HTMLElement>(`[data-span="${i.span}"]`);
+      if (!el || !bodyEl) return;
+      const host = bodyEl.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      candPos = { x: popLeft(r.left - host.left), y: r.bottom - host.top + bodyEl.scrollTop + 4 };
+    });
+  });
+  /** Left edge for a popover under a word, kept inside the transcript. */
+  function popLeft(wordLeft: number): number {
+    if (!bodyEl) return wordLeft;
+    const width = Math.min(340, bodyEl.clientWidth - 32) + 16;
+    return Math.max(8, Math.min(wordLeft, bodyEl.clientWidth - width - 8)) + bodyEl.scrollLeft;
+  }
+  async function chooseCandidate(text: string) {
+    const i = candIssue;
+    const t = text.trim();
+    if (!i || !t || candBusy) return;
+    candBusy = true;
+    const isCandidate = i.candidates.some((c) => c.text === t);
+    await review.decide(isCandidate ? { kind: "accept", text: t } : { kind: "edit", text: t });
+    candBusy = false;
+  }
+
+  // ----- track corrections: revisit a corrected word -----
+  type Revisit = { span: string; x: number; y: number; history: HistoryEntry[]; was: string | null; choices: string[] };
+  let revisit = $state<Revisit | null>(null);
+  async function openRevisit(spanId: string, el: HTMLElement) {
+    if (!bodyEl) return;
+    const host = bodyEl.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    const auto = review.proposals.find((p) => p.span === spanId && p.status === "applied_auto");
+    const decided = review.issues.find((i) => i.span === spanId && i.status === "resolved");
+    const was = decided?.original ?? auto?.original ?? null;
+    const now = review.spanById(spanId)?.text;
+    const choices = [...new Set((decided?.candidates ?? []).map((c) => c.text))].filter((c) => c !== now);
+    revisit = { span: spanId, x: popLeft(r.left - host.left), y: r.bottom - host.top + bodyEl.scrollTop + 4, history: [], was, choices };
+    try {
+      const history = await api.historyList({ span: spanId });
+      if (revisit?.span === spanId) revisit = { ...revisit, history };
+    } catch {
+      /* no history */
+    }
+  }
+  async function undoEntry(id: string) {
+    revisit = null;
+    await review.undo(id);
+  }
+  /** Put a different reading on a corrected word (an undoable text edit). */
+  async function setReading(text: string) {
+    const r = revisit;
+    const span = r ? review.spanById(r.span) : null;
+    if (!r || !span) return;
+    revisit = null;
+    try {
+      await ui.save(() => api.textEdit([{ span: span.id, revision: span.revision }], text));
+      await review.reload();
+    } catch (e) {
+      ui.toast(errorMessage(e), "error", 6000);
+    }
+  }
+  function onTrackClick(e: MouseEvent) {
+    if (!review.trackChanges) return;
+    const el = (e.target as Element | null)?.closest<HTMLElement>("mark.accepted[data-span], mark.auto[data-span]");
+    if (el?.dataset.span) void openRevisit(el.dataset.span, el);
+  }
 
   // ----- raw fallback -----
   type Line = { text: string; conf: number };
@@ -238,6 +336,9 @@
       />
       <span class="mono">{review.threshold}%</span>
     </label>
+    <button type="button" class="track-btn" class:on={review.trackChanges} aria-pressed={review.trackChanges} onclick={() => { review.trackChanges = !review.trackChanges; revisit = null; review.savePrefs(); }} title="Track corrections: box every corrected word in green; click one to see what it was and change or undo it">
+      Corrections&nbsp;<span class="mono-n">{corrections}</span>
+    </button>
     <span class="zoom" role="group" aria-label="Transcript zoom">
       <button type="button" class="zbtn" onclick={() => ui.zoomTranscript(-1)} disabled={ui.transcriptZoom <= TRANSCRIPT_ZOOMS[0]!} aria-label="Zoom transcript out">−</button>
       <button type="button" class="zpct" onclick={() => ui.zoomTranscript(0)} title="Reset to 100%" aria-live="polite">{ui.transcriptZoom}%</button>
@@ -248,7 +349,9 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="scroller"
+    class:track={review.trackChanges}
     bind:this={bodyEl}
+    onclick={onTrackClick}
     style="font-size:calc(var(--font-size-transcript) * {ui.transcriptZoom / 100})"
     onmouseup={onSelect}
     onmouseover={pointAtWord}
@@ -263,6 +366,60 @@
   >
     {#if lastEdit}
       <p class="undo-bar small" aria-live="polite">Edited {lastEdit.words} word{lastEdit.words === 1 ? "" : "s"}. <button type="button" class="link" onclick={undoLast}>Undo</button> <button type="button" class="link" onclick={() => (lastEdit = null)}>Dismiss</button></p>
+    {/if}
+    {#if candIssue && candPos}
+      <div class="cands" style="left:{candPos.x}px;top:{candPos.y}px" role="dialog" aria-label="Candidates for {candIssue.original}">
+        <div class="cands-row">
+          <input
+            type="text"
+            bind:value={candText}
+            aria-label="Reading"
+            onkeydown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); void chooseCandidate(candText); }
+              else if (e.key === "Escape") { e.preventDefault(); candDismissed = candIssue?.id ?? null; }
+            }}
+          />
+          <button type="button" class="ctl primary" onclick={() => chooseCandidate(candText)} disabled={candBusy}>Use <kbd>Enter</kbd></button>
+          <button type="button" class="ctl x" onclick={() => (candDismissed = candIssue?.id ?? null)} aria-label="Close">✕</button>
+        </div>
+        <ul class="cands-list">
+          {#each candIssue.candidates as c, i (i)}
+            <li>
+              <button type="button" class:on={c.text === candText} onclick={() => chooseCandidate(c.text)} disabled={candBusy}>
+                <span class="ctext">{c.text}</span>
+                <span class="muted small">{c.score !== null ? `${c.score}% · ` : ""}{c.source}</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
+    {#if revisit}
+      {@const r = revisit}
+      {@const now = review.spanById(r.span)?.text ?? ""}
+      <div class="cands revisit" style="left:{r.x}px;top:{r.y}px" role="dialog" aria-label="Correction of {now}">
+        <div class="cands-row">
+          <span class="small">Now <b class="serif">{now || "(removed)"}</b>{#if r.was && r.was !== now} · was <s class="serif">{r.was}</s>{/if}</span>
+          <span class="grow"></span>
+          <button type="button" class="ctl x" onclick={() => (revisit = null)} aria-label="Close">✕</button>
+        </div>
+        {#if r.history.length}
+          <ul class="hist">
+            {#each r.history.slice(0, 4) as h (h.id)}
+              <li class:undone={h.undone}>
+                <span class="small">{h.label}</span>
+                {#if h.undoable && !h.undone}<button type="button" class="link" onclick={() => undoEntry(h.id)}>Undo</button>{/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <div class="cands-row wrap">
+          {#if r.was && r.was !== now}<button type="button" class="ctl" onclick={() => setReading(r.was!)}>Restore “{r.was}”</button>{/if}
+          {#each r.choices.filter((c) => c !== r.was) as c (c)}
+            <button type="button" class="ctl" onclick={() => setReading(c)}>Use “{c}”</button>
+          {/each}
+        </div>
+      </div>
     {/if}
     {#if picked}
       <button type="button" class="pick" style="left:{picked.x}px;top:{picked.y}px" onmousedown={(e) => e.preventDefault()} onclick={openEditor}>Edit text</button>
@@ -448,6 +605,122 @@
     line-height: var(--line-height-transcript);
     color: var(--text);
     user-select: text;
+  }
+  /* track corrections: corrected words in a green box */
+  .scroller.track .mark.accepted,
+  .scroller.track .mark.auto {
+    outline: 1.5px solid var(--ok);
+    outline-offset: 1px;
+    border-radius: 2px;
+    background: var(--ok-bg);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .track-btn {
+    all: unset;
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border-radius: 5px;
+    border: 1px solid var(--border-input);
+    font: 500 12px var(--font-ui);
+    cursor: default;
+    color: var(--text-2);
+  }
+  .track-btn.on {
+    border-color: var(--ok);
+    background: var(--ok-bg);
+    color: var(--text);
+  }
+  .track-btn:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  .cands {
+    position: absolute;
+    z-index: 4;
+    width: min(340px, calc(100% - 32px));
+    display: grid;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--raised);
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
+    font-family: var(--font-ui);
+    font-size: 12.5px;
+  }
+  .cands-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .cands-row.wrap {
+    flex-wrap: wrap;
+  }
+  .cands-row.wrap:empty {
+    display: none;
+  }
+  .cands-row input {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 6px;
+    border: 1px solid var(--border-input);
+    border-radius: 5px;
+    background: var(--paper);
+    color: var(--text);
+    font: 15px var(--font-serif);
+  }
+  .cands-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 2px;
+    max-height: 200px;
+    overflow: auto;
+  }
+  .cands-list button {
+    all: unset;
+    box-sizing: border-box;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .cands-list button:hover,
+  .cands-list button.on {
+    background: var(--accent-bg);
+  }
+  .cands-list button:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  .cands-list .ctext {
+    font: 15px var(--font-serif);
+  }
+  .ctl.x {
+    padding: 2px 7px;
+  }
+  .hist {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 3px;
+  }
+  .hist li {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .hist li.undone {
+    text-decoration: line-through;
+    color: var(--muted);
+  }
+  .serif {
+    font-family: var(--font-serif);
+    font-size: 14px;
   }
   .pick {
     position: absolute;

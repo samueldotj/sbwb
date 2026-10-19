@@ -48,6 +48,9 @@ class ReviewState {
   autoAdvance = $state(true);
   /** Approve a page by itself once its last visible issue is decided. */
   autoApprove = $state(false);
+  /** Track corrections: every corrected word is boxed in green and can be
+   *  revisited, whatever the hide-accepted / hide-auto settings say. */
+  trackChanges = $state(false);
 
   // ----- current page -----
   page = $state<number | null>(null);
@@ -139,8 +142,8 @@ class ReviewState {
       if (shown && !this.deferredView) return { kind: "issue", issue };
       return { kind: "none", issue };
     }
-    if (span.origin === "accepted" || span.origin === "manual") return { kind: this.hideCompleted ? "none" : "accepted", issue: null };
-    if (span.origin === "auto_applied") return { kind: this.hideAuto ? "none" : "auto", issue: null };
+    if (span.origin === "accepted" || span.origin === "manual") return { kind: this.hideCompleted && !this.trackChanges ? "none" : "accepted", issue: null };
+    if (span.origin === "auto_applied") return { kind: this.hideAuto && !this.trackChanges ? "none" : "auto", issue: null };
     return { kind: "none", issue: null };
   }
 
@@ -160,6 +163,7 @@ class ReviewState {
         if (typeof p.by_priority === "boolean") this.byPriority = p.by_priority;
         if (typeof p.auto_advance === "boolean") this.autoAdvance = p.auto_advance;
         if (typeof p.auto_approve === "boolean") this.autoApprove = p.auto_approve;
+        if (typeof p.track_changes === "boolean") this.trackChanges = p.track_changes;
         if (typeof p.hide_completed === "boolean") this.hideCompleted = p.hide_completed;
         if (typeof p.hide_auto === "boolean") this.hideAuto = p.hide_auto;
       }
@@ -177,6 +181,7 @@ class ReviewState {
         by_priority: this.byPriority,
         auto_advance: this.autoAdvance,
         auto_approve: this.autoApprove,
+        track_changes: this.trackChanges,
         hide_completed: this.hideCompleted,
         hide_auto: this.hideAuto,
       })
