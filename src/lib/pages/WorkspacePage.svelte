@@ -193,11 +193,9 @@
       return;
     }
     const page = currentPage.index;
-    const open = review.page === page ? review.issues.filter((i) => i.status === "open" || i.status === "deferred") : [];
-    // What review showed: below the threshold and not filtered out, or
-    // deferred by the reviewer. Issues scored at or above the threshold were
-    // never shown; approving records them as acknowledged without asking.
-    const shown = open.filter((i) => i.status === "deferred" || (!review.excludeKinds.includes(i.kind) && (i.score === null || i.score < review.threshold)));
+    // Issues the reviewer can see must be dealt with or acknowledged; those
+    // above the threshold were never shown and are acknowledged silently.
+    const { open, shown } = review.page === page ? review.pageOutstanding : { open: [], shown: [] };
     const hidden = open.length - shown.length;
     if (shown.length > 0) {
       const words = shown.map((i) => `“${i.original}”`);

@@ -265,7 +265,10 @@
     </div>
   {/if}
   {/if}
-  <label class="check"><input type="checkbox" bind:checked={review.autoAdvance} onchange={() => review.savePrefs()} /> Auto-advance to next issue</label>
+  <div class="checks">
+    <label class="check"><input type="checkbox" bind:checked={review.autoAdvance} onchange={() => review.savePrefs()} /> Auto-advance to next issue</label>
+    <label class="check" title="When the last issue shown on a page is decided, approve the page. Issues above your threshold are recorded as acknowledged; a page with deferred issues is not approved."><input type="checkbox" bind:checked={review.autoApprove} onchange={() => review.savePrefs()} /> Auto-approve page when resolved</label>
+  </div>
 
   <div>
     <div class="label">History</div>
@@ -464,6 +467,11 @@
   }
   .two .ctl {
     flex: 1;
+  }
+  .checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
   }
   .check {
     display: flex;

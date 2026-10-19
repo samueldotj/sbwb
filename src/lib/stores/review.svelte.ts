@@ -18,6 +18,7 @@ import {
   type Span,
 } from "$lib/api";
 import { isTauri, listen } from "$lib/ipc";
+import { project } from "./project.svelte";
 import { ui } from "./ui.svelte";
 import { view } from "./view.svelte";
 
@@ -45,6 +46,8 @@ class ReviewState {
   hideCompleted = $state(false);
   hideAuto = $state(false);
   autoAdvance = $state(true);
+  /** Approve a page by itself once its last visible issue is decided. */
+  autoApprove = $state(false);
 
   // ----- current page -----
   page = $state<number | null>(null);
@@ -88,6 +91,16 @@ class ReviewState {
   get selectedIndex(): number {
     return this.matching.findIndex((i) => i.id === this.selectedId);
   }
+  /** Open and deferred issues on the current page, and those of them the
+   *  reviewer can see: below the threshold and not filtered out, or
+   *  deferred. The rest scored at or above the threshold and are never
+   *  shown; approval records them as acknowledged without asking. */
+  get pageOutstanding(): { open: Issue[]; shown: Issue[] } {
+    const open = this.issues.filter((i) => i.status === "open" || i.status === "deferred");
+    const shown = open.filter((i) => i.status === "deferred" || (!this.excludeKinds.includes(i.kind) && (i.score === null || i.score < this.threshold)));
+    return { open, shown };
+  }
+
   get pageUnresolved(): number {
     return this.issues.filter((i) => i.status === "open" || i.status === "deferred").length;
   }
@@ -146,6 +159,7 @@ class ReviewState {
         if (Array.isArray(p.exclude_kinds)) this.excludeKinds = p.exclude_kinds;
         if (typeof p.by_priority === "boolean") this.byPriority = p.by_priority;
         if (typeof p.auto_advance === "boolean") this.autoAdvance = p.auto_advance;
+        if (typeof p.auto_approve === "boolean") this.autoApprove = p.auto_approve;
         if (typeof p.hide_completed === "boolean") this.hideCompleted = p.hide_completed;
         if (typeof p.hide_auto === "boolean") this.hideAuto = p.hide_auto;
       }
@@ -162,6 +176,7 @@ class ReviewState {
         exclude_kinds: this.excludeKinds,
         by_priority: this.byPriority,
         auto_advance: this.autoAdvance,
+        auto_approve: this.autoApprove,
         hide_completed: this.hideCompleted,
         hide_auto: this.hideAuto,
       })
@@ -290,6 +305,7 @@ class ReviewState {
       const verb = decision.kind === "accept" ? "Accepted" : decision.kind === "edit" ? "Saved" : decision.kind === "skip" ? "Kept" : "Deferred";
       ui.announce(`${verb} ${out.span_text}`);
       await this.load(issue.page);
+      if (this.autoApprove && decision.kind !== "later") await this.#autoApprove(issue.page);
       void this.refreshCounts();
       if (this.autoAdvance) await this.step(true);
       return out;
@@ -315,6 +331,25 @@ class ReviewState {
       await ui.save(() => api.pageApprove(index, outstanding));
       ui.announce(`Page ${index + 1} approved`);
       ui.toast(outstanding > 0 ? `Page ${index + 1} approved with ${outstanding} outstanding` : `Page ${index + 1} approved`, "ok");
+    } catch (e) {
+      ui.toast(errorMessage(e), "error", 6000);
+    }
+  }
+
+  /** After a decision: approve the page when no visible issue is left on
+   *  it and it is not approved already. Issues above the threshold are
+   *  recorded as acknowledged, as Approve page does. */
+  async #autoApprove(index: number) {
+    if (this.page !== index) return;
+    const row = project.summary?.pages.find((p) => p.index === index);
+    if (!row || !row.text_done || row.approval === "current") return;
+    const { open, shown } = this.pageOutstanding;
+    if (shown.length > 0) return;
+    try {
+      await ui.save(() => api.pageApprove(index, open.length));
+      ui.announce(`Page ${index + 1} approved automatically`);
+      const hidden = open.length ? ` · ${open.length} above your ${this.threshold}% threshold recorded as acknowledged` : "";
+      ui.toast(`Page ${index + 1} approved automatically${hidden}`, "ok", 4000);
     } catch (e) {
       ui.toast(errorMessage(e), "error", 6000);
     }
