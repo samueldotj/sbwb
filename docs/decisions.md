@@ -145,3 +145,4 @@ scale, cache as WebP in the render cache, serve to the webview through a
 custom Tauri protocol. One renderer means one coordinate system for
 highlights. Alternative: pdf.js in the webview, which is independent of
 recognition rendering as IMG-01 asks but doubles the geometry mapping.
+| D-34 | The expanded job monitor is folded into the pipeline rail: the running stage shows its speed, time left and failures under its row (OCR settings on hover), the rail footer in Processing mode shows the latest log lines with a Log button that opens the full timestamped log, and Pause / Resume / Stop / Retry stay in the footer. The separate 360px column repeated the rail and showed stale Layout and Text pass cards. Supersedes the Bench "expanded job monitor" in design 4.2. | UX-01, PIPE-01 | 2026-10-19 |

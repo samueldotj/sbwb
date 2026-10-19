@@ -164,7 +164,7 @@ and the project location with a Change link.
 Centre: page grid, 10 per row, 3:4 tiles with a status dot (done, running
 ring, queued dashed). Header: "Pages · Processing 1–50 · 479 untouched in the
 source" and "Click a page to open it while OCR continues". Bench adds an
-"Extend range…" button and a 360px expanded job monitor: per-stage cards
+"Extend range…" button and (superseded by D-34: now folded into the pipeline rail) a 360px expanded job monitor: per-stage cards
 (Import "529 pp · 4s", OCR "14/50 · 3.2s/p" with settings line "eng · 300dpi ·
 deskew on · ~2m left", Layout queued, Text pass "queued · ≥90%", AI proof
 "off · enable") and a **log** in mono with timestamps ("07:41:05 ocr p.14

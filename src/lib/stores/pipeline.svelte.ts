@@ -83,6 +83,11 @@ class PipelineStore {
       case "progress":
         this.stages = e.stages;
         this.activity = e.activity;
+        // A run starts in the running state without a state event; work in
+        // flight means one is going.
+        if ((this.state === "idle" || this.state === "done") && e.stages.some((s) => s.running > 0 || s.done + s.failed < s.total)) {
+          this.state = "running";
+        }
         break;
       case "log":
         this.log = [{ ts: e.ts, level: e.level, text: e.text }, ...this.log].slice(0, LOG_MAX);
@@ -107,6 +112,7 @@ class PipelineStore {
   async start() {
     try {
       await api.pipelineStart();
+      await this.refresh();
     } catch (e) {
       ui.toast(errorMessage(e), "error", 6000);
     }
@@ -122,6 +128,7 @@ class PipelineStore {
   }
   async retryFailed() {
     await api.pipelineRetryFailed().catch((e) => ui.toast(errorMessage(e), "error", 6000));
+    await this.refresh();
   }
 
   destroy() {

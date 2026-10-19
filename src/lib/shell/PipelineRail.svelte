@@ -10,6 +10,10 @@
     state: StageState;
     value: string;
     progress?: number; // 0..1 when running
+    /** A short line under the row: speed, time left, failures. */
+    detail?: string;
+    /** Hover text for the detail line (e.g. the OCR settings). */
+    detailTitle?: string;
   };
   type Props = {
     stages: StageRow[];
@@ -39,6 +43,9 @@
       <div class="bar" role="progressbar" aria-valuenow={Math.round(s.progress * 100)} aria-valuemin="0" aria-valuemax="100" aria-label="{s.label} progress">
         <div class="fill" style="width:{Math.round(s.progress * 100)}%"></div>
       </div>
+    {/if}
+    {#if s.detail}
+      <div class="detail" class:failed={s.state === "failed"} title={s.detailTitle}>{s.detail}</div>
     {/if}
   {/each}
   {#if children}
@@ -131,6 +138,17 @@
   .dot.failed {
     background: var(--danger);
     border-color: var(--danger);
+  }
+  .detail {
+    padding: 0 6px 4px 30px;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+  }
+  .detail.failed {
+    color: var(--danger);
   }
   @keyframes spin {
     to {

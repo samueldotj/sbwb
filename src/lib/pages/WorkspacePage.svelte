@@ -22,14 +22,14 @@
   import { view } from "$lib/stores/view.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import PageMiniGrid from "$lib/workspace/PageMiniGrid.svelte";
-  import JobMonitor from "$lib/workspace/JobMonitor.svelte";
+  import Sheet from "$lib/shell/Sheet.svelte";
   import RegionOverlay from "$lib/workspace/RegionOverlay.svelte";
   import ReadingOrder from "$lib/workspace/ReadingOrder.svelte";
   import RegionInspector from "$lib/workspace/RegionInspector.svelte";
   import { layout, exportPolicy } from "$lib/stores/layout.svelte";
   import { confirmDialog } from "$lib/dialogs";
   import type { OcrWord } from "$lib/api";
-  import { pipeline } from "$lib/stores/pipeline.svelte";
+  import { formatEta, pipeline } from "$lib/stores/pipeline.svelte";
   import { api, errorMessage, type ExportEntry, type ProcessingSettings } from "$lib/api";
   import { isTauri } from "$lib/ipc";
 
@@ -70,7 +70,11 @@
       ui.inspectorTab = null;
     }
   });
-  let monitorOpen = $state(false);
+  let logOpen = $state(false);
+  const logTime = (ts: string) => {
+    const d = new Date(ts);
+    return Number.isNaN(d.getTime()) ? ts : d.toLocaleTimeString();
+  };
   let settings = $state<ProcessingSettings | null>(null);
   $effect(() => {
     if (isTauri) api.settingsGet().then((s) => (settings = s)).catch(() => {});
@@ -205,6 +209,19 @@
     if (summary.counts.done > 0 || summary.counts.failed > 0) return `${summary.counts.done} / ${summary.counts.in_scope}`;
     return "queued";
   });
+  // Speed, time left and failures under the OCR row (the former job monitor).
+  const ocrDetail = $derived.by(() => {
+    const o = pipeline.ocr;
+    const parts: string[] = [];
+    if (o && pipeline.active) {
+      if (o.secs_per_unit) parts.push(`${o.secs_per_unit.toFixed(1)} s/page`);
+      if (o.eta_ms !== null && pipeline.state === "running") parts.push(formatEta(o.eta_ms));
+      if (o.failed) parts.push(`${o.failed} failed`);
+    } else if (summary.counts.failed) {
+      parts.push(`${summary.counts.failed} failed`);
+    }
+    return parts.join(" · ") || undefined;
+  });
   const stages = $derived<StageRow[]>([
     { id: "import", label: "Import", state: "done", value: `${summary.counts.in_scope} pp` },
     {
@@ -213,6 +230,8 @@
       state: ocrState,
       value: ocrValue,
       progress: pipeline.ocr && pipeline.ocr.total ? (pipeline.ocr.done + pipeline.ocr.failed) / pipeline.ocr.total : summary.counts.in_scope ? summary.counts.done / summary.counts.in_scope : 0,
+      detail: ocrDetail,
+      detailTitle: settingsLine,
     },
     {
       id: "layout",
@@ -259,14 +278,13 @@
     else if (id === "text_pass") tab = "text_pass";
     else {
       view.mode = "processing";
-      if (id === "ocr") monitorOpen = true;
     }
   }
 </script>
 
 <svelte:window onkeydown={onkeydown} />
 
-<div class="workspace" class:review={view.mode === "review"} class:layoutmode={view.mode === "layout"} class:strip={view.mode === "review" && ui.theme !== "bench"} class:monitor={view.mode === "processing" && monitorOpen}>
+<div class="workspace" class:review={view.mode === "review"} class:layoutmode={view.mode === "layout"} class:strip={view.mode === "review" && ui.theme !== "bench"}>
   <PipelineRail {stages} activeId={view.mode === "processing" ? "import" : ""} onselect={onrail}>
     <div class="review-block">
       <button type="button" class="label linkish" onclick={() => (view.mode = "review")}>Review</button>
@@ -321,7 +339,14 @@
           {:else if summary.counts.queued > 0 && !summary.read_only}
             <button type="button" class="ctl primary" onclick={() => pipeline.start()}>Process {summary.counts.queued} pages</button>
           {/if}
-          {#if !monitorOpen}<button type="button" class="ctl muted" onclick={() => (monitorOpen = true)}>Details</button>{/if}
+        </div>
+        <div class="log-preview" aria-label="Latest pipeline activity">
+          {#each pipeline.log.slice(0, 3) as l, i (i)}
+            <div class="logline {l.level}" title="{logTime(l.ts)} {l.text}">{l.text}</div>
+          {:else}
+            <div class="logline muted">No activity yet.</div>
+          {/each}
+          <button type="button" class="ctl muted" onclick={() => (logOpen = true)}>Log{pipeline.log.length ? ` (${pipeline.log.length})` : ""}</button>
         </div>
       {/if}
       <div class="keys">
@@ -335,9 +360,15 @@
       </div>
     {/snippet}
   </PipelineRail>
-  {#if view.mode === "processing" && monitorOpen}
-    <JobMonitor {summary} {settingsLine} oncollapse={() => (monitorOpen = false)} />
-  {/if}
+  <Sheet open={logOpen} title="Pipeline log" subtitle="{pipeline.state} · {settingsLine}" width="680px" onclose={() => (logOpen = false)}>
+    <div class="log" role="log" aria-live="polite">
+      {#each pipeline.log as l, i (i)}
+        <div class="logline {l.level}"><span class="muted">{logTime(l.ts)}</span> {l.text}</div>
+      {:else}
+        <div class="muted">Nothing yet.</div>
+      {/each}
+    </div>
+  </Sheet>
 
   {#if view.mode === "review"}
     {#if ui.theme !== "bench"}
@@ -440,9 +471,6 @@
     grid-template-columns: var(--rail-w) 1fr auto;
     min-height: 0;
     height: 100%;
-  }
-  .workspace.monitor {
-    grid-template-columns: var(--rail-w) 360px 1fr auto;
   }
   .workspace.review {
     grid-template-columns: var(--rail-w) minmax(0, 1fr) minmax(0, 1fr) auto;
@@ -666,6 +694,34 @@
   }
   .ctl:focus-visible {
     outline: 2px solid var(--accent);
+  }
+  .log-preview {
+    padding: 0 6px 6px;
+    display: grid;
+    gap: 2px;
+    font-size: 11px;
+    color: var(--text-2);
+  }
+  .log-preview .logline {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .logline.warn {
+    color: var(--warn);
+  }
+  .logline.error {
+    color: var(--danger);
+  }
+  .log {
+    font: 12px var(--font-mono);
+    display: grid;
+    gap: 3px;
+    max-height: 60vh;
+    overflow: auto;
+  }
+  .log .logline {
+    overflow-wrap: anywhere;
   }
   .keys {
     padding: 6px;
