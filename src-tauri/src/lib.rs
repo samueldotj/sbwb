@@ -116,6 +116,7 @@ pub fn run() {
             commands::project::save_copy,
             commands::project::set_scope,
             commands::page::page_ocr,
+            commands::page::ocr_confidences,
             commands::page::page_runs,
             commands::page::prefetch_render,
             commands::pipeline::pipeline_start,

@@ -915,6 +915,25 @@ impl Project {
         }
     }
 
+    /// Mean OCR confidence and word count of every recognised page (its
+    /// current run), lowest confidence first.
+    pub fn ocr_confidences(&self) -> Result<Vec<(PageIndex, f32, u32)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT page_index, mean_confidence, json_array_length(words) FROM page_ocr WHERE current = 1 ORDER BY mean_confidence ASC, page_index ASC")
+            .map_err(db)?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    PageIndex(r.get::<_, i64>(0)? as u32),
+                    r.get::<_, Option<f64>>(1)?.unwrap_or(0.0) as f32,
+                    r.get::<_, Option<i64>>(2)?.unwrap_or(0) as u32,
+                ))
+            })
+            .map_err(db)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(db)
+    }
+
     // ----- effective text (M5) -----
 
     /// Replace a page's spans and undecided proposals with a new text-pass
@@ -1654,6 +1673,7 @@ mod tests {
         assert_eq!(r, run);
         assert_eq!(words[0].text, "India");
         assert!((conf - 88.0).abs() < 1e-3);
+        assert_eq!(p.ocr_confidences().unwrap(), [(PageIndex(3), 88.0, 1)]);
         let runs = p.runs_for_page(PageIndex(3)).unwrap();
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].elapsed_ms, Some(1200));

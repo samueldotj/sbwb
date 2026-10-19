@@ -34,6 +34,35 @@ pub fn page_ocr(state: State<'_, AppState>, index: u32) -> CmdResult<Option<Page
         }))
 }
 
+/// One recognised page's OCR quality, for the OCR tab's weakest pages.
+#[derive(Debug, Clone, Serialize)]
+pub struct PageConfidence {
+    pub page: u32,
+    pub mean_confidence: f32,
+    pub words: u32,
+}
+
+/// Mean OCR confidence of every recognised page, lowest first.
+#[tauri::command]
+pub fn ocr_confidences(state: State<'_, AppState>) -> CmdResult<Vec<PageConfidence>> {
+    let guard = state
+        .project
+        .lock()
+        .map_err(|_| CommandError::new("other", "state poisoned"))?;
+    let p = guard
+        .as_ref()
+        .ok_or_else(|| CommandError::new("not_found", "no open book"))?;
+    Ok(p.store
+        .ocr_confidences()?
+        .into_iter()
+        .map(|(page, mean_confidence, words)| PageConfidence {
+            page: page.0,
+            mean_confidence,
+            words,
+        })
+        .collect())
+}
+
 #[tauri::command]
 pub fn page_runs(state: State<'_, AppState>, index: u32) -> CmdResult<Vec<RunRecord>> {
     let guard = state

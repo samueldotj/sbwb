@@ -7,6 +7,7 @@
   import ImportInspector from "$lib/workspace/ImportInspector.svelte";
   import PageInspector from "$lib/workspace/PageInspector.svelte";
   import TextPassInspector from "$lib/workspace/TextPassInspector.svelte";
+  import OcrInspector from "$lib/workspace/OcrInspector.svelte";
   import IssueInspector from "$lib/workspace/IssueInspector.svelte";
   import WordHighlights from "$lib/workspace/WordHighlights.svelte";
   import GroupSheet from "$lib/workspace/GroupSheet.svelte";
@@ -89,8 +90,12 @@
   $effect(() => {
     if (view.pageCount !== summary.meta.source.page_count) view.reset(summary.meta.source.page_count);
   });
+  /** A tab asked for together with a mode change (a rail click). */
+  let nextTab: string | null = null;
   $effect(() => {
-    tab = view.mode === "review" ? "issue" : view.mode === "layout" ? "region" : "import";
+    const fallback = view.mode === "review" ? "issue" : view.mode === "layout" ? "region" : "import";
+    tab = nextTab ?? fallback;
+    nextTab = null;
   });
   // Review data follows the page and its text revision (decisions, reruns).
   $effect(() => {
@@ -266,6 +271,7 @@
           ]
         : [
             { id: "import", label: "Import" },
+            { id: "ocr", label: "OCR" },
             { id: "page", label: "Page", disabled: true },
             { id: "text_pass", label: "Text pass" },
             { id: "ai", label: "AI" },
@@ -277,7 +283,12 @@
     else if (id === "export") ui.exportOpen = true;
     else if (id === "text_pass") tab = "text_pass";
     else {
-      view.mode = "processing";
+      const want = id === "ocr" ? "ocr" : "import";
+      if (view.mode === "processing") tab = want;
+      else {
+        nextTab = want;
+        view.mode = "processing";
+      }
     }
   }
 </script>
@@ -285,7 +296,7 @@
 <svelte:window onkeydown={onkeydown} />
 
 <div class="workspace" class:review={view.mode === "review"} class:layoutmode={view.mode === "layout"} class:strip={view.mode === "review" && ui.theme !== "bench"}>
-  <PipelineRail {stages} activeId={view.mode === "processing" ? "import" : ""} onselect={onrail}>
+  <PipelineRail {stages} activeId={view.mode === "processing" ? (tab === "ocr" ? "ocr" : "import") : ""} onselect={onrail}>
     <div class="review-block">
       <button type="button" class="label linkish" onclick={() => (view.mode = "review")}>Review</button>
       <div class="row"><span>Unresolved</span><b>{review.counts.unresolved || "—"}</b></div>
@@ -431,6 +442,8 @@
       <PageInspector page={currentPage} />
     {:else if tab === "text_pass"}
       <TextPassInspector {summary} page={currentPage} />
+    {:else if tab === "ocr"}
+      <OcrInspector {summary} />
     {:else if tab === "ai"}
       <AiTab {summary} />
     {:else}

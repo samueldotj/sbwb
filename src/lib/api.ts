@@ -426,6 +426,7 @@ export const api = {
   pipelineResume: () => invoke<void>("pipeline_resume"),
   pipelineCancel: () => invoke<void>("pipeline_cancel"),
   pipelineRetryFailed: () => invoke<unknown>("pipeline_retry_failed"),
+  ocrConfidences: () => invoke<{ page: number; mean_confidence: number; words: number }[]>("ocr_confidences"),
   pipelineStatus: () => invoke<PipelineStatusView>("pipeline_status"),
   settingsGet: () => invoke<ProcessingSettings>("settings_get"),
   settingsPreview: (settings: ProcessingSettings) =>
