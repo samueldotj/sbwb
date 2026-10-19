@@ -55,6 +55,15 @@ impl Project {
     ) -> Result<MergeOutcome> {
         self.require_write()?;
         let mut spans = self.page_spans(page)?;
+        let order: std::collections::HashMap<RegionId, u32> = self
+            .page_layout(page)?
+            .map(|l| {
+                serde_json::from_value::<Vec<sbwb_layout::Region>>(l.regions).unwrap_or_default()
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| (r.id, r.order))
+            .collect();
         let mut out = MergeOutcome::default();
         let now = Timestamp::now().to_string();
         let mut proposals: Vec<(SpanId, u64, String, String, u8, String, String)> = Vec::new(); // span, rev, original, replacement, score, reason, source
@@ -169,10 +178,23 @@ impl Project {
                     .map(|(i, _)| i)
                     .collect();
                 let at = candidates.last().map(|i| i + 1).unwrap_or_else(|| {
-                    // no span above: before the first span of the region, else start
+                    // no span above: before the first span of the region; a
+                    // region with no words yet (a side note OCR missed) goes
+                    // after the regions before it in reading order
                     spans
                         .iter()
                         .position(|e| region.is_some() && e.region == region)
+                        .or_else(|| {
+                            let mine = region.and_then(|r| order.get(&r))?;
+                            spans
+                                .iter()
+                                .rposition(|e| {
+                                    e.region
+                                        .and_then(|r| order.get(&r))
+                                        .is_some_and(|o| o < mine)
+                                })
+                                .map(|i| i + 1)
+                        })
                         .unwrap_or(0)
                 });
                 if at == 0 && spans.first().map(|f| f.region == region).unwrap_or(false) {
@@ -499,6 +521,76 @@ mod tests {
             confidence: conf,
             text: text.into(),
         }
+    }
+
+    /// A side note OCR missed entirely: its region has no words, so the
+    /// recognised words go after the regions before it in reading order,
+    /// not to the top of the page.
+    #[test]
+    fn words_for_an_empty_region_follow_reading_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path());
+        let page = PageIndex(0);
+        let body = sbwb_layout::Region::new(
+            sbwb_layout::RegionKind::Body,
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            0,
+        );
+        let note = sbwb_layout::Region::new(
+            sbwb_layout::RegionKind::Marginalia,
+            Rect::new(110.0, 20.0, 30.0, 20.0),
+            1,
+        );
+        let foot = sbwb_layout::Region::new(
+            sbwb_layout::RegionKind::Footer,
+            Rect::new(0.0, 120.0, 100.0, 10.0),
+            2,
+        );
+        let regions = serde_json::to_value(vec![body.clone(), note.clone(), foot.clone()]).unwrap();
+        p.put_page_layout(
+            page,
+            None,
+            &regions,
+            &serde_json::json!({}),
+            None,
+            true,
+            true,
+        )
+        .unwrap();
+        let mut spans = vec![
+            span(0, "Text", 5.0, 10.0, SpanOrigin::Ocr),
+            span(1, "runs", 5.0, 50.0, SpanOrigin::Ocr),
+            span(2, "Footer", 5.0, 120.0, SpanOrigin::Ocr),
+        ];
+        spans[0].region = Some(body.id);
+        spans[1].region = Some(body.id);
+        spans[2].region = Some(foot.id);
+        p.put_page_text(page, None, &spans, &[]).unwrap();
+        let words = vec![
+            word("Side", 112.0, 22.0, 80.0),
+            word("note", 112.0, 30.0, 80.0),
+        ];
+        let out = p
+            .merge_region_candidates(
+                page,
+                RunId::new(),
+                Some(note.id),
+                &words,
+                None,
+                "region OCR",
+            )
+            .unwrap();
+        assert_eq!(out.spans_inserted, 2);
+        let texts: Vec<String> = p
+            .page_spans(page)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.text)
+            .collect();
+        assert_eq!(texts, ["Text", "runs", "Side", "note", "Footer"]);
+        assert!(p.page_spans(page).unwrap()[2..4]
+            .iter()
+            .all(|s| s.region == Some(note.id)));
     }
 
     #[test]

@@ -3,7 +3,7 @@
 //! candidate merging into the review.
 
 use sbwb_core::{PageIndex, Rect, RegionId, Stage};
-use sbwb_ocr::OcrSettings;
+use sbwb_ocr::{OcrSettings, Segmentation};
 use sbwb_store::MergeOutcome;
 use sbwb_worker::{RequestKind, Response};
 use serde::Serialize;
@@ -105,8 +105,11 @@ pub fn region_ocr(
                 crop: bbox,
                 dpi: 300,
                 enlarge,
+                // A region is one block of text: page-level segmentation
+                // (PSM 3) drops small heavy blocks such as side notes.
                 settings: OcrSettings {
                     model,
+                    segmentation: Segmentation::SingleBlock,
                     ..Default::default()
                 },
                 second_engine: second_engine.unwrap_or(false),
