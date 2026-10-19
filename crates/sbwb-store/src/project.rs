@@ -1573,7 +1573,7 @@ mod tests {
             id: sbwb_core::SpanId::new(),
             page,
             seq,
-            region: None,
+            region: Some(sbwb_core::RegionId::new()),
             text: text.into(),
             anchors: vec![],
             origin: sbwb_text::SpanOrigin::Ocr,

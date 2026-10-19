@@ -430,10 +430,12 @@ pub fn reconstruct(
         .flatten()
         .collect();
 
-    // Spelling proposals (D-24 rule b and dictionary suggestions).
+    // Spelling proposals (D-24 rule b and dictionary suggestions). Text
+    // outside every region (stamps, shelf marks, scan noise) is left as read.
     let mut suggest_budget: u32 = policy.suggest_budget;
     for s in spans.iter() {
-        if s.protected
+        if s.region.is_none()
+            || s.protected
             || !is_word_like(&s.text)
             || s.text.ends_with('-')
             || join_fragments.contains(&s.id)

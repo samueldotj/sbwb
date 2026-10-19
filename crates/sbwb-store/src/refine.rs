@@ -469,7 +469,7 @@ mod tests {
             id: SpanId::new(),
             page: PageIndex(0),
             seq,
-            region: None,
+            region: Some(sbwb_core::RegionId::new()),
             text: text.into(),
             anchors: vec![Anchor {
                 page: PageIndex(0),

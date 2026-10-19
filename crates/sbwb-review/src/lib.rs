@@ -198,10 +198,11 @@ pub fn candidate_meta(reason: &str) -> (String, bool) {
 }
 
 /// Build the open issues for a page from its effective text and the
-/// proposals that were not applied.
+/// proposals that were not applied. Words outside every layout region get
+/// no correction offer, whatever proposed one.
 pub fn build_issues(page: PageIndex, spans: &[Span], proposals: &[Proposal]) -> Vec<Issue> {
     let mut out = Vec::new();
-    for s in spans {
+    for s in spans.iter().filter(|s| s.region.is_some()) {
         let open: Vec<&Proposal> = proposals
             .iter()
             .filter(|p| p.span == s.id && !p.auto_applied && !p.cross_page)
@@ -548,7 +549,7 @@ mod tests {
             id: SpanId::new(),
             page: PageIndex(3),
             seq,
-            region: None,
+            region: Some(sbwb_core::RegionId::new()),
             text: text.into(),
             anchors: vec![],
             origin: SpanOrigin::Ocr,
@@ -593,6 +594,26 @@ mod tests {
         let f = IssueFilter::default();
         assert!(!f.matches(&issues[0]), "88 is not below 70");
         assert!(f.matches(&issues[1]));
+    }
+
+    #[test]
+    fn no_issues_outside_regions() {
+        let mut stamp = span("16551", 0, Some(30.0));
+        stamp.region = None;
+        let props = vec![Proposal {
+            id: ProposalId::new(),
+            span: stamp.id,
+            span_revision: 1,
+            kind: ProposalKind::Spelling,
+            original: "16551".into(),
+            replacement: "1655".into(),
+            score: 50,
+            reason: "dictionary".into(),
+            auto_applied: false,
+            merged_span: None,
+            cross_page: false,
+        }];
+        assert!(build_issues(PageIndex(0), &[stamp], &props).is_empty());
     }
 
     #[test]

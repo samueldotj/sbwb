@@ -1823,7 +1823,7 @@ mod tests {
             id: SpanId::new(),
             page: PageIndex(page),
             seq,
-            region: None,
+            region: Some(sbwb_core::RegionId::new()),
             text: text.into(),
             anchors: vec![],
             origin: SpanOrigin::Ocr,
