@@ -190,6 +190,12 @@
   const fnByAnchor = $derived(new Map(review.footnotes.refs.map((r) => [r.anchor, r])));
   const fnByNote = $derived(new Map(review.footnotes.refs.filter((r) => r.status === "linked").map((r) => [r.note, r])));
 
+  /** Any word under the pointer (or focused), marked or not, points at its box on the scan. */
+  function pointAtWord(e: Event) {
+    const id = (e.target as Element | null)?.closest?.("[data-span]")?.getAttribute("data-span") ?? null;
+    if (id !== review.hoverSpan) review.hoverSpan = id;
+  }
+
   function title(w: Word): string {
     const i = w.mark.issue;
     if (i) return `${i.reason}${i.score !== null ? ` · ${i.score}% · ${i.score_source}` : ""}`;
@@ -245,6 +251,9 @@
     bind:this={bodyEl}
     style="font-size:calc(var(--font-size-transcript) * {ui.transcriptZoom / 100})"
     onmouseup={onSelect}
+    onmouseover={pointAtWord}
+    onfocusin={pointAtWord}
+    onmouseleave={() => (review.hoverSpan = null)}
     onkeyup={(e) => { if (e.shiftKey) onSelect(); }}
     onwheel={(e) => {
       if (!e.ctrlKey) return;
@@ -618,6 +627,10 @@
   .mark:focus-visible {
     outline: 2px solid var(--text);
     outline-offset: 2px;
+  }
+  .para span[data-span]:hover {
+    text-decoration: underline dotted var(--accent);
+    text-underline-offset: 3px;
   }
   .fnref,
   .fnnum {

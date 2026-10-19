@@ -79,8 +79,11 @@
   .hl.auto {
     outline: var(--ring) dotted var(--ok);
   }
+  /* the word under the pointer in the transcript: outline plus a bar
+     under the word, never a fill over it */
   .hl.hovered {
-    outline: var(--ring) solid var(--text);
+    outline: calc(var(--ring) * 1.5) solid var(--accent);
+    box-shadow: 0 calc(var(--ring) * 3) 0 0 var(--accent);
   }
   .hl.focused {
     outline: calc(var(--ring) * 2) double var(--accent);
