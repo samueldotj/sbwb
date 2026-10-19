@@ -90,11 +90,57 @@
   });
   const settingsLine = $derived(settings ? `${settings.model === "eng_best" ? "eng best" : "eng fast"} · ${settings.dpi}dpi · deskew ${settings.deskew ? "on" : "off"}` : "");
 
-  $effect(() => {
-    if (view.pageCount !== summary.meta.source.page_count) view.reset(summary.meta.source.page_count);
-  });
   /** A tab asked for together with a mode change (a rail click). */
   let nextTab: string | null = null;
+
+  // ----- where the book was left (per viewer, per book) -----
+  // Opening a book returns to the mode, page, inspector tab and scan zoom it
+  // had when it was closed. Kept in local storage under the book's id: a
+  // convenience of this viewer, not part of the project file.
+  type SavedView = { mode: typeof view.mode; page: number; tab: string; zoomMode: typeof view.zoomMode; zoom: number };
+  const VALID_TABS: Record<typeof view.mode, string[]> = {
+    processing: ["import", "ocr", "layout", "text_pass", "ai"],
+    review: ["issue", "page", "text_pass", "ai"],
+    layout: ["region", "page"],
+  };
+  const viewKey = (id: string) => `sbwb.view.${id}`;
+  function readView(id: string): SavedView | null {
+    try {
+      const v = JSON.parse(localStorage.getItem(viewKey(id)) ?? "null") as SavedView | null;
+      return v && typeof v.page === "number" && v.mode in VALID_TABS ? v : null;
+    } catch {
+      return null;
+    }
+  }
+  let restoredFor: string | null = null;
+  $effect(() => {
+    const id = summary.meta.id;
+    const pages = summary.meta.source.page_count;
+    if (id === restoredFor && view.pageCount === pages) return;
+    restoredFor = id;
+    untrack(() => {
+      view.reset(pages);
+      const saved = readView(id);
+      if (!saved) return;
+      view.goTo(saved.page);
+      view.zoomMode = saved.zoomMode ?? "fit";
+      view.zoom = saved.zoom ?? 1;
+      const want = VALID_TABS[saved.mode].includes(saved.tab) ? saved.tab : null;
+      nextTab = want;
+      view.mode = saved.mode;
+      if (want) tab = want;
+    });
+  });
+  $effect(() => {
+    const saved: SavedView = { mode: view.mode, page: view.page, tab, zoomMode: view.zoomMode, zoom: view.zoom };
+    const id = restoredFor;
+    if (!id || view.pageCount === 0) return;
+    try {
+      localStorage.setItem(viewKey(id), JSON.stringify(saved));
+    } catch {
+      /* storage unavailable */
+    }
+  });
   $effect(() => {
     const fallback = view.mode === "review" ? "issue" : view.mode === "layout" ? "region" : "import";
     tab = nextTab ?? fallback;
