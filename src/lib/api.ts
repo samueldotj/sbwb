@@ -22,6 +22,8 @@ export type PageRow = {
   approval: "none" | "current" | "outdated";
 };
 
+export type LayoutPageInfo = { page: number; manual: boolean; kinds: Partial<Record<RegionKind, number>>; missing_text: number; clipping: number; order: number };
+
 export type PageCounts = {
   source: number;
   in_scope: number;
@@ -426,6 +428,7 @@ export const api = {
   pipelineResume: () => invoke<void>("pipeline_resume"),
   pipelineCancel: () => invoke<void>("pipeline_cancel"),
   pipelineRetryFailed: () => invoke<unknown>("pipeline_retry_failed"),
+  layoutOverview: () => invoke<LayoutPageInfo[]>("layout_overview"),
   ocrConfidences: () => invoke<{ page: number; mean_confidence: number; words: number }[]>("ocr_confidences"),
   pipelineStatus: () => invoke<PipelineStatusView>("pipeline_status"),
   settingsGet: () => invoke<ProcessingSettings>("settings_get"),

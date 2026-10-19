@@ -17,8 +17,8 @@ pub mod schema;
 pub use footnotes::{FootnoteNote, FootnotePage, FootnoteRef};
 pub use lock::{LockState, WriterLock};
 pub use project::{
-    ExportRecord, OpenMode, PageCounts, PageLayout, PageOcr, PageRow, Project, ProjectMeta,
-    ProjectSummary, RunRecord, SourceInfo, StoredProposal,
+    ExportRecord, LayoutPageInfo, OpenMode, PageCounts, PageLayout, PageOcr, PageRow, Project,
+    ProjectMeta, ProjectSummary, RunRecord, SourceInfo, StoredProposal,
 };
 pub use refine::{AiRunRecord, MergeOutcome};
 pub use review::{

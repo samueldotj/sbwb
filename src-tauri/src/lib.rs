@@ -134,6 +134,7 @@ pub fn run() {
             commands::layout::page_layout,
             commands::layout::layout_save,
             commands::layout::layout_rerun,
+            commands::layout::layout_overview,
             commands::text::page_text,
             commands::text::text_pass_summary,
             commands::text::text_pass_rerun,

@@ -71,6 +71,21 @@ pub struct PageRow {
     pub approval: String,
 }
 
+/// One page in the Layout tab's overview.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct LayoutPageInfo {
+    pub page: u32,
+    /// A person edited the regions.
+    pub manual: bool,
+    /// Region count by kind ("body", "marginalia", ...).
+    pub kinds: std::collections::BTreeMap<String, u32>,
+    /// Open "missing text" issues: text-like areas with no words.
+    pub missing_text: u32,
+    pub clipping: u32,
+    /// Open reading-order issues.
+    pub order: u32,
+}
+
 /// A proposal row with its decision status (M5/M6).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StoredProposal {
@@ -934,6 +949,69 @@ impl Project {
         rows.collect::<std::result::Result<Vec<_>, _>>().map_err(db)
     }
 
+    /// Per-page layout facts for the Layout tab: whether a person edited
+    /// the page, how many regions of each kind it has, and its open layout
+    /// issues (text with no words, clipping, uncertain reading order).
+    pub fn layout_overview(&self) -> Result<Vec<LayoutPageInfo>> {
+        let mut out: std::collections::BTreeMap<u32, LayoutPageInfo> = Default::default();
+        {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT page_index, regions, manual FROM page_layout")
+                .map_err(db)?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)? != 0,
+                    ))
+                })
+                .map_err(db)?;
+            for row in rows {
+                let (page, regions, manual) = row.map_err(db)?;
+                let regions: Vec<serde_json::Value> =
+                    serde_json::from_str(&regions).unwrap_or_default();
+                let info = out.entry(page as u32).or_insert_with(|| LayoutPageInfo {
+                    page: page as u32,
+                    ..Default::default()
+                });
+                info.manual = manual;
+                for r in regions {
+                    if let Some(k) = r.get("kind").and_then(|k| k.as_str()) {
+                        *info.kinds.entry(k.to_string()).or_default() += 1;
+                    }
+                }
+            }
+        }
+        let mut stmt = self
+            .conn
+            .prepare("SELECT page_index, kind, count(*) FROM issues WHERE status IN ('open', 'deferred') AND kind IN ('missing_text', 'clipping', 'order_ambiguity') GROUP BY page_index, kind")
+            .map_err(db)?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(db)?;
+        for row in rows {
+            let (page, kind, n) = row.map_err(db)?;
+            let info = out.entry(page as u32).or_insert_with(|| LayoutPageInfo {
+                page: page as u32,
+                ..Default::default()
+            });
+            match kind.as_str() {
+                "missing_text" => info.missing_text = n as u32,
+                "clipping" => info.clipping = n as u32,
+                _ => info.order = n as u32,
+            }
+        }
+        Ok(out.into_values().collect())
+    }
+
     // ----- effective text (M5) -----
 
     /// Replace a page's spans and undecided proposals with a new text-pass
@@ -1529,6 +1607,39 @@ mod tests {
             Project::open(&dir.path().join("empty.sbwb"), OpenMode::ReadWrite),
             Err(SbwbError::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn layout_overview_counts_kinds_and_marks_edited_pages() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = create_in(dir.path());
+        let regions = serde_json::json!([{ "kind": "body" }, { "kind": "marginalia" }, { "kind": "marginalia" }, { "kind": "uncertain" }]);
+        p.put_page_layout(
+            PageIndex(1),
+            None,
+            &regions,
+            &serde_json::json!({}),
+            None,
+            true,
+            false,
+        )
+        .unwrap();
+        p.put_page_layout(
+            PageIndex(2),
+            None,
+            &serde_json::json!([{ "kind": "body" }]),
+            &serde_json::json!({}),
+            Some("cc/1"),
+            false,
+            false,
+        )
+        .unwrap();
+        let o = p.layout_overview().unwrap();
+        assert_eq!(o.len(), 2);
+        assert_eq!((o[0].page, o[0].manual), (1, true));
+        assert_eq!(o[0].kinds.get("marginalia"), Some(&2));
+        assert_eq!(o[0].kinds.get("uncertain"), Some(&1));
+        assert_eq!((o[1].page, o[1].manual, o[1].missing_text), (2, false, 0));
     }
 
     #[test]

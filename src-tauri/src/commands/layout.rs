@@ -2,6 +2,7 @@
 
 use sbwb_core::{PageIndex, PageStatus, Stage};
 use sbwb_layout::Region;
+use sbwb_store::LayoutPageInfo;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
@@ -113,6 +114,18 @@ pub fn layout_save(
 }
 
 /// Discard the manual layout and analyse the page again.
+#[tauri::command]
+pub fn layout_overview(state: State<'_, AppState>) -> CmdResult<Vec<LayoutPageInfo>> {
+    let guard = state
+        .project
+        .lock()
+        .map_err(|_| CommandError::new("other", "state poisoned"))?;
+    let p = guard
+        .as_ref()
+        .ok_or_else(|| CommandError::new("not_found", "no open book"))?;
+    Ok(p.store.layout_overview()?)
+}
+
 #[tauri::command]
 pub fn layout_rerun(app: AppHandle, state: State<'_, AppState>, index: u32) -> CmdResult<()> {
     {

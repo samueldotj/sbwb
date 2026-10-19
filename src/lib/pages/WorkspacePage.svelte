@@ -8,6 +8,7 @@
   import PageInspector from "$lib/workspace/PageInspector.svelte";
   import TextPassInspector from "$lib/workspace/TextPassInspector.svelte";
   import OcrInspector from "$lib/workspace/OcrInspector.svelte";
+  import LayoutTab from "$lib/workspace/LayoutTab.svelte";
   import IssueInspector from "$lib/workspace/IssueInspector.svelte";
   import WordHighlights from "$lib/workspace/WordHighlights.svelte";
   import GroupSheet from "$lib/workspace/GroupSheet.svelte";
@@ -272,6 +273,7 @@
         : [
             { id: "import", label: "Import" },
             { id: "ocr", label: "OCR" },
+            { id: "layout", label: "Layout" },
             { id: "page", label: "Page", disabled: true },
             { id: "text_pass", label: "Text pass" },
             { id: "ai", label: "AI" },
@@ -283,7 +285,8 @@
     else if (id === "export") ui.exportOpen = true;
     else if (id === "text_pass") tab = "text_pass";
     else {
-      const want = id === "ocr" ? "ocr" : "import";
+      const want = id === "ocr" || id === "layout" ? id : "import";
+      if (view.mode === "layout") void layout.flush();
       if (view.mode === "processing") tab = want;
       else {
         nextTab = want;
@@ -296,7 +299,7 @@
 <svelte:window onkeydown={onkeydown} />
 
 <div class="workspace" class:review={view.mode === "review"} class:layoutmode={view.mode === "layout"} class:strip={view.mode === "review" && ui.theme !== "bench"}>
-  <PipelineRail {stages} activeId={view.mode === "processing" ? (tab === "ocr" ? "ocr" : "import") : ""} onselect={onrail}>
+  <PipelineRail {stages} activeId={view.mode === "processing" ? (tab === "ocr" || tab === "layout" ? tab : "import") : ""} onselect={onrail}>
     <div class="review-block">
       <button type="button" class="label linkish" onclick={() => (view.mode = "review")}>Review</button>
       <div class="row"><span>Unresolved</span><b>{review.counts.unresolved || "—"}</b></div>
@@ -444,6 +447,8 @@
       <TextPassInspector {summary} page={currentPage} />
     {:else if tab === "ocr"}
       <OcrInspector {summary} />
+    {:else if tab === "layout"}
+      <LayoutTab {summary} />
     {:else if tab === "ai"}
       <AiTab {summary} />
     {:else}
