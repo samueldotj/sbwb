@@ -102,6 +102,15 @@
 </div>
 
 <style>
+  /* Long file names and paths have few break points: let them wrap
+     anywhere rather than widen the inspector. */
+  .card-plain,
+  .card,
+  .card > *,
+  .small {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
   .label {
     margin-bottom: 6px;
   }
@@ -140,6 +149,7 @@
   }
   .seg {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
   }
   .seg button {
@@ -174,6 +184,7 @@
   }
   input {
     flex: 1;
+    min-width: 0;
     padding: 6px 8px;
     border: 1px solid var(--border-input);
     border-radius: 5px;
@@ -194,7 +205,9 @@
   }
   .row-between {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
+    gap: 2px 10px;
   }
   .small-row {
     font-size: 12px;
