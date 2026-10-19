@@ -1,7 +1,9 @@
 <script lang="ts">
   // Region overlay in page-point space (design 4.4). In review mode it only
   // outlines regions; in layout mode it supports select, move, resize,
-  // draw, split, and merge with pointer and keyboard.
+  // draw, split, and merge with pointer and keyboard. Select mode also
+  // picks several regions: Ctrl/Shift-click toggles one, and dragging on
+  // the page draws a selection rectangle (with Ctrl, it adds).
   import type { Region } from "$lib/api";
   import { layout, KIND_LABEL } from "$lib/stores/layout.svelte";
 
@@ -12,7 +14,8 @@
   type Drag =
     | { kind: "move"; id: string; start: { x: number; y: number }; box: Region["bbox"] }
     | { kind: "resize"; id: string; corner: "nw" | "ne" | "sw" | "se"; box: Region["bbox"] }
-    | { kind: "draw"; start: { x: number; y: number }; cur: { x: number; y: number } };
+    | { kind: "draw"; start: { x: number; y: number }; cur: { x: number; y: number } }
+    | { kind: "marquee"; start: { x: number; y: number }; cur: { x: number; y: number }; add: boolean };
   let drag = $state<Drag | null>(null);
   let mergeFirst = $state<string | null>(null);
 
@@ -26,6 +29,10 @@
     e.stopPropagation();
     const p = toPage(e);
     if (layout.tool === "select") {
+      if (e.ctrlKey || e.metaKey || e.shiftKey) {
+        layout.toggle(r.id);
+        return;
+      }
       layout.selectedId = r.id;
       drag = { kind: "move", id: r.id, start: p, box: { ...r.bbox } };
       layout.beginDrag();
@@ -60,7 +67,8 @@
       drag = { kind: "draw", start: p, cur: p };
       root!.setPointerCapture(e.pointerId);
     } else if (layout.tool === "select") {
-      layout.selectedId = null;
+      drag = { kind: "marquee", start: p, cur: p, add: e.ctrlKey || e.metaKey || e.shiftKey };
+      root!.setPointerCapture(e.pointerId);
     }
   }
   function onMove(e: PointerEvent) {
@@ -84,7 +92,22 @@
   }
   function onUp() {
     if (!drag) return;
-    if (drag.kind === "draw") {
+    if (drag.kind === "marquee") {
+      const x0 = Math.min(drag.start.x, drag.cur.x);
+      const y0 = Math.min(drag.start.y, drag.cur.y);
+      const x1 = Math.max(drag.start.x, drag.cur.x);
+      const y1 = Math.max(drag.start.y, drag.cur.y);
+      if (x1 - x0 < 3 && y1 - y0 < 3) {
+        // a click on the page clears the selection
+        if (!drag.add) layout.select([]);
+      } else {
+        // every region the rectangle touches
+        const hit = regions
+          .filter((r) => r.bbox.x < x1 && r.bbox.x + r.bbox.w > x0 && r.bbox.y < y1 && r.bbox.y + r.bbox.h > y0)
+          .map((r) => r.id);
+        layout.select(hit, drag.add);
+      }
+    } else if (drag.kind === "draw") {
       const x0 = Math.min(drag.start.x, drag.cur.x);
       const y0 = Math.min(drag.start.y, drag.cur.y);
       const w = Math.abs(drag.cur.x - drag.start.x);
@@ -104,7 +127,7 @@
     else if (e.key === "ArrowUp") b.y -= step;
     else if (e.key === "ArrowDown") b.y += step;
     else if (e.key === "Delete" || e.key === "Backspace") {
-      layout.remove(r.id);
+      layout.removeMany(layout.isSelected(r.id) ? layout.selection : [r.id]);
       e.preventDefault();
       return;
     } else return;
@@ -112,7 +135,7 @@
     e.preventDefault();
   }
   const drawRect = $derived(
-    drag && drag.kind === "draw"
+    drag && (drag.kind === "draw" || drag.kind === "marquee")
       ? { x: Math.min(drag.start.x, drag.cur.x), y: Math.min(drag.start.y, drag.cur.y), w: Math.abs(drag.cur.x - drag.start.x), h: Math.abs(drag.cur.y - drag.start.y) }
       : null,
   );
@@ -132,7 +155,7 @@
   {#each regions as r (r.id)}
     <div
       class="region {r.kind}"
-      class:selected={interactive && r.id === layout.selectedId}
+      class:selected={interactive && layout.isSelected(r.id)}
       class:merge-first={r.id === mergeFirst}
       style="left:{r.bbox.x}px;top:{r.bbox.y}px;width:{r.bbox.w}px;height:{r.bbox.h}px"
       {...(interactive ? { role: "button", tabindex: 0 } : {})}
@@ -140,7 +163,7 @@
       onpointerdown={(e) => onRegionDown(e, r)}
       onkeydown={(e) => onkeydown(e, r)}
     >
-      <span class="tag" style="font-size:{Math.max(6, 8 / zoom)}px">{r.order + 1} {KIND_LABEL[r.kind]}{interactive && r.id === layout.selectedId ? " · selected" : ""}</span>
+      <span class="tag" style="font-size:{Math.max(6, 8 / zoom)}px">{r.order + 1} {KIND_LABEL[r.kind]}{interactive && layout.isSelected(r.id) ? " · selected" : ""}</span>
       {#if interactive && r.id === layout.selectedId && layout.tool === "select"}
         {#each ["nw", "ne", "sw", "se"] as c (c)}
           <span class="handle {c}" style="width:{7 / zoom}px;height:{7 / zoom}px" onpointerdown={(e) => onHandleDown(e, r, c as "nw" | "ne" | "sw" | "se")} role="presentation"></span>
@@ -148,7 +171,9 @@
       {/if}
     </div>
   {/each}
-  {#if drawRect}
+  {#if drawRect && drag?.kind === "marquee"}
+    <div class="marquee" style="left:{drawRect.x}px;top:{drawRect.y}px;width:{drawRect.w}px;height:{drawRect.h}px"></div>
+  {:else if drawRect}
     <div class="region uncertain drawing" style="left:{drawRect.x}px;top:{drawRect.y}px;width:{drawRect.w}px;height:{drawRect.h}px"></div>
   {/if}
 </div>
@@ -276,5 +301,13 @@
   }
   .drawing {
     outline-style: dashed;
+  }
+  .marquee {
+    position: absolute;
+    box-sizing: border-box;
+    border: 1px dashed var(--text);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    pointer-events: none;
+    z-index: 3;
   }
 </style>

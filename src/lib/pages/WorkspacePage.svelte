@@ -178,7 +178,7 @@
         e.preventDefault();
       } else if ((e.key === "Delete" || e.key === "Backspace") && !e.defaultPrevented) {
         // A focused region handles its own Delete; this covers the selection.
-        if (layout.selectedId) layout.remove(layout.selectedId);
+        layout.removeMany(layout.selection);
         e.preventDefault();
       } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         const k = e.key.toLowerCase();
@@ -364,7 +364,7 @@
         {#each [["select", "Select", "V"], ["draw", "Draw", "R"], ["split", "Split", "X"], ["merge", "Merge", "M"]] as [id, label, key] (id)}
           <button type="button" class="tool" class:on={layout.tool === id} onclick={() => (layout.tool = id as typeof layout.tool)} aria-pressed={layout.tool === id} title="{label} ({key})" aria-label="{label} ({key})">{label}<span class="key">{key}</span></button>
         {/each}
-        <button type="button" class="tool" onclick={() => layout.selectedId && layout.remove(layout.selectedId)} disabled={!layout.selectedId} title="Delete the selected region (Del)" aria-label="Delete region (Del)">Delete<span class="key">Del</span></button>
+        <button type="button" class="tool" onclick={() => layout.removeMany(layout.selection)} disabled={layout.selection.length === 0} title="Delete the selected regions (Del)" aria-label="Delete selected regions (Del)">Delete{layout.selection.length > 1 ? ` ${layout.selection.length}` : ""}<span class="key">Del</span></button>
         <span class="muted small">{String(layout.report?.columns ?? 1)} col</span>
       {/snippet}
       {#snippet overlay({ page, zoom })}

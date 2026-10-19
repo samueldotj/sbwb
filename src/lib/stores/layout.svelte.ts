@@ -78,7 +78,8 @@ class LayoutState {
   manual = $state(false);
   revision = $state(0);
   loading = $state(false);
-  selectedId = $state<string | null>(null);
+  /** Selected regions, in the order they were picked. */
+  selection = $state<string[]>([]);
   tool = $state<Tool>("select");
   showRegions = $state(true);
   /** A layout save is in flight. */
@@ -95,8 +96,31 @@ class LayoutState {
   get dirty(): boolean {
     return JSON.stringify(this.regions) !== JSON.stringify(this.saved);
   }
+  /** The selected region when exactly one is selected; single-region
+   *  tools (resize, split, recognise) act on it. Setting it selects only it. */
+  get selectedId(): string | null {
+    return this.selection.length === 1 ? this.selection[0]! : null;
+  }
+  set selectedId(id: string | null) {
+    this.selection = id ? [id] : [];
+  }
   get selected(): Region | null {
     return this.regions.find((r) => r.id === this.selectedId) ?? null;
+  }
+  get selectedRegions(): Region[] {
+    return this.regions.filter((r) => this.selection.includes(r.id));
+  }
+  isSelected(id: string): boolean {
+    return this.selection.includes(id);
+  }
+  /** Ctrl/Shift-click: add a region to the selection or take it out. */
+  toggle(id: string) {
+    this.selection = this.selection.includes(id) ? this.selection.filter((x) => x !== id) : [...this.selection, id];
+  }
+  /** Select regions; `add` keeps the current selection. */
+  select(ids: string[], add = false) {
+    const base = add ? this.selection : [];
+    this.selection = [...base, ...ids.filter((id) => !base.includes(id))];
   }
   get canUndo(): boolean {
     return this.undoDepth > 0;
@@ -108,7 +132,7 @@ class LayoutState {
     const samePage = this.page === page;
     this.page = page;
     if (!samePage) {
-      this.selectedId = null;
+      this.selection = [];
       this.#clearUndo();
     }
     if (!isTauri) {
@@ -128,7 +152,7 @@ class LayoutState {
       this.report = (l?.report as Record<string, unknown>) ?? null;
       this.manual = l?.manual ?? false;
       this.revision = l?.revision ?? 0;
-      if (this.selectedId && !this.regions.some((r) => r.id === this.selectedId)) this.selectedId = null;
+      this.selection = this.selection.filter((id) => this.regions.some((r) => r.id === id));
     } catch (e) {
       if (token === this.#loadToken) ui.toast(errorMessage(e), "error");
     } finally {
@@ -240,10 +264,21 @@ class LayoutState {
     return r;
   }
   remove(id: string) {
+    this.removeMany([id]);
+  }
+  /** Delete regions in one undo step. */
+  removeMany(ids: string[]) {
+    if (ids.length === 0) return;
     this.#push();
-    this.regions = this.regions.filter((r) => r.id !== id);
+    this.regions = this.regions.filter((r) => !ids.includes(r.id));
     this.#renumber();
-    if (this.selectedId === id) this.selectedId = null;
+    this.selection = this.selection.filter((id) => !ids.includes(id));
+  }
+  /** Change the type of regions in one undo step. */
+  setKindMany(ids: string[], kind: RegionKind) {
+    if (ids.length === 0) return;
+    this.#push();
+    this.regions = this.regions.map((r) => (ids.includes(r.id) ? { ...r, kind, manual: true } : r));
   }
   /// Split a region horizontally at a page-space y.
   splitAt(id: string, y: number) {

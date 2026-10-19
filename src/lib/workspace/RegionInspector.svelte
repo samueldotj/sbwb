@@ -20,6 +20,10 @@
     ["table_cell", "Table cell"],
   ];
   const r = $derived(layout.selected);
+  const many = $derived(layout.selectedRegions);
+  /** The type every selected region shares, if any. */
+  const commonKind = $derived(many.length && many.every((x) => x.kind === many[0]!.kind) ? many[0]!.kind : null);
+  const manyBody = $derived(many.some((x) => x.kind === "body"));
   const pct = (v: number, total: number) => `${((v / total) * 100).toFixed(1)}%`;
 
   // Line bottoms inside the region, for "split after line N".
@@ -58,7 +62,25 @@
   }
 </script>
 
-{#if r}
+{#if many.length > 1}
+  <div>
+    <div class="strong">{many.length} regions selected</div>
+    <p class="muted small">{[...new Set(many.map((x) => KIND_LABEL[x.kind]))].join(", ")}. Ctrl- or Shift-click a region to add or remove it; drag on the page to select by area.</p>
+  </div>
+  <div>
+    <div class="label">Change type of all</div>
+    <div class="chips" role="radiogroup" aria-label="Type of the selected regions">
+      {#each KINDS as k (k)}
+        <button type="button" role="radio" aria-checked={commonKind === k} class="chip" class:on={commonKind === k} onclick={() => layout.setKindMany(layout.selection, k)}>{KIND_LABEL[k]}</button>
+      {/each}
+    </div>
+  </div>
+  <button type="button" class="btn danger" onclick={() => layout.removeMany(layout.selection)}>Delete {many.length} regions</button>
+  <button type="button" class="btn" onclick={() => layout.select([])}>Clear selection</button>
+  {#if manyBody}
+    <div class="hint">Changing a body region re-runs the text pass for this page and clears its approval.</div>
+  {/if}
+{:else if r}
   <div>
     <div class="label">Type</div>
     <div class="chips" role="radiogroup" aria-label="Region type">
@@ -107,7 +129,7 @@
     <div class="hint">Changing a body region re-runs the text pass for this page and clears its approval.</div>
   {/if}
 {:else}
-  <p class="muted">Select a region on the scan or in the reading order. Draw (R) adds one; Split (X) and Merge (M) act on click.</p>
+  <p class="muted">Select a region on the scan or in the reading order. Ctrl- or Shift-click adds more; dragging on the page selects every region the rectangle touches. Draw (R) adds one; Split (X) and Merge (M) act on click.</p>
   {#if layout.report}
     <div class="label">Coverage</div>
     <div class="facts">
@@ -121,6 +143,10 @@
 {/if}
 
 <style>
+  .strong {
+    font-weight: 600;
+    font-size: 13.5px;
+  }
   .label {
     margin-bottom: 6px;
   }

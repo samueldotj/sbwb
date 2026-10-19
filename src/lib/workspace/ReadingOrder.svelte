@@ -48,11 +48,11 @@
     {#each dragItems as it (it.id)}
       <div
         class="row {it.region.kind}"
-        class:selected={it.id === layout.selectedId}
+        class:selected={layout.isSelected(it.id)}
         role="button"
         tabindex="0"
         aria-label="{KIND_LABEL[it.region.kind]}: {it.preview || 'no text'}"
-        onclick={() => (layout.selectedId = it.id)}
+        onclick={(e) => (e.ctrlKey || e.metaKey || e.shiftKey ? layout.toggle(it.id) : (layout.selectedId = it.id))}
         onkeydown={(e) => {
           if (e.key === "Enter" || e.key === " ") layout.selectedId = it.id;
           else if (e.altKey && e.key === "ArrowUp") moveBy(it.id, -1);
