@@ -23,9 +23,11 @@ pub struct AppState {
     pub project: Mutex<Option<OpenProject>>,
     /// A worker kept warm for inspection and OCR probes.
     pub worker: Mutex<Option<Worker>>,
-    /// A separate worker for preview renders so a long OCR call never
-    /// blocks navigation (NFR-03).
-    pub render_worker: Mutex<Option<Worker>>,
+    /// Preview render workers, separate from the OCR worker so a long OCR
+    /// call never blocks navigation (NFR-03). Several, so pages render in
+    /// parallel; a render for the page on screen takes any free one.
+    render_workers: Vec<Mutex<Option<Worker>>>,
+    next_render: AtomicUsize,
     /// Renders for the page on screen that are waiting for or using the
     /// render worker; prefetch gives way to them.
     render_waiting: AtomicUsize,
@@ -37,7 +39,8 @@ impl AppState {
             resources,
             project: Mutex::new(None),
             worker: Mutex::new(None),
-            render_worker: Mutex::new(None),
+            render_workers: (0..render_pool_size()).map(|_| Mutex::new(None)).collect(),
+            next_render: AtomicUsize::new(0),
             render_waiting: AtomicUsize::new(0),
         }
     }
@@ -55,9 +58,17 @@ impl AppState {
         slot: &Mutex<Option<Worker>>,
         f: impl FnOnce(&mut Worker) -> sbwb_core::Result<T>,
     ) -> sbwb_core::Result<T> {
-        let mut guard = slot
+        let guard = slot
             .lock()
             .map_err(|_| sbwb_core::SbwbError::other("worker mutex poisoned"))?;
+        self.run_on(guard, f)
+    }
+
+    fn run_on<T>(
+        &self,
+        mut guard: std::sync::MutexGuard<'_, Option<Worker>>,
+        f: impl FnOnce(&mut Worker) -> sbwb_core::Result<T>,
+    ) -> sbwb_core::Result<T> {
         if guard.as_mut().map(|w| !w.is_alive()).unwrap_or(true) {
             *guard = Some(Worker::spawn(self.worker_config())?);
         }
@@ -77,13 +88,30 @@ impl AppState {
         self.with_slot(&self.worker, f)
     }
 
-    /// Render for the page on screen.
+    /// A free render worker, if any.
+    fn free_render_slot(&self) -> Option<std::sync::MutexGuard<'_, Option<Worker>>> {
+        self.render_workers.iter().find_map(|s| s.try_lock().ok())
+    }
+
+    /// Number of preview render workers.
+    pub fn render_pool_size(&self) -> usize {
+        self.render_workers.len()
+    }
+
+    /// Render for the page on screen: any free worker, else wait for one.
     pub fn with_render_worker<T>(
         &self,
         f: impl FnOnce(&mut Worker) -> sbwb_core::Result<T>,
     ) -> sbwb_core::Result<T> {
         self.render_waiting.fetch_add(1, Ordering::SeqCst);
-        let r = self.with_slot(&self.render_worker, f);
+        let r = match self.free_render_slot() {
+            Some(guard) => self.run_on(guard, f),
+            None => {
+                let i =
+                    self.next_render.fetch_add(1, Ordering::Relaxed) % self.render_workers.len();
+                self.with_slot(&self.render_workers[i], f)
+            }
+        };
         self.render_waiting.fetch_sub(1, Ordering::SeqCst);
         r
     }
@@ -98,13 +126,24 @@ impl AppState {
         if self.render_waiting.load(Ordering::SeqCst) > 0 {
             return Ok(None);
         }
-        self.with_slot(&self.render_worker, |w| {
+        let Some(guard) = self.free_render_slot() else {
+            return Ok(None);
+        };
+        self.run_on(guard, |w| {
             if self.render_waiting.load(Ordering::SeqCst) > 0 {
                 return Ok(None);
             }
             f(w).map(Some)
         })
     }
+}
+
+/// Preview render workers: half the cores, between 1 and 4. Each is a
+/// separate process with its own PDFium.
+fn render_pool_size() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| (n.get() / 2).clamp(1, 4))
+        .unwrap_or(2)
 }
 
 /// Error type crossing the IPC boundary: a code the UI can branch on plus a

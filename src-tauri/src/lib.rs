@@ -50,6 +50,7 @@ pub fn run() {
             app.manage(commands::export::ExportSlot::default());
             app.manage(commands::ai::AiSlot::default());
             app.manage(commands::queue::QueueSlot::default());
+            app.manage(commands::previews::PreviewSlot::default());
             commands::queue::load(&app.handle().clone());
 
             // Writer-lock heartbeat (PRJ-02).
@@ -119,6 +120,8 @@ pub fn run() {
             commands::page::ocr_confidences,
             commands::page::page_runs,
             commands::page::prefetch_render,
+            commands::previews::previews_start,
+            commands::previews::previews_stop,
             commands::pipeline::pipeline_start,
             commands::pipeline::pipeline_pause,
             commands::pipeline::pipeline_resume,

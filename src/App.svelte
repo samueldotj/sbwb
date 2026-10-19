@@ -8,6 +8,7 @@
   import WorkspacePage from "$lib/pages/WorkspacePage.svelte";
   import SettingsPage from "$lib/pages/SettingsPage.svelte";
   import { pipeline, formatEta } from "$lib/stores/pipeline.svelte";
+  import { previews } from "$lib/stores/previews.svelte";
   import { textPass } from "$lib/stores/text.svelte";
   import { review } from "$lib/stores/review.svelte";
   import ChoiceDialog from "$lib/shell/ChoiceDialog.svelte";
@@ -162,6 +163,7 @@
   onMount(() => {
     void project.init();
     void pipeline.init();
+    void previews.init();
     void textPass.init();
     void review.init();
     if (import.meta.env.DEV) {

@@ -1,12 +1,31 @@
 <script lang="ts">
-  // Page grid with status dots (design 4.2). Thumbnails arrive in M2.
+  // Page grid with status dots (design 4.2). `tile` is the thumbnail width
+  // in CSS px; the grid fits as many columns as that allows. Ctrl+wheel
+  // asks for a bigger or smaller size.
   import type { PageRow } from "$lib/api";
 
-  type Props = { pages: PageRow[]; current?: number | null; onopen?: (index: number) => void; thumbUrl?: (index: number) => string | null };
-  let { pages, current = null, onopen, thumbUrl }: Props = $props();
+  type Props = {
+    pages: PageRow[];
+    current?: number | null;
+    onopen?: (index: number) => void;
+    thumbUrl?: (index: number) => string | null;
+    tile?: number;
+    onzoom?: (dir: -1 | 1) => void;
+  };
+  let { pages, current = null, onopen, thumbUrl, tile = 110, onzoom }: Props = $props();
 </script>
 
-<div class="grid" role="group" aria-label="Pages">
+<div
+  class="grid"
+  role="group"
+  aria-label="Pages"
+  style="--tile:{tile}px;font-size:{Math.max(10, Math.min(13, tile / 11))}px"
+  onwheel={(e) => {
+    if (!e.ctrlKey || !onzoom) return;
+    e.preventDefault();
+    onzoom(e.deltaY < 0 ? 1 : -1);
+  }}
+>
   {#each pages as p (p.index)}
     <button
       type="button"
@@ -29,14 +48,19 @@
   .grid {
     padding: 18px;
     display: grid;
-    grid-template-columns: repeat(10, 1fr);
+    /* fixed tile size so every row is exactly one 3:4 tile tall */
+    grid-template-columns: repeat(auto-fill, var(--tile));
+    grid-auto-rows: calc(var(--tile) * 4 / 3);
+    justify-content: start;
     gap: 10px;
     align-content: start;
     overflow: auto;
   }
   .tile {
     all: unset;
-    aspect-ratio: 3 / 4;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
     background: var(--paper);
     border: 1px solid var(--border-input);
     border-radius: 2px;
@@ -44,7 +68,7 @@
     display: grid;
     place-items: end center;
     padding-bottom: 4px;
-    font-size: 10px;
+    font-size: 0.85em;
     color: var(--muted);
     cursor: default;
     overflow: hidden;

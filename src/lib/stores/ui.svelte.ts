@@ -14,6 +14,10 @@ export type Toast = {
 const THEME_KEY = "sbwb.theme";
 const SIZE_KEY = "sbwb.textsize";
 const TRANSCRIPT_ZOOM_KEY = "sbwb.transcriptzoom";
+const PAGE_TILE_KEY = "sbwb.pagetile";
+/** Width range of a page thumbnail in the Pages view, CSS px. */
+export const PAGE_TILE_MIN = 60;
+export const PAGE_TILE_MAX = 360;
 /** Transcript zoom steps, in percent of the theme's transcript size. */
 export const TRANSCRIPT_ZOOMS = [70, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 350, 400];
 
@@ -46,12 +50,24 @@ function readStoredTranscriptZoom(): number {
   return 100;
 }
 
+function readStoredPageTile(): number {
+  try {
+    const v = Number(localStorage.getItem(PAGE_TILE_KEY));
+    if (v >= PAGE_TILE_MIN && v <= PAGE_TILE_MAX) return v;
+  } catch {
+    /* storage unavailable */
+  }
+  return 110;
+}
+
 class UiState {
   theme = $state<Theme>(readStoredTheme());
   /** Enlarged text for the whole interface (UX-05). */
   textSize = $state<TextSize>(readStoredSize());
   /** Transcript text zoom in percent, independent of the scan zoom. */
   transcriptZoom = $state<number>(readStoredTranscriptZoom());
+  /** Thumbnail width in the Pages view, CSS px. */
+  pageTile = $state<number>(readStoredPageTile());
   /** Polite live-region text for screen readers (UX-05). */
   announcement = $state("");
   /** Durable-write state shown in the status bar (PRJ-04). */
@@ -83,6 +99,13 @@ class UiState {
         document.documentElement.dataset.textsize = this.textSize;
         try {
           localStorage.setItem(SIZE_KEY, this.textSize);
+        } catch {
+          /* ignore */
+        }
+      });
+      $effect(() => {
+        try {
+          localStorage.setItem(PAGE_TILE_KEY, String(this.pageTile));
         } catch {
           /* ignore */
         }
@@ -126,6 +149,12 @@ class UiState {
 
   toggleTheme() {
     this.theme = this.theme === "paper" ? "bench" : "paper";
+  }
+
+  /** Grow or shrink the Pages view thumbnails by about a fifth. */
+  zoomPageTiles(dir: -1 | 1) {
+    const next = Math.round(this.pageTile * (dir > 0 ? 1.2 : 1 / 1.2));
+    this.pageTile = Math.max(PAGE_TILE_MIN, Math.min(PAGE_TILE_MAX, next));
   }
 
   /** Step the transcript zoom; 0 resets it to 100%. */

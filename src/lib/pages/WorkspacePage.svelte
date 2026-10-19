@@ -20,7 +20,9 @@
   import Filmstrip from "$lib/workspace/Filmstrip.svelte";
   import TranscriptPane from "$lib/workspace/TranscriptPane.svelte";
   import type { ProjectSummary } from "$lib/api";
-  import { renderUrl, THUMB_SCALE } from "$lib/render";
+  import { pickScale, renderUrl, THUMB_SCALE } from "$lib/render";
+  import { PAGE_TILE_MAX, PAGE_TILE_MIN } from "$lib/stores/ui.svelte";
+  import { previews } from "$lib/stores/previews.svelte";
   import { view } from "$lib/stores/view.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import PageMiniGrid from "$lib/workspace/PageMiniGrid.svelte";
@@ -280,6 +282,39 @@
           ],
   );
 
+  /** Render scale for a thumbnail at the current size: sharp, never larger than needed. */
+  function thumbScale(i: number): number {
+    const w = summary.pages[i]?.width_pt ?? 400;
+    return Math.max(THUMB_SCALE, pickScale(ui.pageTile / w, window.devicePixelRatio || 1));
+  }
+
+  /** Every page the grid shows a thumbnail for, at the scale it asks for. */
+  function previewItems(): { page: number; scale: number }[] {
+    return summary.pages.filter((p) => p.status !== "unprocessed").map((p) => ({ page: p.index, scale: thumbScale(p.index) }));
+  }
+  // Generate all thumbnails in the background while the Pages view is open:
+  // on entering it, and again (after a pause) when the size or range
+  // changes. A new size also lifts a Stop.
+  let previewTile = 0;
+  let previewTimer: ReturnType<typeof setTimeout> | null = null;
+  $effect(() => {
+    const open = view.mode === "processing";
+    const tile = ui.pageTile;
+    void summary.counts.in_scope;
+    if (!open) return;
+    untrack(() => {
+      if (tile !== previewTile) {
+        if (previewTile) previews.stopped = false;
+        previewTile = tile;
+      }
+    });
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => void previews.start(previewItems()), 400);
+    return () => {
+      if (previewTimer) clearTimeout(previewTimer);
+    };
+  });
+
   function onrail(id: string) {
     if (id === "ai") tab = "ai";
     else if (id === "export") ui.exportOpen = true;
@@ -425,13 +460,32 @@
         <span class="strong">Pages</span>
         <span class="muted">Processing {summary.counts.in_scope} · {summary.counts.unprocessed} untouched in the source</span>
         <span class="grow"></span>
-        <span class="muted small">Click a page to open it while OCR continues</span>
+        <span class="muted small hint">Click a page to open it while OCR continues</span>
+        <span class="previews" aria-live="polite">
+          {#if previews.total && previews.done >= previews.total}
+            <span class="muted small">Previews ready</span>
+          {:else if previews.total}
+            <span class="muted small">Previews {previews.done} / {previews.total}</span>
+            {#if previews.running}
+              <button type="button" class="zbtn" onclick={() => previews.stop()}>Stop</button>
+            {:else}
+              <button type="button" class="zbtn" onclick={() => previews.start(previewItems(), true)}>Generate</button>
+            {/if}
+          {/if}
+        </span>
+        <label class="tile-size" title="Thumbnail size (Ctrl+wheel over the pages)">
+          <button type="button" class="zbtn" onclick={() => ui.zoomPageTiles(-1)} disabled={ui.pageTile <= PAGE_TILE_MIN} aria-label="Smaller thumbnails">−</button>
+          <input type="range" min={PAGE_TILE_MIN} max={PAGE_TILE_MAX} step="5" bind:value={ui.pageTile} aria-label="Thumbnail size" />
+          <button type="button" class="zbtn" onclick={() => ui.zoomPageTiles(1)} disabled={ui.pageTile >= PAGE_TILE_MAX} aria-label="Larger thumbnails">+</button>
+        </label>
       </div>
       <PageGrid
         pages={summary.pages}
         current={view.page}
         onopen={(i) => view.open(i)}
-        thumbUrl={(i) => (summary.pages[i]?.status === "unprocessed" ? null : renderUrl(i, THUMB_SCALE))}
+        tile={ui.pageTile}
+        onzoom={(d) => ui.zoomPageTiles(d)}
+        thumbUrl={(i) => (summary.pages[i]?.status === "unprocessed" ? null : renderUrl(i, thumbScale(i)))}
       />
     </section>
   {/if}
@@ -553,6 +607,44 @@
     padding: 0 16px;
     background: var(--panel-header);
     border-bottom: 1px solid var(--border);
+  }
+  .pane-header .hint {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .previews {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .tile-size {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .tile-size input {
+    width: 110px;
+    accent-color: var(--accent);
+  }
+  .zbtn {
+    all: unset;
+    padding: 1px 7px;
+    border-radius: 5px;
+    border: 1px solid var(--border-input);
+    background: var(--paper);
+    line-height: 1.2;
+    cursor: default;
+  }
+  .zbtn:disabled {
+    opacity: 0.4;
+  }
+  .zbtn:focus-visible {
+    outline: 2px solid var(--accent);
   }
   .strong {
     font-weight: 600;
