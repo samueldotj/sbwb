@@ -1,5 +1,56 @@
 # Release notes
 
+## 0.2.0 (2026-10-19)
+
+Opening a 0.1.0 project upgrades its file (schema 6 → 8) after saving a
+backup beside it (`.pre-v7.bak`, `.pre-v8.bak`); 0.1.0 cannot open an
+upgraded project.
+
+### Review and text
+
+- Select any words in the transcript and choose **Edit text**: one
+  undoable change, each typed word kept on the scan word it replaces, and
+  re-applied after a text-pass rerun.
+- **Edit & accept** starts from the chosen suggestion; the "Also replace
+  elsewhere?" offer only appears when there is something to replace.
+- Footnote references: link a word to a footnote in the Text pass tab, or
+  accept links found from printed markers (*, †, digits, and the "!" / "?"
+  OCR makes of a dagger). Numbers are automatic per page; linked notes
+  export as real Word footnotes.
+- No corrections are offered for text outside every layout region.
+- Transcript zoom (70–400%, Ctrl+wheel); highlights on the scan are
+  outlines so the word stays readable.
+
+### Layout and OCR
+
+- Layout mode: select several regions (drag a rectangle, or Ctrl/Shift-
+  click) and delete them or change their type together.
+- Recognise region now reads small, heavy side notes the page OCR
+  skipped (single-block segmentation), and places them in reading order.
+- OCR and Layout tabs, opened from the pipeline rail: engine settings,
+  progress, failed pages, the weakest pages by OCR confidence, and the
+  pages whose layout needs a look.
+- The job monitor is folded into the pipeline rail (D-34): live speed and
+  time left under the running stage, the latest log lines, and the full
+  log in a sheet. Live progress and the OCR count now show correctly.
+
+### Pages view and export
+
+- Thumbnail size slider (Ctrl+wheel); previews render on several workers
+  and for the whole book in the background, with Stop and Generate.
+- Export: page size presets (A4, Letter, A5, book trims from 5 × 8 to
+  7 × 10 in, the scan's own size, or custom), margin presets with four
+  separate margins, warnings at the bottom, and **Open document**.
+- Word export puts running heads, page numbers and footers in Word headers
+  and footers and side notes in boxes; Word comments can be left out of the
+  working copy.
+
+### Fixes
+
+- Layout edits are no longer discarded by a region reload loop; layout
+  autosaves.
+- Long names wrap in the Import panel.
+
 ## 0.1.0 (2026-09-12) — first Windows release candidate
 
 Delivered (M0–M9): import with page scope, offline Tesseract OCR with two
