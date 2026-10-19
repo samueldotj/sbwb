@@ -26,6 +26,107 @@
   let showFormat = $state(false);
   let unlisten: (() => void) | null = null;
 
+  // ----- page size and margins -----
+  const PT_PER_IN = 72;
+  const PT_PER_MM = 72 / 25.4;
+  type SizeOption = { id: string; label: string; paper: "a4" | "letter" | "custom"; w: number; h: number };
+  const inches = (w: number, h: number): [number, number] => [w * PT_PER_IN, h * PT_PER_IN];
+  const BOOK_SIZES: [string, string, [number, number]][] = [
+    ["a5", "A5 · 148 × 210 mm", [148 * PT_PER_MM, 210 * PT_PER_MM]],
+    ["5x8", "5 × 8 in · small trade", inches(5, 8)],
+    ["5.25x8", "5.25 × 8 in", inches(5.25, 8)],
+    ["5.5x8.5", "5.5 × 8.5 in · digest", inches(5.5, 8.5)],
+    ["6x9", "6 × 9 in · US trade", inches(6, 9)],
+    ["6.14x9.21", "6.14 × 9.21 in · royal", inches(6.14, 9.21)],
+    ["7x10", "7 × 10 in", inches(7, 10)],
+  ];
+  const fmtIn = (pt: number) => (pt / PT_PER_IN).toFixed(2).replace(/\.?0+$/, "");
+  /** The scan's most common page size, rounded to a tenth of an inch. */
+  const scanSize = $derived.by((): [number, number] | null => {
+    const counts = new Map<string, { n: number; w: number; h: number }>();
+    for (const pg of project.summary?.pages ?? []) {
+      if (!pg.width_pt || !pg.height_pt) continue;
+      const w = Math.round((pg.width_pt / PT_PER_IN) * 10) / 10;
+      const h = Math.round((pg.height_pt / PT_PER_IN) * 10) / 10;
+      const k = `${w}x${h}`;
+      const c = counts.get(k) ?? { n: 0, w, h };
+      c.n++;
+      counts.set(k, c);
+    }
+    const best = [...counts.values()].sort((a, b) => b.n - a.n)[0];
+    return best ? inches(best.w, best.h) : null;
+  });
+  const sizes = $derived.by((): SizeOption[] => [
+    { id: "a4", label: "A4 · 210 × 297 mm", paper: "a4", w: 595.276, h: 841.89 },
+    { id: "letter", label: "Letter · 8.5 × 11 in", paper: "letter", w: 612, h: 792 },
+    ...BOOK_SIZES.map(([id, label, [w, h]]) => ({ id, label, paper: "custom" as const, w, h })),
+    ...(scanSize ? [{ id: "scan", label: `Same as the scan · ${fmtIn(scanSize[0])} × ${fmtIn(scanSize[1])} in`, paper: "custom" as const, w: scanSize[0], h: scanSize[1] }] : []),
+  ]);
+  /** The listed size the settings match, or "custom". */
+  const sizeId = $derived.by(() => {
+    const pr = settings?.preset;
+    if (!pr) return "custom";
+    if (pr.paper !== "custom") return pr.paper;
+    const hit = sizes.find((o) => o.paper === "custom" && Math.abs(o.w - pr.custom_width_pt) < 0.6 && Math.abs(o.h - pr.custom_height_pt) < 0.6);
+    return hit?.id ?? "custom";
+  });
+  let customUnit = $state<"in" | "mm">("in");
+  const unitPt = $derived(customUnit === "in" ? PT_PER_IN : PT_PER_MM);
+  function chooseSize(id: string) {
+    const pr = settings?.preset;
+    if (!pr) return;
+    const o = sizes.find((x) => x.id === id);
+    if (!o) {
+      pr.paper = "custom"; // keep the current numbers to edit
+      return;
+    }
+    pr.paper = o.paper;
+    if (o.paper === "custom") {
+      pr.custom_width_pt = Math.round(o.w * 100) / 100;
+      pr.custom_height_pt = Math.round(o.h * 100) / 100;
+    }
+  }
+  function setCustom(which: "w" | "h", value: number) {
+    const pr = settings?.preset;
+    if (!pr || !(value > 0)) return;
+    const pt = Math.round(value * unitPt * 100) / 100;
+    pr.paper = "custom";
+    if (which === "w") pr.custom_width_pt = pt;
+    else pr.custom_height_pt = pt;
+  }
+  type Margins = { top: number; bottom: number; left: number; right: number };
+  const MARGINS: [string, string, Margins][] = [
+    ["narrow", "Narrow · 12.7 mm", { top: 12.7, bottom: 12.7, left: 12.7, right: 12.7 }],
+    ["book", "Book · 15 / 18 / 18 / 15 mm", { top: 15, bottom: 18, left: 18, right: 15 }],
+    ["moderate", "Moderate · 25.4 / 19 mm", { top: 25.4, bottom: 25.4, left: 19.05, right: 19.05 }],
+    ["normal", "Normal · 25.4 mm", { top: 25.4, bottom: 25.4, left: 25.4, right: 25.4 }],
+    ["wide", "Wide · 25.4 / 50.8 mm", { top: 25.4, bottom: 25.4, left: 50.8, right: 50.8 }],
+  ];
+  const marginId = $derived.by(() => {
+    const pr = settings?.preset;
+    if (!pr) return "custom";
+    const hit = MARGINS.find(([, , m]) => Math.abs(m.top - pr.margin_top_mm) < 0.05 && Math.abs(m.bottom - pr.margin_bottom_mm) < 0.05 && Math.abs(m.left - pr.margin_left_mm) < 0.05 && Math.abs(m.right - pr.margin_right_mm) < 0.05);
+    return hit?.[0] ?? "custom";
+  });
+  function chooseMargins(id: string) {
+    const pr = settings?.preset;
+    const m = MARGINS.find(([k]) => k === id)?.[2];
+    if (!pr || !m) return;
+    pr.margin_top_mm = m.top;
+    pr.margin_bottom_mm = m.bottom;
+    pr.margin_left_mm = m.left;
+    pr.margin_right_mm = m.right;
+  }
+  /** Page and text area in points, for the summary line and the warning. */
+  const pageBox = $derived.by(() => {
+    const pr = settings?.preset;
+    if (!pr) return null;
+    const [w, h] = pr.paper === "a4" ? [595.276, 841.89] : pr.paper === "letter" ? [612, 792] : [Math.max(200, pr.custom_width_pt), Math.max(200, pr.custom_height_pt)];
+    const tw = w - (pr.margin_left_mm + pr.margin_right_mm) * PT_PER_MM;
+    const th = h - (pr.margin_top_mm + pr.margin_bottom_mm) * PT_PER_MM;
+    return { w, h, tw, th };
+  });
+
   const PHASE_LABEL: Record<string, string> = { compose: "Composing paragraphs", package: "Packaging the document", validate: "Validating the package", publish: "Publishing", archive: "Writing the archive bundle", done: "Done" };
 
   async function load() {
@@ -109,6 +210,14 @@
       failure = errorMessage(e);
     }
   }
+  /** Open an exported document in the system's Word processor. */
+  async function openDoc(path: string) {
+    try {
+      await api.openFile(path);
+    } catch (e) {
+      ui.toast(`Could not open ${path.split(/[\\/]/).pop()}: ${errorMessage(e)}`, "error", 6000);
+    }
+  }
   async function cancel() {
     await api.exportCancel().catch(() => {});
   }
@@ -180,20 +289,52 @@
           {preview.stats.words} words · {preview.stats.paragraphs} paragraphs · {preview.stats.running_heads} running heads · {preview.stats.side_notes} side notes · {preview.stats.footnotes} footnotes · {preview.stats.images} images
           {#if preview.exclusions.length}· <b>{preview.exclusions.length} regions excluded ({preview.excluded_words} words)</b>{/if}
         </p>
-        {#if preview.exclusions.length}
-          <details class="details">
-            <summary>Excluded before export</summary>
-            <ul class="list">
-              {#each preview.exclusions.slice(0, 60) as e, i (i)}
-                <li><span class="mono">p. {e.page + 1}</span><span>{e.kind} · {e.words} words</span><span class="muted">{e.why}</span></li>
-              {/each}
-              {#if preview.exclusions.length > 60}<li class="muted">… and {preview.exclusions.length - 60} more (all listed in the report)</li>{/if}
-            </ul>
-          </details>
+      {/if}
+    </fieldset>
+
+    <fieldset class="group">
+      <legend>Page size and margins</legend>
+      <div class="grid two-col">
+        <label>Page size
+          <select value={sizeId} onchange={(e) => chooseSize(e.currentTarget.value)}>
+            {#each sizes as o (o.id)}<option value={o.id}>{o.label}</option>{/each}
+            <option value="custom">Custom…</option>
+          </select>
+        </label>
+        <label>Margins
+          <select value={marginId} onchange={(e) => chooseMargins(e.currentTarget.value)}>
+            {#each MARGINS as [id, label] (id)}<option value={id}>{label}</option>{/each}
+            <option value="custom" disabled={marginId !== "custom"}>Custom</option>
+          </select>
+        </label>
+      </div>
+      {#if sizeId === "custom"}
+        <div class="grid four-col">
+          <label>Width ({customUnit})
+            <input type="number" min="1" step={customUnit === "in" ? 0.01 : 1} value={Math.round((settings.preset.custom_width_pt / unitPt) * 100) / 100} onchange={(e) => setCustom("w", Number(e.currentTarget.value))} />
+          </label>
+          <label>Height ({customUnit})
+            <input type="number" min="1" step={customUnit === "in" ? 0.01 : 1} value={Math.round((settings.preset.custom_height_pt / unitPt) * 100) / 100} onchange={(e) => setCustom("h", Number(e.currentTarget.value))} />
+          </label>
+          <label>Units
+            <select bind:value={customUnit}>
+              <option value="in">inches</option>
+              <option value="mm">mm</option>
+            </select>
+          </label>
+        </div>
+      {/if}
+      <div class="grid four-col">
+        <label>Top (mm) <input type="number" min="5" max="60" step="0.5" bind:value={settings.preset.margin_top_mm} /></label>
+        <label>Bottom (mm) <input type="number" min="5" max="60" step="0.5" bind:value={settings.preset.margin_bottom_mm} /></label>
+        <label>Left (mm) <input type="number" min="5" max="60" step="0.5" bind:value={settings.preset.margin_left_mm} /></label>
+        <label>Right (mm) <input type="number" min="5" max="60" step="0.5" bind:value={settings.preset.margin_right_mm} /></label>
+      </div>
+      {#if pageBox}
+        <p class="note muted">Page {fmtIn(pageBox.w)} × {fmtIn(pageBox.h)} in · text area {fmtIn(pageBox.tw)} × {fmtIn(pageBox.th)} in</p>
+        {#if pageBox.tw < 2.5 * PT_PER_IN || pageBox.th < 3.5 * PT_PER_IN}
+          <p class="note warn">The text area is small for this page size; side notes and long lines will crowd. Try narrower margins.</p>
         {/if}
-        {#each preview.warnings as w, i (i)}
-          <p class="note warn">{w}</p>
-        {/each}
       {/if}
     </fieldset>
 
@@ -201,18 +342,6 @@
       <summary>Formatting, metadata &amp; archive</summary>
       <div class="grid">
         <label>Preset <input type="text" bind:value={settings.preset.name} /></label>
-        <label>Page size
-          <select bind:value={settings.preset.paper}>
-            <option value="a4">A4</option>
-            <option value="letter">Letter</option>
-            <option value="custom">Custom</option>
-          </select>
-        </label>
-        {#if settings.preset.paper === "custom"}
-          <label>Width (pt) <input type="number" min="200" bind:value={settings.preset.custom_width_pt} /></label>
-          <label>Height (pt) <input type="number" min="200" bind:value={settings.preset.custom_height_pt} /></label>
-        {/if}
-        <label>Margins (mm) <input type="number" min="5" max="60" bind:value={settings.preset.margin_top_mm} oninput={() => { settings!.preset.margin_bottom_mm = settings!.preset.margin_top_mm; settings!.preset.margin_left_mm = settings!.preset.margin_top_mm; settings!.preset.margin_right_mm = settings!.preset.margin_top_mm; }} /></label>
         <label>Body font <input type="text" bind:value={settings.preset.body_font} /></label>
         <label>Body size (pt) <input type="number" min="8" max="18" step="0.5" bind:value={settings.preset.body_size_pt} /></label>
         <label>Paragraph spacing (pt) <input type="number" min="0" max="24" bind:value={settings.preset.paragraph_spacing_pt} /></label>
@@ -237,7 +366,31 @@
     </details>
 
     {#if ready.previous.length}
-      <p class="muted small">Previous exports: {ready.previous.slice(0, 3).map((e) => `${e.kind} · ${new Date(e.ts).toLocaleString()} · ${e.path.split(/[\\/]/).pop()}`).join(" · ")}</p>
+      <p class="muted small">Previous exports: {ready.previous.slice(0, 3).map((e) => `${e.kind} · ${new Date(e.ts).toLocaleString()} · ${e.path.split(/[\\/]/).pop()}`).join(" · ")} <button type="button" class="link" onclick={() => openDoc(ready!.previous[0]!.path)} title={ready.previous[0]!.path}>open latest</button></p>
+    {/if}
+
+    {#if preview && (preview.warnings.length || preview.exclusions.length)}
+      <fieldset class="group">
+        <legend>Warnings · {preview.warnings.length}{preview.exclusions.length ? ` · ${preview.exclusions.length} excluded` : ""}</legend>
+        {#if preview.exclusions.length}
+          <details class="details">
+            <summary>Excluded before export</summary>
+            <ul class="list">
+              {#each preview.exclusions.slice(0, 60) as e, i (i)}
+                <li><span class="mono">p. {e.page + 1}</span><span>{e.kind} · {e.words} words</span><span class="muted">{e.why}</span></li>
+              {/each}
+              {#if preview.exclusions.length > 60}<li class="muted">… and {preview.exclusions.length - 60} more (all listed in the report)</li>{/if}
+            </ul>
+          </details>
+        {/if}
+        {#if preview.warnings.length}
+          <div class="warn-list">
+            {#each preview.warnings as w, i (i)}
+              <p class="note warn">{w}</p>
+            {/each}
+          </div>
+        {/if}
+      </fieldset>
     {/if}
 
     {#if phase}
@@ -255,6 +408,7 @@
         <div class="muted small">Validation: {result.validation.checks.filter((c) => c.ok).length} / {result.validation.checks.length} checks passed · checksum {result.checksum_blake3.slice(0, 12)}… · {result.comments} comments · {result.exclusions.length} regions excluded{result.archive_path ? " · archive written" : ""}</div>
         {#each result.warnings as w, i (i)}<div class="note warn small">{w}</div>{/each}
         <div class="two">
+          <button type="button" class="ctl primary" onclick={() => openDoc(result!.docx_path)}>Open document</button>
           <button type="button" class="ctl" onclick={() => api.openPath(result!.docx_path)}>Show in folder</button>
         </div>
       </div>
@@ -270,6 +424,9 @@
       <button type="button" class="ctl" onclick={cancel}>Cancel export</button>
     {:else}
       <button type="button" class="ctl" onclick={onclose}>Close</button>
+      {#if result}
+        <button type="button" class="ctl" onclick={() => openDoc(result!.docx_path)} title={result.docx_path}>Open document</button>
+      {/if}
       <button type="button" class="ctl primary" onclick={start} disabled={!canExport}>Export {settings?.copy === "clean" ? "clean" : "working"} copy</button>
     {/if}
   {/snippet}
@@ -405,6 +562,21 @@
   .note.warn {
     color: var(--accent-text);
   }
+  .link {
+    all: unset;
+    color: var(--accent-text);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .link:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  .warn-list {
+    display: grid;
+    gap: 4px;
+    max-height: 180px;
+    overflow: auto;
+  }
   .note.err {
     color: var(--danger);
   }
@@ -421,6 +593,14 @@
     grid-template-columns: repeat(3, 1fr);
     gap: 8px 14px;
     margin: 8px 0;
+  }
+  .grid.two-col {
+    grid-template-columns: repeat(2, 1fr);
+    margin: 0;
+  }
+  .grid.four-col {
+    grid-template-columns: repeat(4, 1fr);
+    margin: 0;
   }
   .grid label {
     display: grid;
