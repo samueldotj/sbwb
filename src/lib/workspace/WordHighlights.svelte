@@ -55,39 +55,34 @@
 {/each}
 
 <style>
+  /* Outlines only: a fill sits on top of the scan and hides the very word
+     the reviewer needs to read. */
   .hl {
     position: absolute;
     border-radius: 2px;
     box-sizing: border-box;
-    mix-blend-mode: multiply;
-  }
-  :global([data-theme="bench"]) .hl {
-    mix-blend-mode: screen;
+    background: transparent;
   }
   .hl.issue,
   .hl.deferred {
-    background: var(--accent-bg-scan);
     outline: var(--ring) solid var(--accent);
   }
   .hl.deferred {
     outline-style: dotted;
   }
   .hl.structural {
-    background: transparent;
     outline: var(--ring) dashed var(--danger);
   }
   .hl.accepted {
-    background: var(--ok-bg-scan);
     outline: var(--ring) solid var(--ok);
   }
   .hl.auto {
-    background: var(--ok-bg-scan);
+    outline: var(--ring) dotted var(--ok);
   }
   .hl.hovered {
     outline: var(--ring) solid var(--text);
   }
   .hl.focused {
     outline: calc(var(--ring) * 2) double var(--accent);
-    background: var(--accent-bg-scan);
   }
 </style>

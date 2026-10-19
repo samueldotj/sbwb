@@ -322,8 +322,7 @@
   .box {
     position: absolute;
     border: 2px solid var(--accent);
-    background: var(--accent-bg-scan);
-    mix-blend-mode: multiply;
+    background: transparent;
     border-radius: 2px;
   }
   .reading {
