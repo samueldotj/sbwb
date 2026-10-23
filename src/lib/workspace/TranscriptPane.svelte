@@ -232,6 +232,20 @@
     review.pickedSpan = review.spans[b]?.id ?? null;
     picked = { from: Math.min(a, b), to: Math.max(a, b), x: rect.left - host.left + bodyEl.scrollLeft, y: rect.bottom - host.top + bodyEl.scrollTop + 4 };
   }
+  /** Double-click a word: edit that one word straight away. */
+  function onDoubleClick(e: MouseEvent) {
+    if (editor || !bodyEl) return;
+    const el = (e.target as Element | null)?.closest?.("[data-span]") as HTMLElement | null;
+    if (!el) return;
+    const i = review.spans.findIndex((s) => s.id === el.dataset.span);
+    if (i < 0) return;
+    e.preventDefault();
+    const rect = el.getBoundingClientRect();
+    const host = bodyEl.getBoundingClientRect();
+    review.pickedSpan = review.spans[i]?.id ?? null;
+    picked = { from: i, to: i, x: rect.left - host.left + bodyEl.scrollLeft, y: rect.bottom - host.top + bodyEl.scrollTop + 4 };
+    openEditor();
+  }
   function openEditor() {
     if (!picked) return;
     const words = review.spans.slice(picked.from, picked.to + 1);
@@ -240,7 +254,12 @@
       .join("")
       .replace(/\s+/g, " ")
       .trim();
-    editor = { ...picked, text };
+    // Keep the box inside the pane when the words sit near its right edge.
+    const paneW = bodyEl?.clientWidth ?? 0;
+    const boxW = Math.min(420, paneW - 32);
+    const left = bodyEl?.scrollLeft ?? 0;
+    const x = paneW ? Math.max(left, Math.min(picked.x, left + paneW - boxW - 16)) : picked.x;
+    editor = { ...picked, x, text };
     picked = null;
     window.getSelection()?.removeAllRanges();
     setTimeout(() => {
@@ -354,6 +373,7 @@
     onclick={onTrackClick}
     style="font-size:calc(var(--font-size-transcript) * {ui.transcriptZoom / 100})"
     onmouseup={onSelect}
+    ondblclick={onDoubleClick}
     onmouseover={pointAtWord}
     onfocusin={pointAtWord}
     onmouseleave={() => (review.hoverSpan = null)}

@@ -16,10 +16,10 @@ runs on your computer; nothing is uploaded.
    evidence, the current reading, numbered candidates, and the decision
    buttons. J and K move through the issues of the whole book.
    Edit (E) starts from the chosen candidate, so a near miss can be fixed and
-   accepted in one step. To correct text that has no issue, select any words
-   in the transcript and choose **Edit text**: what you type replaces the
-   selection (Enter saves, Esc cancels), and Undo appears above the
-   transcript. Each typed word stays tied to the scan word it replaces, and
+   accepted in one step. To correct text that has no issue, double-click a
+   word in the transcript to edit it, or select several words and choose
+   **Edit text**: what you type replaces the selection (Enter saves, Esc
+   cancels), and Undo appears above the transcript. Each typed word stays tied to the scan word it replaces, and
    the edit is re-applied if the text pass runs on the page again.
 3. **Approve** a page when you are done with it (Ctrl+Enter). Unresolved
    issues can be acknowledged; the approval records exactly what was covered
