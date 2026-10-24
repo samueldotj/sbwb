@@ -46,6 +46,9 @@ runs on your computer; nothing is uploaded.
 
 ## 3. What the marks and scores mean
 
+- **Marginal notes** appear in a column to the left or right of the text,
+  on the side their box is on the scan, beside the paragraph they sit
+  next to. In a narrow transcript pane they follow that paragraph.
 - **Spelling.** In the transcript's Highlight menu, choose Spelling: UK
   English or US English. Words that are in neither that dictionary, the
   Webster 1913 word list, nor this book's own words get a wavy red

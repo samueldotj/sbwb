@@ -47,6 +47,38 @@
   const outsideWords = $derived(body.filter((p) => p.region === null).reduce((n, p) => n + p.words.length, 0));
   const shownBody = $derived(review.hideOutside ? body.filter((p) => p.region !== null || p.words.some((w) => w.span.id === review.selected?.span)) : body);
   const foot = $derived(paras.filter((p) => p.kind === "footer" || p.kind === "footnote"));
+  // Marginal notes sit beside the text: each goes in the left or right
+  // column (by which side of the body text its box is on the scan), next to
+  // the last paragraph that starts at or above it.
+  type Row = { para: Para; left: Para[]; right: Para[] };
+  const rows = $derived.by((): Row[] => {
+    const notes = shownBody.filter((p) => p.kind === "marginalia");
+    const main = shownBody.filter((p) => p.kind !== "marginalia");
+    const out: Row[] = main.map((p) => ({ para: p, left: [], right: [] }));
+    if (!notes.length || !out.length) return shownBody.map((p) => ({ para: p, left: [], right: [] }));
+    const byId = new Map(review.regions.map((r) => [r.id, r]));
+    const box = (p: Para) => {
+      const r = p.region ? byId.get(p.region) : undefined;
+      if (r) return r.bbox;
+      return p.words.find((w) => w.span.anchors.length)?.span.anchors[0]?.bbox ?? null;
+    };
+    const top = (p: Para) => p.words.find((w) => w.span.anchors.length)?.span.anchors[0]?.bbox.y ?? Infinity;
+    const bodies = review.regions.filter((r) => r.kind === "body");
+    const mid = bodies.length ? bodies.reduce((a, r) => a + r.bbox.x + r.bbox.w / 2, 0) / bodies.length : (page?.width_pt ?? 0) / 2;
+    for (const n of notes) {
+      const b = box(n);
+      const y = b?.y ?? Infinity;
+      let k = 0;
+      out.forEach((row, i) => {
+        if (top(row.para) <= y + 2) k = i;
+      });
+      const row = out[k]!;
+      (b && b.x + b.w / 2 < mid ? row.left : row.right).push(n);
+    }
+    return out;
+  });
+  const hasLeft = $derived(rows.some((r) => r.left.length));
+  const hasRight = $derived(rows.some((r) => r.right.length));
   const headLine = $derived(head.map((p) => p.words.map((w) => w.span.text).join(" ")).join(" · "));
   // Highlight numbers / special characters (a menu in the header); the
   // counts cover the text drawn on the page.
@@ -548,6 +580,31 @@
 
 <svelte:window onclick={onWindowClick} />
 
+{#snippet bodyPara(p: Para)}
+    <p class="para {p.kind}" data-label={p.label}>
+      {#each p.words as w (w.span.id)}{@render fnnum(w.span.id)}{#if w.mark.issue && w.mark.kind !== "none"}<button
+          type="button"
+          class="mark {w.mark.kind}"
+          class:focused={review.selected?.span === w.span.id}
+          class:hover={review.hoverSpan === w.span.id}
+          data-span={w.span.id}
+          aria-label="{w.span.text}: {w.mark.issue.kind.replace('_', ' ')}"
+          title={title(w)}
+          onmouseenter={() => (review.hoverSpan = w.span.id)}
+          onmouseleave={() => (review.hoverSpan = null)}
+          onfocus={() => (review.hoverSpan = w.span.id)}
+          onblur={() => (review.hoverSpan = null)}
+          onclick={() => review.select(w.mark.issue!.id)}
+          onkeydown={(e) => onMarkKey(e, w)}>{@render wtext(w.span.text, w.span.id)}</button>{:else if w.mark.kind !== "none"}<mark
+          class="mark {w.mark.kind}"
+          class:focused={review.selected?.span === w.span.id}
+          data-span={w.span.id}
+          title={title(w)}>{@render wtext(w.span.text, w.span.id)}</mark>{:else}<span
+          data-span={w.span.id}
+          class:focused={review.selected?.span === w.span.id}>{@render wtext(w.span.text, w.span.id)}</span>{/if}{@render fnref(w.span.id)}{w.span.trailing}{/each}
+    </p>
+{/snippet}
+
 {#snippet fnnum(id: string)}
   {@const r = fnByNote.get(id)}
   {#if r}<sup class="fnnum" title="Footnote {r.number}">{r.number}</sup>{/if}
@@ -801,30 +858,15 @@
       {#if headLine}
         <p class="runhead" aria-label="Running head">{@render wtext(headLine)}</p>
       {/if}
-      {#each shownBody as p, pi (pi)}
-        <p class="para {p.kind}" data-label={p.label}>
-          {#each p.words as w (w.span.id)}{@render fnnum(w.span.id)}{#if w.mark.issue && w.mark.kind !== "none"}<button
-              type="button"
-              class="mark {w.mark.kind}"
-              class:focused={review.selected?.span === w.span.id}
-              class:hover={review.hoverSpan === w.span.id}
-              data-span={w.span.id}
-              aria-label="{w.span.text}: {w.mark.issue.kind.replace('_', ' ')}"
-              title={title(w)}
-              onmouseenter={() => (review.hoverSpan = w.span.id)}
-              onmouseleave={() => (review.hoverSpan = null)}
-              onfocus={() => (review.hoverSpan = w.span.id)}
-              onblur={() => (review.hoverSpan = null)}
-              onclick={() => review.select(w.mark.issue!.id)}
-              onkeydown={(e) => onMarkKey(e, w)}>{@render wtext(w.span.text, w.span.id)}</button>{:else if w.mark.kind !== "none"}<mark
-              class="mark {w.mark.kind}"
-              class:focused={review.selected?.span === w.span.id}
-              data-span={w.span.id}
-              title={title(w)}>{@render wtext(w.span.text, w.span.id)}</mark>{:else}<span
-              data-span={w.span.id}
-              class:focused={review.selected?.span === w.span.id}>{@render wtext(w.span.text, w.span.id)}</span>{/if}{@render fnref(w.span.id)}{w.span.trailing}{/each}
-        </p>
-      {/each}
+      <div class="flow" class:left={hasLeft} class:right={hasRight}>
+        {#each rows as row, pi (pi)}
+          <div class="row">
+            {#if hasLeft}<aside class="side left" aria-label="Marginal notes">{#each row.left as n, ni (ni)}{@render bodyPara(n)}{/each}</aside>{/if}
+            {@render bodyPara(row.para)}
+            {#if hasRight}<aside class="side right" aria-label="Marginal notes">{#each row.right as n, ni (ni)}{@render bodyPara(n)}{/each}</aside>{/if}
+          </div>
+        {/each}
+      </div>
       {#if foot.length}
         <hr class="divider" />
         {#each foot as p, pi (pi)}
@@ -1286,6 +1328,49 @@
   .para.heading {
     font-weight: 600;
     text-align: center;
+  }
+  .flow {
+    container: flow / inline-size;
+    --side-w: clamp(110px, 22%, 240px);
+  }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    column-gap: 22px;
+  }
+  .flow.left .row {
+    grid-template-columns: var(--side-w) minmax(0, 1fr);
+  }
+  .flow.right .row {
+    grid-template-columns: minmax(0, 1fr) var(--side-w);
+  }
+  .flow.left.right .row {
+    grid-template-columns: var(--side-w) minmax(0, 1fr) var(--side-w);
+  }
+  .side {
+    min-width: 0;
+    padding-top: 0.25em;
+  }
+  .side .para {
+    margin-bottom: 0.7em;
+    line-height: 1.45;
+  }
+  .side.left .para {
+    text-align: right;
+  }
+  /* A narrow pane has no room for margins: notes follow their paragraph. */
+  @container flow (max-width: 620px) {
+    .flow.left .row,
+    .flow.right .row,
+    .flow.left.right .row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .side.left {
+      order: 2;
+    }
+    .side.left .para {
+      text-align: left;
+    }
   }
   .para.marginalia,
   .para.footnote,
