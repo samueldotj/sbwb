@@ -1,5 +1,38 @@
 # Release notes
 
+## 0.4.0 (2026-10-24)
+
+### Updates
+
+- **Settings → Updates**: check GitHub for a newer release, read its
+  notes, and **Download and install**. The installer is checked against
+  the release's SHA-256 checksums, SBWB closes while it runs, and reopens
+  when it finishes.
+- **At startup**: Off (the default), Notify (a notice in the status bar),
+  or Install (download and install a newer version when SBWB opens; if a
+  book is open it waits in the status bar until you choose to install).
+  The check sends GitHub your IP address and the SBWB version, nothing
+  about your books.
+- This is the first version that can update itself: going from 0.3.0 to
+  0.4.0 still needs the installer run by hand.
+
+### Transcript
+
+- Marginal notes sit in a margin column beside their paragraph, on the
+  side they are printed, instead of in the text flow. In a narrow pane
+  each note follows its paragraph.
+- Drag a marginal note beside another paragraph or into the other
+  margin, at the top, middle or bottom of the paragraph. The Word export
+  follows the new place.
+
+### OCR
+
+- Small, heavy side notes that page OCR leaves empty are read on their
+  own after layout analysis, when one is drawn, or when its page opens in
+  Layout mode.
+- Region and side-note reads no longer make a page look like it needs
+  re-OCR in Settings.
+
 ## 0.3.0 (2026-10-23)
 
 Opening a 0.2.0 project upgrades its file (schema 8 → 10) after saving a

@@ -4763,7 +4763,7 @@ dependencies = [
 
 [[package]]
 name = "sbwb-ai"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "keyring",
  "reqwest",
@@ -4777,7 +4777,7 @@ dependencies = [
 
 [[package]]
 name = "sbwb-app"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4815,7 +4815,7 @@ dependencies = [
 
 [[package]]
 name = "sbwb-bench"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "blake3",
  "jiff",
@@ -4837,7 +4837,7 @@ dependencies = [
 
 [[package]]
 name = "sbwb-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "jiff",
  "serde",
@@ -4848,7 +4848,7 @@ dependencies = [
 
 [[package]]
 name = "sbwb-export"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "blake3",
  "docx-rs",
@@ -4868,7 +4868,7 @@ dependencies = [
 
 [[package]]
 name = "sbwb-image"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fast_image_resize",
  "image",
@@ -4880,7 +4880,7 @@ dependencies = [
 
 [[package]]
 name = "sbwb-layout"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "image",
  "imageproc",
@@ -4894,7 +4894,7 @@ dependencies = [
 
 [[package]]
 name = "sbwb-ocr"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "image",
  "ocrs",
@@ -4913,7 +4913,7 @@ dependencies = [
 
 [[package]]
 name = "sbwb-pdf"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "blake3",
  "image",
@@ -4928,7 +4928,7 @@ dependencies = [
 
 [[package]]
 name = "sbwb-pipeline"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "blake3",
  "crossbeam-channel",
@@ -4949,7 +4949,7 @@ dependencies = [
 
 [[package]]
 name = "sbwb-review"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "sbwb-core",
  "sbwb-layout",
@@ -4960,7 +4960,7 @@ dependencies = [
 
 [[package]]
 name = "sbwb-store"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "blake3",
  "jiff",
@@ -4980,7 +4980,7 @@ dependencies = [
 
 [[package]]
 name = "sbwb-text"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "image",
  "regex",
@@ -4999,7 +4999,7 @@ dependencies = [
 
 [[package]]
 name = "sbwb-worker"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "crossbeam-channel",
  "image",
