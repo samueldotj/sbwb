@@ -415,7 +415,8 @@ export type UpdateInfo = {
 
 export type UpdateEvent =
   | { type: "progress"; done: number; total: number }
-  | { type: "downloaded"; path: string; launching: boolean }
+  | { type: "ready"; path: string; version: string }
+  | { type: "installing" }
   | { type: "failed"; message: string };
 
 export type CommandError = { code: string; message: string };
@@ -433,7 +434,8 @@ export function errorMessage(e: unknown): string {
 export const api = {
   appInfo: () => invoke<{ version: string; identifier: string; tesseract: string }>("app_info"),
   updateCheck: () => invoke<UpdateInfo>("update_check"),
-  updateInstall: () => invoke<void>("update_install"),
+  updateInstall: (launch: boolean) => invoke<void>("update_install", { launch }),
+  updateApply: () => invoke<void>("update_apply"),
   updateOpenPage: () => invoke<void>("update_open_page"),
   inspectSource: (path: string, password?: string) =>
     invoke<SourceCheck>("inspect_source", { path, password: password ?? null }),

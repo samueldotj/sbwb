@@ -1,7 +1,7 @@
 //! App updates from GitHub releases: check the latest release, download
 //! its installer, verify it against the release's SHA256SUMS.txt, then run
 //! it and quit. Nothing goes online unless the user asks, or has turned on
-//! the check at startup (NFR-11).
+//! the check (or automatic install) at startup (NFR-11).
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -22,6 +22,8 @@ const SUMS_NAME: &str = "SHA256SUMS.txt";
 #[derive(Default)]
 pub struct UpdateSlot {
     pub running: Mutex<bool>,
+    /// A verified installer waiting to be run, with its SHA-256.
+    ready: Mutex<Option<(PathBuf, String)>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -31,12 +33,13 @@ pub enum UpdateEvent {
         done: u64,
         total: u64,
     },
-    /// Verified; `launching` is false when this build cannot run the
-    /// installer (a development build), and the file is left at `path`.
-    Downloaded {
+    /// Downloaded and verified; waiting for `update_apply`.
+    Ready {
         path: String,
-        launching: bool,
+        version: String,
     },
+    /// The installer has started and the app is about to quit.
+    Installing,
     Failed {
         message: String,
     },
@@ -255,9 +258,13 @@ fn download(
     Ok(())
 }
 
-/// Fetch the latest installer and its checksum; returns the verified file.
-fn fetch_installer(progress: &mut dyn FnMut(u64, u64)) -> Result<PathBuf, String> {
+/// Fetch the latest installer and its checksum; returns the verified file,
+/// its SHA-256 and the release's version.
+fn fetch_installer(
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(PathBuf, String, String), String> {
     let release = fetch_latest()?;
+    let version = release.tag_name.trim_start_matches(['v', 'V']).to_string();
     let kind = install_kind();
     let asset = pick_installer(&release.assets, kind)
         .cloned()
@@ -281,7 +288,18 @@ fn fetch_installer(progress: &mut dyn FnMut(u64, u64)) -> Result<PathBuf, String
     let dest = dir.join(&asset.name);
     download(&asset.browser_download_url, &dest, &expected, progress)?;
     tracing::info!(file = %dest.display(), sha256 = %expected, "update downloaded and verified");
-    Ok(dest)
+    Ok((dest, expected, version))
+}
+
+fn hash_file(path: &Path) -> Result<String, String> {
+    let mut file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 /// Close the open book cleanly before the installer replaces the app, so
@@ -346,11 +364,50 @@ pub async fn update_open_page() -> CmdResult<()> {
     Ok(())
 }
 
-/// Download, verify and run the latest installer on a background thread;
-/// progress and the outcome arrive as `update:event`. On success the app
-/// quits so the installer can replace it.
+/// Run the verified installer and quit. The file is hashed again first, in
+/// case it changed in the temp folder since it was downloaded.
+fn apply(app: &AppHandle) -> Result<(), String> {
+    let slot = app.state::<UpdateSlot>();
+    let (path, expected) = slot
+        .ready
+        .lock()
+        .map_err(|_| "update mutex poisoned".to_string())?
+        .clone()
+        .ok_or("no update has been downloaded")?;
+    if hash_file(&path)? != expected {
+        if let Ok(mut r) = slot.ready.lock() {
+            *r = None;
+        }
+        let _ = std::fs::remove_file(&path);
+        return Err(
+            "the downloaded installer changed since it was verified; download it again".into(),
+        );
+    }
+    // A development build has no installed copy to replace.
+    if cfg!(debug_assertions) {
+        return Err(format!(
+            "development build: the installer was verified but not run ({})",
+            path.display()
+        ));
+    }
+    close_for_install(app);
+    launch_installer(&path)?;
+    let _ = app.emit(EVENT_UPDATE, UpdateEvent::Installing);
+    tracing::info!("installer started; quitting for the update");
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        handle.exit(0);
+    });
+    Ok(())
+}
+
+/// Download and verify the latest installer on a background thread;
+/// progress and the outcome arrive as `update:event`. With `launch` the
+/// installer then runs and the app quits; without it the installer waits
+/// for `update_apply`.
 #[tauri::command]
-pub fn update_install(app: AppHandle) -> CmdResult<()> {
+pub fn update_install(app: AppHandle, launch: bool) -> CmdResult<()> {
     let slot = app.state::<UpdateSlot>();
     {
         let mut running = slot
@@ -372,43 +429,45 @@ pub fn update_install(app: AppHandle) -> CmdResult<()> {
             let mut progress = |done: u64, total: u64| {
                 let _ = handle.emit(EVENT_UPDATE, UpdateEvent::Progress { done, total });
             };
-            let result = fetch_installer(&mut progress).and_then(|path| {
-                // A development build has no installed copy to replace.
-                let launching = !cfg!(debug_assertions);
-                if launching {
-                    close_for_install(&handle);
-                    launch_installer(&path)?;
+            let result = fetch_installer(&mut progress).and_then(|(path, sha, version)| {
+                let slot = handle.state::<UpdateSlot>();
+                *slot
+                    .ready
+                    .lock()
+                    .map_err(|_| "update mutex poisoned".to_string())? = Some((path.clone(), sha));
+                let _ = handle.emit(
+                    EVENT_UPDATE,
+                    UpdateEvent::Ready {
+                        path: path.to_string_lossy().into_owned(),
+                        version,
+                    },
+                );
+                if launch {
+                    apply(&handle)?;
                 }
-                Ok((path, launching))
+                Ok(())
             });
             if let Some(slot) = handle.try_state::<UpdateSlot>() {
                 if let Ok(mut r) = slot.running.lock() {
                     *r = false;
                 }
             }
-            match result {
-                Ok((path, launching)) => {
-                    let _ = handle.emit(
-                        EVENT_UPDATE,
-                        UpdateEvent::Downloaded {
-                            path: path.to_string_lossy().into_owned(),
-                            launching,
-                        },
-                    );
-                    if launching {
-                        tracing::info!("installer started; quitting for the update");
-                        std::thread::sleep(std::time::Duration::from_millis(400));
-                        handle.exit(0);
-                    }
-                }
-                Err(message) => {
-                    tracing::warn!("update failed: {message}");
-                    let _ = handle.emit(EVENT_UPDATE, UpdateEvent::Failed { message });
-                }
+            if let Err(message) = result {
+                tracing::warn!("update failed: {message}");
+                let _ = handle.emit(EVENT_UPDATE, UpdateEvent::Failed { message });
             }
         })
         .map_err(|e| CommandError::new("other", format!("update thread: {e}")))?;
     Ok(())
+}
+
+/// Run an installer `update_install` downloaded earlier, and quit.
+#[tauri::command]
+pub async fn update_apply(app: AppHandle) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || apply(&app))
+        .await
+        .map_err(|e| CommandError::new("other", e))?
+        .map_err(|e| CommandError::new("other", e))
 }
 
 #[cfg(test)]

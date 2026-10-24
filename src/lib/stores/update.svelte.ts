@@ -5,41 +5,64 @@ import { api, errorMessage, type UpdateEvent, type UpdateInfo } from "$lib/api";
 import { confirmDialog } from "$lib/dialogs";
 import { isTauri, listen } from "$lib/ipc";
 import { layout } from "./layout.svelte";
+import { pipeline } from "./pipeline.svelte";
+import { project } from "./project.svelte";
 import { ui } from "./ui.svelte";
 
-const AUTO_KEY = "sbwb.updateCheck";
+/** What happens at startup: nothing, a notice, or download and install. */
+export type UpdateMode = "off" | "notify" | "install";
 
-function readAuto(): boolean {
+const MODE_KEY = "sbwb.updateMode";
+const OLD_KEY = "sbwb.updateCheck";
+
+function readMode(): UpdateMode {
   try {
-    return localStorage.getItem(AUTO_KEY) === "on";
+    const v = localStorage.getItem(MODE_KEY);
+    if (v === "off" || v === "notify" || v === "install") return v;
+    return localStorage.getItem(OLD_KEY) === "on" ? "notify" : "off";
   } catch {
-    return false;
+    return "off";
   }
 }
 
 class UpdateState {
-  /** Check for a new version each time the app starts. */
-  checkAtStartup = $state<boolean>(readAuto());
+  startupMode = $state<UpdateMode>(readMode());
   info = $state<UpdateInfo | null>(null);
   checking = $state(false);
   checkedAt = $state<number | null>(null);
   error = $state("");
   /** Download progress while the installer is fetched. */
   downloading = $state<{ done: number; total: number } | null>(null);
+  /** Version whose verified installer is waiting to run. */
+  ready = $state<string | null>(null);
   #listening = false;
+  /** Install as soon as the download is verified, if nothing is open. */
+  #autoApply = false;
+  /** The lasting "Installing…" toast, cleared if the install fails. */
+  #installingToast: number | null = null;
 
   /** A newer release this copy can install. */
   get available(): boolean {
     return !!this.info?.newer && !!this.info.installer;
   }
 
-  setCheckAtStartup(on: boolean) {
-    this.checkAtStartup = on;
+  setStartupMode(mode: UpdateMode) {
+    this.startupMode = mode;
     try {
-      localStorage.setItem(AUTO_KEY, on ? "on" : "off");
+      localStorage.setItem(MODE_KEY, mode);
+      localStorage.removeItem(OLD_KEY);
     } catch {
       // Private storage unavailable; the choice lasts for this session.
     }
+  }
+
+  /** Startup: check, and in install mode fetch and run a newer version. */
+  async startup() {
+    if (!isTauri || this.startupMode === "off") return;
+    await this.check(true);
+    if (this.startupMode !== "install" || !this.available || this.downloading) return;
+    this.#autoApply = true;
+    await this.#download(false);
   }
 
   async check(quiet = false) {
@@ -60,6 +83,11 @@ class UpdateState {
 
   /** Download, verify and run the installer; the app quits when it starts. */
   async install() {
+    if (this.ready) {
+      const ok = await confirmDialog(`Install SBWB ${this.ready} now?\n\nSBWB closes while the installer runs and reopens when it finishes. Processing in progress stops at the current page; finished work is kept.`, "Update SBWB");
+      if (ok) await this.apply();
+      return;
+    }
     const info = this.info;
     if (!info?.installer || this.downloading) return;
     if (layout.dirty) {
@@ -72,13 +100,43 @@ class UpdateState {
       "Update SBWB",
     );
     if (!ok) return;
+    await this.#download(true);
+  }
+
+  /** Run the downloaded installer and quit. */
+  async apply() {
+    if (layout.dirty) {
+      ui.toast("Save or discard the layout changes before updating", "warn", 5000);
+      return;
+    }
+    try {
+      await api.updateApply();
+    } catch (e) {
+      this.#clearInstalling();
+      this.error = errorMessage(e);
+      ui.toast(`Update failed: ${this.error}`, "error", 8000);
+    }
+  }
+
+  #clearInstalling() {
+    if (this.#installingToast !== null) ui.dismiss(this.#installingToast);
+    this.#installingToast = null;
+  }
+
+  /** Nothing would be interrupted by quitting now. */
+  #idle(): boolean {
+    return !project.isOpen && !layout.dirty && pipeline.state !== "running";
+  }
+
+  async #download(launch: boolean) {
     await this.#listen();
     this.error = "";
-    this.downloading = { done: 0, total: info.installer.size };
+    this.downloading = { done: 0, total: this.info?.installer?.size ?? 0 };
     try {
-      await api.updateInstall();
+      await api.updateInstall(launch);
     } catch (e) {
       this.downloading = null;
+      this.#autoApply = false;
       this.error = errorMessage(e);
       ui.toast(`Update failed: ${this.error}`, "error", 6000);
     }
@@ -90,11 +148,24 @@ class UpdateState {
     await listen<UpdateEvent>("update:event", (e) => {
       if (e.type === "progress") {
         this.downloading = { done: e.done, total: e.total || this.info?.installer?.size || 0 };
-      } else if (e.type === "downloaded") {
+      } else if (e.type === "ready") {
         this.downloading = null;
-        ui.toast(e.launching ? "Installing the update…" : `Downloaded and verified (development build, not installed): ${e.path}`, "ok", e.launching ? 0 : 8000);
+        this.ready = e.version;
+        if (!this.#autoApply) return;
+        this.#autoApply = false;
+        if (this.#idle()) {
+          this.#installingToast = ui.toast(`Installing SBWB ${e.version}…`, "ok", 0);
+          void this.apply();
+        } else {
+          ui.toast(`SBWB ${e.version} is downloaded; install it from the status bar when you are ready`, "ok", 8000);
+        }
+      } else if (e.type === "installing") {
+        this.#clearInstalling();
+        this.#installingToast = ui.toast("Installing the update…", "ok", 0);
       } else if (e.type === "failed") {
+        this.#clearInstalling();
         this.downloading = null;
+        this.#autoApply = false;
         this.error = e.message;
         ui.toast(`Update failed: ${e.message}`, "error", 8000);
       }

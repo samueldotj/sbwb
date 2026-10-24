@@ -307,7 +307,7 @@
               {/if}
             </div>
             <div class="inline">
-              <button type="button" class="primary" onclick={() => update.install()} disabled={!update.info.installer || !!update.downloading}>{update.downloading ? `Downloading ${formatBytes(update.downloading.done)}…` : "Download and install"}</button>
+              <button type="button" class="primary" onclick={() => update.install()} disabled={!update.info.installer || !!update.downloading}>{update.downloading ? `Downloading ${formatBytes(update.downloading.done)}…` : update.ready ? "Install now" : "Download and install"}</button>
             </div>
           </div>
           {#if update.info.notes}
@@ -315,8 +315,12 @@
           {/if}
         {/if}
         <div class="row">
-          <div><div class="name">Check at startup</div><div class="hint words">Ask GitHub for a newer version each time SBWB opens. Nothing is downloaded without your confirmation.</div></div>
-          <label class="toggle"><input type="checkbox" checked={update.checkAtStartup} onchange={(e) => update.setCheckAtStartup((e.currentTarget as HTMLInputElement).checked)} aria-label="Check for updates at startup" /><span></span></label>
+          <div><div class="name">At startup</div><div class="hint words">{update.startupMode === "install" ? "Download a newer version when SBWB opens and install it straight away if no book is open; otherwise it waits in the status bar until you choose to install." : update.startupMode === "notify" ? "Ask GitHub for a newer version when SBWB opens and show it in the status bar. Nothing is downloaded without your confirmation." : "Never check by itself. Use Check for updates."}</div></div>
+          <div class="seg" role="radiogroup" aria-label="Updates at startup">
+            <button type="button" role="radio" aria-checked={update.startupMode === "off"} class:on={update.startupMode === "off"} onclick={() => update.setStartupMode("off")}>Off</button>
+            <button type="button" role="radio" aria-checked={update.startupMode === "notify"} class:on={update.startupMode === "notify"} onclick={() => update.setStartupMode("notify")}>Notify</button>
+            <button type="button" role="radio" aria-checked={update.startupMode === "install"} class:on={update.startupMode === "install"} onclick={() => update.setStartupMode("install")}>Install</button>
+          </div>
         </div>
       </div>
     {/if}

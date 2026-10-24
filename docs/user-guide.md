@@ -186,8 +186,11 @@ profile reruns only the text pass.
 release. When a newer one exists, **Download and install** fetches its
 installer, checks it against the release's `SHA256SUMS.txt`, closes SBWB
 (processing stops at the current page; finished work is kept), runs the
-installer and reopens SBWB. Turn on **Check at startup** to be told about a
-new version in the status bar; nothing is downloaded without confirmation.
+installer and reopens SBWB. **At startup** chooses what happens when SBWB
+opens: **Off** (the default) never checks; **Notify** shows a new version
+in the status bar and downloads nothing without confirmation; **Install**
+downloads and verifies it, then installs straight away if no book is open,
+or waits in the status bar (**ready · install**) until you click it.
 GitHub sees your IP address and the SBWB version, nothing about your books.
 
 ## 10. Limitations in this release

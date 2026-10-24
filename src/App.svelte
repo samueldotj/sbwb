@@ -197,7 +197,7 @@
       return;
     }
     void api.appInfo().then((i) => (version = i.version)).catch(() => {});
-    if (update.checkAtStartup) void update.check(true);
+    void update.startup();
     let unlisten: (() => void) | undefined;
     void import("@tauri-apps/api/webview").then(async ({ getCurrentWebview }) => {
       unlisten = await getCurrentWebview().onDragDropEvent((event) => {
@@ -278,8 +278,12 @@
     stage={project.busy ?? stageLine}
     running={project.busy !== null || pipeline.state === "running"}
     counters={counters}
-    notice={update.available ? `SBWB ${update.info?.latest} available` : ""}
+    notice={update.ready ? `SBWB ${update.ready} ready · install` : update.available ? `SBWB ${update.info?.latest} available` : ""}
     onnotice={() => {
+      if (update.ready) {
+        void update.install();
+        return;
+      }
       ui.settingsSection = "updates";
       ui.settingsOpen = true;
     }}

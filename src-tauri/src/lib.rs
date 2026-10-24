@@ -195,6 +195,7 @@ pub fn run() {
             commands::ai::ai_runs,
             commands::update::update_check,
             commands::update::update_install,
+            commands::update::update_apply,
             commands::update::update_open_page,
             commands::queue::queue_list,
             commands::queue::queue_add,
