@@ -10,6 +10,7 @@
 pub mod events;
 pub mod scheduler;
 pub mod settings;
+pub mod side_notes;
 
 pub use events::{PipelineEvent, PipelineState, StageProgress};
 pub use scheduler::{Scheduler, SchedulerConfig, Status};

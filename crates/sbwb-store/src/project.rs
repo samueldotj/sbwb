@@ -972,6 +972,28 @@ impl Project {
         }
     }
 
+    /// Add words read apart from the page (side notes) to the page's current
+    /// OCR words. Existing indices stay valid, so anchors into the run keep
+    /// pointing at the same words.
+    pub fn append_page_ocr_words(
+        &mut self,
+        page: PageIndex,
+        words: &[sbwb_ocr::OcrWord],
+    ) -> Result<()> {
+        self.require_write()?;
+        let (run, mut all, _, _) = self
+            .current_page_ocr(page)?
+            .ok_or_else(|| SbwbError::NotFound(format!("{page} has no OCR evidence")))?;
+        all.extend(words.iter().cloned());
+        self.conn
+            .execute(
+                "UPDATE page_ocr SET words = ?1 WHERE page_index = ?2 AND run_id = ?3",
+                params![serde_json::to_string(&all)?, page.0 as i64, run.to_string()],
+            )
+            .map_err(db)?;
+        Ok(())
+    }
+
     /// Mean OCR confidence and word count of every recognised page (its
     /// current run), lowest confidence first.
     pub fn ocr_confidences(&self) -> Result<Vec<(PageIndex, f32, u32)>> {

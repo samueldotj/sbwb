@@ -55,6 +55,8 @@ struct Unit {
     page: PageIndex,
     /// OCR evidence attached to Layout units.
     ocr: Option<OcrEvidence>,
+    /// A stored manual layout, which a layout run keeps (LAY-02).
+    kept: Option<Vec<sbwb_layout::Region>>,
 }
 
 enum UnitOk {
@@ -71,6 +73,8 @@ enum UnitOk {
         regions: Vec<sbwb_layout::Region>,
         report: sbwb_layout::CoverageReport,
         algorithm: String,
+        /// Marginal regions left empty by page OCR, read on their own.
+        side_notes: Result<crate::side_notes::SideNoteReading>,
     },
 }
 
@@ -220,7 +224,12 @@ pub fn stage_to_redo(
             .rev()
             .find(|r| r.stage == stage && r.status == "ok")
     };
-    let same_ocr = last_ok(Stage::Ocr)
+    // Region and side-note reads are OCR runs too but carry a "kind"; only
+    // the whole-page run holds the recognition fingerprint.
+    let same_ocr = runs
+        .iter()
+        .rev()
+        .find(|r| r.stage == Stage::Ocr && r.status == "ok" && r.settings.get("kind").is_none())
         .and_then(|r| {
             r.settings
                 .get("fingerprint")
@@ -471,10 +480,15 @@ fn coordinate(
                 match project.current_page_ocr(page)? {
                     Some((_, words, lines, _)) => {
                         let blocks = blocks_from_lines(&lines);
+                        let kept = project
+                            .page_layout(page)?
+                            .filter(|l| l.manual)
+                            .map(|l| serde_json::from_value(l.regions).unwrap_or_default());
                         next = Some(Unit {
                             stage: Stage::Layout,
                             page,
                             ocr: Some((words, lines, blocks)),
+                            kept,
                         });
                     }
                     None => {
@@ -491,6 +505,7 @@ fn coordinate(
                     stage: Stage::Ocr,
                     page,
                     ocr: None,
+                    kept: None,
                 });
             }
         }
@@ -840,6 +855,7 @@ fn handle_result(
             regions,
             report,
             algorithm,
+            side_notes,
         }) => {
             let stored = project.put_page_layout(
                 page,
@@ -873,6 +889,26 @@ fn handle_result(
             );
             for w in &report.warnings {
                 log(tx, "warn", format!("{page} {w}"));
+            }
+            match side_notes {
+                Ok(reading) if !reading.profiles.is_empty() => {
+                    let n = crate::side_notes::store_side_notes(
+                        project,
+                        page,
+                        config.settings.model,
+                        &reading,
+                    )?;
+                    log(
+                        tx,
+                        "info",
+                        format!(
+                            "side notes {page} · {} empty · {n} words read",
+                            reading.profiles.len()
+                        ),
+                    );
+                }
+                Ok(_) => {}
+                Err(e) => log(tx, "warn", format!("{page} side notes not read · {e}")),
             }
             let _ = tx.send(PipelineEvent::Unit {
                 stage,
@@ -970,6 +1006,7 @@ fn worker_loop(config: SchedulerConfig, rx: Receiver<Unit>, tx: Sender<UnitResul
             }
         }
         let w = worker.as_mut().expect("worker");
+        let page_words = unit.ocr.as_ref().map(|o| o.0.clone()).unwrap_or_default();
         let request = match unit.stage {
             Stage::Layout => {
                 let (words, lines, blocks) = unit.ocr.unwrap_or_default();
@@ -1013,11 +1050,24 @@ fn worker_loop(config: SchedulerConfig, rx: Receiver<Unit>, tx: Sender<UnitResul
                 report,
                 algorithm,
                 ..
-            } => Ok(UnitOk::Layout {
-                regions,
-                report,
-                algorithm,
-            }),
+            } => {
+                // The layout that will stand: a manual one is kept.
+                let standing = unit.kept.as_deref().unwrap_or(&regions);
+                let empty = crate::side_notes::empty_side_notes(standing, &page_words);
+                let side_notes = crate::side_notes::read_side_notes(
+                    w,
+                    &config.source_path,
+                    unit.page,
+                    &empty,
+                    config.settings.model,
+                );
+                Ok(UnitOk::Layout {
+                    regions,
+                    report,
+                    algorithm,
+                    side_notes,
+                })
+            }
             other => Err(SbwbError::other(format!("unexpected reply {other:?}"))),
         });
         if matches!(result, Err(SbwbError::Timeout(_))) || !w.is_alive() {

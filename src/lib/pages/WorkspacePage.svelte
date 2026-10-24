@@ -178,6 +178,7 @@
   });
   $effect(() => {
     const idx = view.page;
+    void layout.wordsRevision;
     if (view.mode !== "layout" || !isTauri) {
       pageWords = [];
       return;

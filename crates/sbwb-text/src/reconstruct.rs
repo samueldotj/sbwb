@@ -121,7 +121,8 @@ struct Line {
     bbox: Rect,
 }
 
-fn inside(w: &OcrWord, r: &Region) -> bool {
+/// A word belongs to a region when its centre lies inside it.
+pub fn inside(w: &OcrWord, r: &Region) -> bool {
     let cx = w.bbox.x + w.bbox.w / 2.0;
     let cy = w.bbox.y + w.bbox.h / 2.0;
     cx >= r.bbox.x && cx <= r.bbox.right() && cy >= r.bbox.y && cy <= r.bbox.bottom()

@@ -498,6 +498,8 @@ export const api = {
   exportsList: () => invoke<ExportEntry[]>("exports_list"),
   regionOcr: (index: number, bbox: { x: number; y: number; w: number; h: number }, opts: { enlarge?: number; secondEngine?: boolean; region?: string } = {}) =>
     invoke<RegionOcrResult>("region_ocr", { index, bbox, enlarge: opts.enlarge ?? 3, secondEngine: opts.secondEngine ?? false, region: opts.region ?? null }),
+  /** Read marginal regions that page OCR left without words; returns the words added. */
+  sideNotesRead: (index: number) => invoke<number>("side_notes_read", { index }),
   secondEngineAvailable: () => invoke<boolean>("second_engine_available"),
   aiStatus: () => invoke<AiStatus>("ai_status"),
   aiKeySet: (provider: string, key: string, remember: boolean) => invoke<boolean>("ai_key_set", { provider, key, remember }),

@@ -199,6 +199,84 @@ pub fn region_ocr(
     })
 }
 
+/// Read the page's marginal regions that have no OCR word inside, each as
+/// one block (page OCR drops small side notes). Returns the words added;
+/// the page's text pass is then due again.
+#[tauri::command]
+pub fn side_notes_read(app: AppHandle, state: State<'_, AppState>, index: u32) -> CmdResult<u32> {
+    let page = PageIndex(index);
+    let (source, model, empty) = {
+        let guard = state
+            .project
+            .lock()
+            .map_err(|_| CommandError::new("other", "state poisoned"))?;
+        let p = guard
+            .as_ref()
+            .ok_or_else(|| CommandError::new("not_found", "no open book"))?;
+        if p.store.is_read_only() {
+            return Ok(0);
+        }
+        let row = p
+            .store
+            .pages()?
+            .into_iter()
+            .find(|r| r.index == page)
+            .ok_or_else(|| CommandError::new("not_found", "page not found"))?;
+        if row.approval == "current" {
+            return Ok(0);
+        }
+        let Some((_, words, _, _)) = p.store.current_page_ocr(page)? else {
+            return Ok(0);
+        };
+        let regions: Vec<sbwb_layout::Region> = p
+            .store
+            .page_layout(page)?
+            .map(|l| serde_json::from_value(l.regions).unwrap_or_default())
+            .unwrap_or_default();
+        let settings = sbwb_pipeline::ProcessingSettings::load(&p.store)?;
+        (
+            p.source_path.clone(),
+            settings.model,
+            sbwb_pipeline::side_notes::empty_side_notes(&regions, &words),
+        )
+    };
+    if empty.is_empty() {
+        return Ok(0);
+    }
+    let reading = state.with_worker(|w| {
+        sbwb_pipeline::side_notes::read_side_notes(w, &source, page, &empty, model)
+    })?;
+    let n = {
+        let mut guard = state
+            .project
+            .lock()
+            .map_err(|_| CommandError::new("other", "state poisoned"))?;
+        let p = guard
+            .as_mut()
+            .ok_or_else(|| CommandError::new("not_found", "no open book"))?;
+        // The layout may have changed while the worker read: keep only
+        // words for regions that are still empty.
+        let Some((_, words, _, _)) = p.store.current_page_ocr(page)? else {
+            return Ok(0);
+        };
+        let regions: Vec<sbwb_layout::Region> = p
+            .store
+            .page_layout(page)?
+            .map(|l| serde_json::from_value(l.regions).unwrap_or_default())
+            .unwrap_or_default();
+        let still = sbwb_pipeline::side_notes::empty_side_notes(&regions, &words);
+        let mut reading = reading;
+        reading
+            .words
+            .retain(|w| still.iter().any(|r| sbwb_text::reconstruct::inside(w, r)));
+        sbwb_pipeline::side_notes::store_side_notes(&mut p.store, page, model, &reading)?
+    };
+    if n > 0 {
+        let _ = app.emit(crate::commands::project::EVENT_PROJECT_CHANGED, ());
+    }
+    Ok(n)
+}
+
 fn fail_run(state: &State<'_, AppState>, run: sbwb_core::RunId, error: &str) {
     if let Ok(guard) = state.project.lock() {
         if let Some(p) = guard.as_ref() {

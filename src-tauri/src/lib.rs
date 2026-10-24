@@ -182,6 +182,7 @@ pub fn run() {
             commands::export::open_file,
             commands::export::exports_list,
             commands::refine::region_ocr,
+            commands::refine::side_notes_read,
             commands::refine::second_engine_available,
             commands::ai::ai_status,
             commands::ai::ai_key_set,

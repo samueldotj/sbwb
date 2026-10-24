@@ -55,6 +55,10 @@ runs on your computer; nothing is uploaded.
   place is saved with the page's layout (the text pass is not re-run).
   The Word export puts a note's box at the start of the paragraph for Top,
   and at the start of the next paragraph for Middle and Bottom.
+  Whole-page OCR often skips small side notes. A marginal box with no
+  words in it is read again on its own after layout analysis, and when you
+  draw one or open its page in Layout mode. The text pass then runs the
+  page again.
 - **Spelling.** In the transcript's Highlight menu, choose Spelling: UK
   English or US English. Words that are in neither that dictionary, the
   Webster 1913 word list, nor this book's own words get a wavy red

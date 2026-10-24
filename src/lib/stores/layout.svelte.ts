@@ -86,6 +86,10 @@ class LayoutState {
   saving = $state(false);
   /** Depth of the undo stack, kept reactive for the Undo button. */
   undoDepth = $state(0);
+  /** Bumped when side notes add OCR words to the page. */
+  wordsRevision = $state(0);
+  /** Pages whose empty side notes were already tried on load. */
+  #sideNotesTried = new Set<number>();
   #undo: Region[][] = [];
   #loadToken = 0;
   #saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -153,6 +157,10 @@ class LayoutState {
       this.manual = l?.manual ?? false;
       this.revision = l?.revision ?? 0;
       this.selection = this.selection.filter((id) => this.regions.some((r) => r.id === id));
+      if (!this.#sideNotesTried.has(page)) {
+        this.#sideNotesTried.add(page);
+        void this.#readSideNotes(page, this.regions);
+      }
     } catch (e) {
       if (token === this.#loadToken) ui.toast(errorMessage(e), "error");
     } finally {
@@ -337,6 +345,7 @@ class LayoutState {
         if (JSON.stringify($state.snapshot(this.regions)) === sentJson) this.regions = structuredClone(l.regions);
         this.manual = l.manual;
         this.revision = l.revision;
+        void this.#readSideNotes(page, l.regions);
         return true;
       } catch (e) {
         ui.toast(`Could not save the layout: ${errorMessage(e)}`, "error", 6000);
@@ -351,6 +360,19 @@ class LayoutState {
     // Edits made during the save go out next; a failure waits for the next edit.
     if (ok && this.dirty && !this.#saveTimer && this.page === page) this.#schedule();
     return ok;
+  }
+  /** Page OCR drops small side notes; read empty marginal regions on their own. */
+  async #readSideNotes(page: number, regions: Region[]) {
+    if (!regions.some((r) => r.kind === "marginalia")) return;
+    try {
+      const n = await api.sideNotesRead(page);
+      if (n > 0) {
+        this.wordsRevision++;
+        if (this.page === page) ui.toast(`Read ${n} word${n === 1 ? "" : "s"} in side notes; the text pass is due again`, "ok", 4000);
+      }
+    } catch (e) {
+      ui.toast(`Could not read the side notes: ${errorMessage(e)}`, "error", 6000);
+    }
   }
   async rerun() {
     if (this.page === null) return;
