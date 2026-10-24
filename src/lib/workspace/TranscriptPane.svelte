@@ -366,9 +366,9 @@
     <button type="button" class="track-btn" class:on={review.trackChanges} aria-pressed={review.trackChanges} onclick={() => { review.trackChanges = !review.trackChanges; revisit = null; review.savePrefs(); }} title="Track corrections: box every corrected word in green; click one to see what it was and change or undo it">
       Corrections&nbsp;<span class="mono-n">{corrections}</span>
     </button>
-    {#if outsideWords > 0 || review.hideOutside}
-      <button type="button" class="track-btn" class:on={review.hideOutside} aria-pressed={review.hideOutside} onclick={() => { review.hideOutside = !review.hideOutside; review.savePrefs(); }} title="Hide the text that lies outside every layout region in the transcript; only what is shown changes">
-        Hide outside&nbsp;<span class="mono-n">{outsideWords}</span>
+    {#if outsideWords > 0}
+      <button type="button" class="track-btn" onclick={() => { review.hideOutside = !review.hideOutside; review.savePrefs(); }} title="{review.hideOutside ? 'Show' : 'Hide'} the text that lies outside every layout region in the transcript; only what is shown changes">
+        {review.hideOutside ? "Show" : "Hide"} outside&nbsp;<span class="mono-n">{outsideWords}</span>
       </button>
     {/if}
     <span class="zoom" role="group" aria-label="Transcript zoom">

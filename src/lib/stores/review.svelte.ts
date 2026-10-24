@@ -52,8 +52,8 @@ class ReviewState {
   /** Track corrections: every corrected word is boxed in green and can be
    *  revisited, whatever the hide-accepted / hide-auto settings say. */
   trackChanges = $state(false);
-  /** Hide words that fall outside every layout region in the transcript. */
-  hideOutside = $state(false);
+  /** Hide words that fall outside every layout region in the transcript (on by default). */
+  hideOutside = $state(true);
 
   // ----- current page -----
   page = $state<number | null>(null);
