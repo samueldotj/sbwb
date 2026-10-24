@@ -29,6 +29,9 @@ pub struct RegionSnap {
     pub structure: WordStructure,
     pub bbox: Rect,
     pub anchor_y: Option<f64>,
+    /// The margin a side note was placed in by hand.
+    #[serde(default)]
+    pub side: Option<sbwb_layout::Side>,
 }
 
 /// An unresolved issue attached to a span (working-copy flags).

@@ -48,9 +48,14 @@
   const shownBody = $derived(review.hideOutside ? body.filter((p) => p.region !== null || p.words.some((w) => w.span.id === review.selected?.span)) : body);
   const foot = $derived(paras.filter((p) => p.kind === "footer" || p.kind === "footnote"));
   // Marginal notes sit beside the text: each goes in the left or right
-  // column (by which side of the body text its box is on the scan), next to
-  // the last paragraph that starts at or above it.
+  // column (the margin it was dragged to, or else the side of the body text
+  // its box is on in the scan), next to the last paragraph that starts at
+  // or above the line it belongs to.
   type Row = { para: Para; left: Para[]; right: Para[] };
+  /** Page-space top of a paragraph: its first anchored word. */
+  function paraTop(p: Para): number {
+    return p.words.find((w) => w.span.anchors.length)?.span.anchors[0]?.bbox.y ?? Infinity;
+  }
   const rows = $derived.by((): Row[] => {
     const notes = shownBody.filter((p) => p.kind === "marginalia");
     const main = shownBody.filter((p) => p.kind !== "marginalia");
@@ -62,23 +67,82 @@
       if (r) return r.bbox;
       return p.words.find((w) => w.span.anchors.length)?.span.anchors[0]?.bbox ?? null;
     };
-    const top = (p: Para) => p.words.find((w) => w.span.anchors.length)?.span.anchors[0]?.bbox.y ?? Infinity;
     const bodies = review.regions.filter((r) => r.kind === "body");
     const mid = bodies.length ? bodies.reduce((a, r) => a + r.bbox.x + r.bbox.w / 2, 0) / bodies.length : (page?.width_pt ?? 0) / 2;
     for (const n of notes) {
+      const r = n.region ? byId.get(n.region) : undefined;
       const b = box(n);
-      const y = b?.y ?? Infinity;
+      const y = r?.anchor_y ?? b?.y ?? Infinity;
       let k = 0;
       out.forEach((row, i) => {
-        if (top(row.para) <= y + 2) k = i;
+        if (paraTop(row.para) <= y + 2) k = i;
       });
       const row = out[k]!;
-      (b && b.x + b.w / 2 < mid ? row.left : row.right).push(n);
+      const left = r?.side ? r.side === "left" : !!b && b.x + b.w / 2 < mid;
+      (left ? row.left : row.right).push(n);
     }
     return out;
   });
   const hasLeft = $derived(rows.some((r) => r.left.length));
   const hasRight = $derived(rows.some((r) => r.right.length));
+
+  // ----- moving a marginal note: drag it beside another paragraph, or into
+  // the other margin. Pointer events, since HTML drag and drop does not
+  // work in the app window on Windows. -----
+  type NoteDrag = { region: string; el: HTMLElement; x0: number; y0: number; pointer: number; moved: boolean };
+  let noteDrag: NoteDrag | null = null;
+  let dragging = $state(false);
+  let dropAt = $state<{ row: number; side: "left" | "right" } | null>(null);
+  let suppressClick = false;
+  function notePointerDown(e: PointerEvent, region: string | null) {
+    if (e.button !== 0 || !region || editor) return;
+    noteDrag = { region, el: e.currentTarget as HTMLElement, x0: e.clientX, y0: e.clientY, pointer: e.pointerId, moved: false };
+  }
+  function notePointerMove(e: PointerEvent) {
+    const d = noteDrag;
+    if (!d || e.pointerId !== d.pointer) return;
+    const dx = e.clientX - d.x0;
+    const dy = e.clientY - d.y0;
+    if (!d.moved) {
+      if (Math.hypot(dx, dy) < 6) return;
+      d.moved = true;
+      dragging = true;
+      wordMenu = null;
+      window.getSelection()?.removeAllRanges();
+      d.el.classList.add("lifted");
+    }
+    d.el.style.transform = `translate(${dx}px, ${dy}px)`;
+    const at = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("aside.side[data-row]");
+    dropAt = at ? { row: Number(at.dataset.row), side: at.dataset.side === "left" ? "left" : "right" } : null;
+  }
+  function notePointerUp(e: PointerEvent) {
+    const d = noteDrag;
+    if (!d || e.pointerId !== d.pointer) return;
+    noteDrag = null;
+    if (!d.moved) return;
+    d.el.classList.remove("lifted");
+    d.el.style.transform = "";
+    // the click that ends a drag is not a click on a word
+    suppressClick = true;
+    setTimeout(() => (suppressClick = false), 300);
+    const target = dropAt;
+    dragging = false;
+    dropAt = null;
+    if (target && e.type === "pointerup") void placeNote(d.region, target);
+  }
+  async function placeNote(region: string, at: { row: number; side: "left" | "right" }) {
+    const row = rows[at.row];
+    const y = row ? paraTop(row.para) : Infinity;
+    if (!Number.isFinite(y)) return;
+    review.regions = review.regions.map((g) => (g.id === region ? { ...g, anchor_y: y, side: at.side } : g));
+    try {
+      await ui.save(() => api.sideNotePlace(view.page, region, y, at.side));
+      ui.announce("Note moved");
+    } catch (e) {
+      ui.toast(errorMessage(e), "error", 6000);
+      await review.reload();
+    }
+  }
   const headLine = $derived(head.map((p) => p.words.map((w) => w.span.text).join(" ")).join(" · "));
   // Highlight numbers / special characters (a menu in the header); the
   // counts cover the text drawn on the page.
@@ -198,7 +262,7 @@
   }
   /** A plain click on a word; the delay lets a double-click edit instead. */
   function onWordClick(e: MouseEvent) {
-    if (editor) return;
+    if (editor || suppressClick) return;
     const t = e.target as Element | null;
     if (!t || t.closest("button, .cands, .editor, .pick, sup, input, textarea")) return;
     const el = t.closest<HTMLElement>("[data-span]");
@@ -578,7 +642,12 @@
 {#snippet spell(t: string)}{#if misspelt.has(t)}<span class="misspelt" title="Not in the {review.spelling === 'en_US' ? 'US' : 'UK'} English dictionary · right-click for suggestions">{@render chars(t)}</span>{:else}{@render chars(t)}{/if}{/snippet}
 {#snippet chars(t: string)}{#if hlOn}{#each charRuns(t, { numbers: review.highlightNumbers, punctuation: review.highlightPunctuation, special: review.highlightSpecial }) as r, ri (ri)}{#if r.kind}<span class="hl {r.kind}">{r.text}</span>{:else}{r.text}{/if}{/each}{:else}{t}{/if}{/snippet}
 
-<svelte:window onclick={onWindowClick} />
+<svelte:window onclick={onWindowClick} onpointermove={notePointerMove} onpointerup={notePointerUp} onpointercancel={notePointerUp} />
+
+{#snippet sideNote(n: Para)}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="side-note" title="Drag to move this note beside another paragraph or into the other margin" onpointerdown={(e) => notePointerDown(e, n.region)}>{@render bodyPara(n)}</div>
+{/snippet}
 
 {#snippet bodyPara(p: Para)}
     <p class="para {p.kind}" data-label={p.label}>
@@ -858,12 +927,12 @@
       {#if headLine}
         <p class="runhead" aria-label="Running head">{@render wtext(headLine)}</p>
       {/if}
-      <div class="flow" class:left={hasLeft} class:right={hasRight}>
+      <div class="flow" class:left={hasLeft || dragging} class:right={hasRight || dragging} class:dragging>
         {#each rows as row, pi (pi)}
           <div class="row">
-            {#if hasLeft}<aside class="side left" aria-label="Marginal notes">{#each row.left as n, ni (ni)}{@render bodyPara(n)}{/each}</aside>{/if}
+            {#if hasLeft || dragging}<aside class="side left" class:over={dropAt?.row === pi && dropAt.side === "left"} data-row={pi} data-side="left" aria-label="Marginal notes">{#each row.left as n, ni (ni)}{@render sideNote(n)}{/each}</aside>{/if}
             {@render bodyPara(row.para)}
-            {#if hasRight}<aside class="side right" aria-label="Marginal notes">{#each row.right as n, ni (ni)}{@render bodyPara(n)}{/each}</aside>{/if}
+            {#if hasRight || dragging}<aside class="side right" class:over={dropAt?.row === pi && dropAt.side === "right"} data-row={pi} data-side="right" aria-label="Marginal notes">{#each row.right as n, ni (ni)}{@render sideNote(n)}{/each}</aside>{/if}
           </div>
         {/each}
       </div>
@@ -1354,6 +1423,32 @@
   .side .para {
     margin-bottom: 0.7em;
     line-height: 1.45;
+  }
+  .side-note {
+    position: relative;
+    cursor: grab;
+    border-radius: 4px;
+  }
+  .side-note:hover {
+    background: color-mix(in srgb, var(--accent-bg) 45%, transparent);
+  }
+  :global(.side-note.lifted) {
+    z-index: 6;
+    cursor: grabbing;
+    pointer-events: none;
+    opacity: 0.85;
+    background: var(--raised);
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.25);
+  }
+  .flow.dragging .side {
+    min-height: 2.2em;
+    border-radius: 6px;
+    outline: 1px dashed var(--border);
+    outline-offset: 2px;
+  }
+  .flow.dragging .side.over {
+    outline: 2px solid var(--accent);
+    background: color-mix(in srgb, var(--accent-bg) 50%, transparent);
   }
   .side.left .para {
     text-align: right;

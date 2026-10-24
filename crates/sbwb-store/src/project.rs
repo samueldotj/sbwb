@@ -775,6 +775,48 @@ impl Project {
         Ok(true)
     }
 
+    /// Place a side note by hand: beside the body line at page-space
+    /// `anchor_y`, in the given margin. Only that region changes, so the
+    /// text pass is not re-run; the layout counts as edited by a person
+    /// (an automatic layout run leaves it alone) and its revision moves.
+    pub fn place_side_note(
+        &self,
+        page: PageIndex,
+        region: sbwb_core::RegionId,
+        anchor_y: f64,
+        side: sbwb_layout::Side,
+    ) -> Result<()> {
+        self.require_write()?;
+        let layout = self
+            .page_layout(page)?
+            .ok_or_else(|| SbwbError::NotFound("the page has no layout".into()))?;
+        let mut regions: Vec<sbwb_layout::Region> = serde_json::from_value(layout.regions)?;
+        let r = regions
+            .iter_mut()
+            .find(|r| r.id == region)
+            .ok_or_else(|| SbwbError::NotFound("that region is not on the page".into()))?;
+        if r.kind != sbwb_layout::RegionKind::Marginalia {
+            return Err(SbwbError::InvalidInput(
+                "only marginal notes can be moved beside the text".into(),
+            ));
+        }
+        r.anchor_y = Some(anchor_y);
+        r.side = Some(side);
+        self.conn
+            .execute(
+                "UPDATE page_layout SET regions = ?2, manual = 1, revision = revision + 1, updated_at = ?3 WHERE page_index = ?1",
+                params![page.0 as i64, serde_json::to_string(&regions)?, Timestamp::now().to_string()],
+            )
+            .map_err(db)?;
+        self.conn
+            .execute(
+                "UPDATE pages SET layout_revision = (SELECT revision FROM page_layout WHERE page_index = ?1) WHERE page_index = ?1",
+                params![page.0 as i64],
+            )
+            .map_err(db)?;
+        Ok(())
+    }
+
     pub fn page_layout(&self, page: PageIndex) -> Result<Option<PageLayout>> {
         self.conn
             .query_row(
@@ -1698,6 +1740,57 @@ mod tests {
         p.set_stage_done(PageIndex(2), Stage::Layout, true).unwrap();
         assert_eq!(p.counts().unwrap().layout_done, 1);
         assert_eq!(p.pages().unwrap()[2].layout_revision, 3);
+    }
+
+    #[test]
+    fn a_side_note_can_be_placed_by_hand() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = create_in(dir.path());
+        let page = PageIndex(0);
+        let body = sbwb_layout::Region::new(
+            sbwb_layout::RegionKind::Body,
+            sbwb_core::Rect::new(60.0, 50.0, 300.0, 500.0),
+            0,
+        );
+        let note = sbwb_layout::Region::new(
+            sbwb_layout::RegionKind::Marginalia,
+            sbwb_core::Rect::new(10.0, 80.0, 40.0, 60.0),
+            1,
+        );
+        let regions = serde_json::to_value(vec![body.clone(), note.clone()]).unwrap();
+        p.put_page_layout(
+            page,
+            None,
+            &regions,
+            &serde_json::json!({}),
+            None,
+            false,
+            true,
+        )
+        .unwrap();
+        p.set_stage_done(page, sbwb_core::Stage::TextPass, true)
+            .unwrap();
+        let before = p.pages().unwrap()[0].layout_revision;
+        p.place_side_note(page, note.id, 300.0, sbwb_layout::Side::Right)
+            .unwrap();
+        let l = p.page_layout(page).unwrap().unwrap();
+        let rs: Vec<sbwb_layout::Region> = serde_json::from_value(l.regions).unwrap();
+        let n = rs.iter().find(|r| r.id == note.id).unwrap();
+        assert_eq!(
+            (n.anchor_y, n.side),
+            (Some(300.0), Some(sbwb_layout::Side::Right))
+        );
+        assert_eq!(n.bbox, note.bbox, "the box stays where it is on the scan");
+        assert!(l.manual, "an automatic layout run leaves it alone");
+        assert!(p.pages().unwrap()[0].layout_revision > before);
+        assert!(
+            p.pages().unwrap()[0].text_done,
+            "the text pass is not re-run"
+        );
+        // only marginal notes move
+        assert!(p
+            .place_side_note(page, body.id, 10.0, sbwb_layout::Side::Left)
+            .is_err());
     }
 
     #[test]

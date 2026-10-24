@@ -136,6 +136,7 @@ pub fn run() {
             commands::settings::clear_render_cache,
             commands::layout::page_layout,
             commands::layout::layout_save,
+            commands::layout::side_note_place,
             commands::layout::layout_rerun,
             commands::layout::layout_overview,
             commands::text::page_text,

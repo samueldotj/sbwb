@@ -113,6 +113,34 @@ pub fn layout_save(
     Ok(view(saved))
 }
 
+/// Place a side note by hand beside the body line at `anchor_y` (page
+/// points), in the left or right margin. Does not re-run the text pass.
+#[tauri::command]
+pub fn side_note_place(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    index: u32,
+    region: String,
+    anchor_y: f64,
+    side: sbwb_layout::Side,
+) -> CmdResult<()> {
+    let region = sbwb_core::RegionId::parse(&region)
+        .ok_or_else(|| CommandError::new("invalid_input", "bad region id"))?;
+    {
+        let guard = state
+            .project
+            .lock()
+            .map_err(|_| CommandError::new("other", "state poisoned"))?;
+        let p = guard
+            .as_ref()
+            .ok_or_else(|| CommandError::new("not_found", "no open book"))?;
+        p.store
+            .place_side_note(PageIndex(index), region, anchor_y, side)?;
+    }
+    let _ = app.emit(crate::commands::project::EVENT_PROJECT_CHANGED, ());
+    Ok(())
+}
+
 /// Discard the manual layout and analyse the page again.
 #[tauri::command]
 pub fn layout_overview(state: State<'_, AppState>) -> CmdResult<Vec<LayoutPageInfo>> {

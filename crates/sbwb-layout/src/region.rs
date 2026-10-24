@@ -121,6 +121,18 @@ pub struct Region {
     /// For side notes: the page-space y of the body line they sit beside.
     #[serde(default)]
     pub anchor_y: Option<f64>,
+    /// For side notes placed by hand: the margin they go in. Otherwise the
+    /// side follows where the box is on the scan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side: Option<Side>,
+}
+
+/// A margin of the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Side {
+    Left,
+    Right,
 }
 
 impl Region {
@@ -136,6 +148,7 @@ impl Region {
             manual: false,
             line_count: 0,
             anchor_y: None,
+            side: None,
         }
     }
 }

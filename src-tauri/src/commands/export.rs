@@ -149,6 +149,7 @@ fn build_snapshot(
                     structure: r.structure,
                     bbox: r.bbox,
                     anchor_y: r.anchor_y,
+                    side: r.side,
                 })
                 .collect(),
             spans: spans

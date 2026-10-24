@@ -156,6 +156,8 @@ export type Region = {
   manual: boolean;
   line_count: number;
   anchor_y: number | null;
+  /** A side note's margin when placed by hand. */
+  side?: "left" | "right" | null;
 };
 
 export type PageLayout = {
@@ -445,6 +447,9 @@ export const api = {
   clearRenderCache: () => invoke<number>("clear_render_cache"),
   pageLayout: (index: number) => invoke<PageLayout | null>("page_layout", { index }),
   layoutSave: (index: number, regions: Region[]) => invoke<PageLayout>("layout_save", { index, regions }),
+  /** Place a side note beside the body line at anchorY (page points), in a margin; no text-pass rerun. */
+  sideNotePlace: (index: number, region: string, anchorY: number, side: "left" | "right") =>
+    invoke<void>("side_note_place", { index, region, anchorY, side }),
   layoutRerun: (index: number) => invoke<void>("layout_rerun", { index }),
   pageText: (index: number) => invoke<PageText | null>("page_text", { index }),
   textPassSummary: () => invoke<TextPassSummary | null>("text_pass_summary"),

@@ -220,6 +220,7 @@ pub mod test_support {
             structure: WordStructure::Text,
             bbox: Rect { x, y, w, h },
             anchor_y: Some(y),
+            side: None,
         }
     }
 

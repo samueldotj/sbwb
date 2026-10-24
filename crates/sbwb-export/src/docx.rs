@@ -430,7 +430,10 @@ pub fn write(
                     .iter()
                     .filter(|r| {
                         r.kind == sbwb_layout::RegionKind::Marginalia
-                            && r.bbox.x + r.bbox.w / 2.0 < pg.width_pt / 2.0
+                            && match r.side {
+                                Some(side) => side == sbwb_layout::Side::Left,
+                                None => r.bbox.x + r.bbox.w / 2.0 < pg.width_pt / 2.0,
+                            }
                     })
                     .map(|r| r.id)
             })

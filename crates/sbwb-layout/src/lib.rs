@@ -11,7 +11,7 @@ pub mod analyze;
 pub mod region;
 
 pub use analyze::{analyze, AnalysisSettings, CoverageReport, LayoutInput, LayoutOutput};
-pub use region::{Region, RegionKind, WordStructure};
+pub use region::{Region, RegionKind, Side, WordStructure};
 
 /// Render resolution used for image analysis (fast; text is still ~14 px).
 pub const ANALYSIS_DPI: u32 = 100;
