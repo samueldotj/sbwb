@@ -97,7 +97,7 @@
   // ----- word menu: a single click (or a right-click on a misspelt word)
   // opens it under the word: link the word to one of the page's footnotes,
   // spelling suggestions when it is underlined, and Edit text -----
-  type WordMenu = { span: string; core: string; x: number; y: number; above: boolean; inNote: boolean; dialect: "en_GB" | "en_US" | null; suggestions: string[] | null; flags: GrammarFlag[]; roman: RomanInfo | null; para: "split" | "join" | null };
+  type WordMenu = { span: string; core: string; x: number; y: number; above: boolean; inNote: boolean; dialect: "en_GB" | "en_US" | null; suggestions: string[] | null; flags: GrammarFlag[]; roman: RomanInfo | null; para: "split" | "join" | null; fnPart: "continue" | "separate" | null };
   let wordMenu = $state<WordMenu | null>(null);
   let clickTimer: ReturnType<typeof setTimeout> | null = null;
   function openWordMenu(el: HTMLElement) {
@@ -114,7 +114,7 @@
     // Below the word, or above it when the pane has little room left below.
     const above = host.bottom - r.bottom < 320 && r.top - host.top > host.bottom - r.bottom;
     const y = above ? r.top - host.top + bodyEl.scrollTop - 4 : r.bottom - host.top + bodyEl.scrollTop + 4;
-    wordMenu = { span: span.id, core, x: popLeft(r.left - host.left), y, above, inNote, dialect, suggestions: null, flags: grammarFlags.get(span.id) ?? [], roman: romanInfo(span.text), para: paragraphAction(span.id) };
+    wordMenu = { span: span.id, core, x: popLeft(r.left - host.left), y, above, inNote, dialect, suggestions: null, flags: grammarFlags.get(span.id) ?? [], roman: romanInfo(span.text), para: paragraphAction(span.id), fnPart: footnotePartAction(span.id) };
     if (!dialect) return;
     const done = (s: string[]) => {
       if (wordMenu?.span === span.id) wordMenu = { ...wordMenu, suggestions: s };
@@ -134,6 +134,23 @@
     const prev = review.spans[k];
     if (!prev || prev.region !== s.region) return null;
     return s.paragraph_start || prev.trailing.includes("\n") ? "join" : "split";
+  }
+  /** First words of footnote paragraphs that continue the note above. */
+  const fnParts = $derived(new Set(review.footnotes.notes.flatMap((n) => n.parts ?? [])));
+  /** On the first word of a footnote paragraph after another: make it part
+   *  of the note above, or (already one) a note of its own again. */
+  function footnotePartAction(id: string): "continue" | "separate" | null {
+    const notes = foot.filter((p) => p.kind === "footnote");
+    const k = notes.findIndex((p) => p.words.find((w) => w.span.text)?.span.id === id);
+    if (k < 1) return null;
+    return fnParts.has(id) ? "separate" : "continue";
+  }
+  async function setFootnotePart(on: boolean) {
+    const m = wordMenu;
+    if (!m) return;
+    wordMenu = null;
+    await review.footnote(() => api.footnoteContinue(m.span, on));
+    ui.announce(on ? "Footnote continued" : "Separate footnote");
   }
   async function setParagraph(start: boolean) {
     const m = wordMenu;
@@ -716,6 +733,11 @@
         {/if}
         <div class="cands-row wrap">
           <button type="button" class="ctl" onclick={editFromMenu}>Edit text</button>
+          {#if m.fnPart === "continue"}
+            <button type="button" class="ctl" onclick={() => setFootnotePart(true)} title="This paragraph is more of the footnote above, not a footnote of its own">Continue the footnote above</button>
+          {:else if m.fnPart === "separate"}
+            <button type="button" class="ctl" onclick={() => setFootnotePart(false)} title="Make this paragraph a footnote of its own">Make a separate footnote</button>
+          {/if}
           {#if m.para === "split"}
             <button type="button" class="ctl" onclick={() => setParagraph(true)} title="Start a new paragraph at this word">¶ New paragraph here</button>
           {:else if m.para === "join"}
@@ -806,7 +828,7 @@
       {#if foot.length}
         <hr class="divider" />
         {#each foot as p, pi (pi)}
-          <p class="para {p.kind}" data-label={p.label}>
+          <p class="para {p.kind}" data-label={fnParts.has(p.words.find((w) => w.span.text)?.span.id ?? "") ? "footnote · continued" : p.label}>
             {#each p.words as w (w.span.id)}{@render fnnum(w.span.id)}{#if w.mark.issue && w.mark.kind !== "none"}<button type="button" class="mark {w.mark.kind}" class:focused={review.selected?.span === w.span.id} data-span={w.span.id} aria-label="{w.span.text}: {w.mark.issue.kind.replace('_', ' ')}" title={title(w)} onmouseenter={() => (review.hoverSpan = w.span.id)} onmouseleave={() => (review.hoverSpan = null)} onfocus={() => (review.hoverSpan = w.span.id)} onblur={() => (review.hoverSpan = null)} onclick={() => review.select(w.mark.issue!.id)} onkeydown={(e) => onMarkKey(e, w)}>{@render wtext(w.span.text, w.span.id)}</button>{:else if w.mark.kind !== "none"}<mark class="mark {w.mark.kind}" data-span={w.span.id} title={title(w)}>{@render wtext(w.span.text, w.span.id)}</mark>{:else}<span data-span={w.span.id}>{@render wtext(w.span.text, w.span.id)}</span>{/if}{@render fnref(w.span.id)}{w.span.trailing}{/each}
           </p>
         {/each}

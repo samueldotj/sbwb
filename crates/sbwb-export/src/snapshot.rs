@@ -65,6 +65,9 @@ pub struct FootnoteSnap {
     pub number: u32,
     /// Printed marker to strip from both words ("*", "1"); may be empty.
     pub marker: String,
+    /// First words of the note's further paragraphs, in order.
+    #[serde(default)]
+    pub parts: Vec<SpanId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -3,8 +3,10 @@
 //! order of the linked words on each page (1, 2, 3, restarting per page).
 //! The text pass suggests links where a printed marker (*, †, a digit) on a
 //! word matches the marker a footnote starts with; the user accepts,
-//! rejects, removes, or links by hand. Links survive a text-pass rerun by
-//! finding their words again.
+//! rejects, removes, or links by hand. A footnote can run to several
+//! paragraphs: the user marks a footnote paragraph as continuing the note
+//! above it. Links and continuations survive a text-pass rerun by finding
+//! their words again.
 
 use std::collections::{HashMap, HashSet};
 
@@ -37,7 +39,8 @@ pub struct FootnoteRef {
     pub number: Option<u32>,
 }
 
-/// A footnote paragraph on a page.
+/// A footnote on a page: its first paragraph, and any paragraphs that
+/// continue it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FootnoteNote {
     /// First word of the paragraph; what a reference points to.
@@ -45,6 +48,9 @@ pub struct FootnoteNote {
     pub preview: String,
     /// The marker the note starts with, if any.
     pub marker: String,
+    /// First words of the further paragraphs of this note, in order.
+    #[serde(default)]
+    pub parts: Vec<SpanId>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -68,8 +74,16 @@ fn anchor_kind(k: RegionKind) -> bool {
 
 struct PageView {
     spans: Vec<Span>,
-    /// Footnote paragraphs: (first span index, its marker).
+    /// Footnotes: (first span index, its marker). Paragraphs that continue
+    /// a note are not listed here but in `parts`.
     notes: Vec<(usize, Option<String>)>,
+    /// Every footnote paragraph's first span index, in order.
+    starts: Vec<usize>,
+    /// A note's first span index -> the first span indices of the
+    /// paragraphs that continue it.
+    parts: HashMap<usize, Vec<usize>>,
+    /// Stored continuations: (row id, the paragraph start it resolves to).
+    part_rows: Vec<(String, Option<usize>)>,
     /// Indices of words that may carry a reference.
     anchors: Vec<usize>,
 }
@@ -94,6 +108,30 @@ impl PageView {
         } else {
             t.to_string()
         }
+    }
+
+    /// The note a footnote paragraph (by its first span index) belongs to.
+    fn head_of(&self, start: usize) -> usize {
+        self.parts
+            .iter()
+            .find(|(_, ps)| ps.contains(&start))
+            .map(|(h, _)| *h)
+            .unwrap_or(start)
+    }
+
+    /// The footnote paragraph a span is in: the nearest paragraph start at
+    /// or before it with no region change in between.
+    fn start_of(&self, i: usize) -> Option<usize> {
+        self.starts
+            .iter()
+            .rev()
+            .find(|&&st| st <= i)
+            .filter(|&&st| {
+                self.spans[st..=i]
+                    .iter()
+                    .all(|s| s.region == self.spans[i].region)
+            })
+            .copied()
     }
 }
 
@@ -127,7 +165,7 @@ impl Project {
             .map(|r| (r.id, r.kind))
             .collect();
         let kind = |s: &Span| s.region.and_then(|r| kinds.get(&r).copied());
-        let mut notes = Vec::new();
+        let mut all: Vec<(usize, Option<String>)> = Vec::new();
         let mut anchors = Vec::new();
         let mut prev_region: Option<Option<RegionId>> = None;
         for (i, s) in spans.iter().enumerate() {
@@ -136,7 +174,7 @@ impl Project {
             match kind(s) {
                 Some(RegionKind::Footnote) => {
                     if starts && !s.text.is_empty() {
-                        notes.push((i, note_marker(&s.text)));
+                        all.push((i, note_marker(&s.text)));
                     } else if starts {
                         // an emptied first word: the paragraph starts at the next word
                         prev_region = None;
@@ -146,11 +184,113 @@ impl Project {
                 _ => {}
             }
         }
+        // Continuations: found by their span, or after a rerun by their word
+        // nearest to where it was. The page's first footnote paragraph has
+        // nothing above it to continue.
+        let starts: Vec<usize> = all.iter().map(|(i, _)| *i).collect();
+        let part_rows: Vec<(String, Option<usize>)> = self
+            .footnote_part_rows(page)?
+            .into_iter()
+            .map(|(id, span, word, seq)| {
+                let at = starts
+                    .iter()
+                    .copied()
+                    .find(|&i| spans[i].id.to_string() == span)
+                    .or_else(|| {
+                        starts
+                            .iter()
+                            .copied()
+                            .filter(|&i| spans[i].text == word)
+                            .min_by_key(|&i| (spans[i].seq as i64 - seq).abs())
+                    })
+                    .filter(|&i| Some(&i) != starts.first());
+                (id, at)
+            })
+            .collect();
+        let continued: HashSet<usize> = part_rows.iter().filter_map(|(_, at)| *at).collect();
+        let mut notes = Vec::new();
+        let mut parts: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (i, marker) in all {
+            match notes.last() {
+                Some(&(head, _)) if continued.contains(&i) => {
+                    parts.entry(head).or_default().push(i)
+                }
+                _ => notes.push((i, marker)),
+            }
+        }
         Ok(PageView {
             spans,
             notes,
+            starts,
+            parts,
+            part_rows,
             anchors,
         })
+    }
+
+    fn footnote_part_rows(&self, page: PageIndex) -> Result<Vec<(String, String, String, i64)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, span, word, seq FROM footnote_parts WHERE page_index = ?1 ORDER BY created_at, rowid")
+            .map_err(db)?;
+        let rows = stmt
+            .query_map(params![page.0 as i64], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })
+            .map_err(db)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(db)
+    }
+
+    /// Make a footnote paragraph (by its first word) part of the note above
+    /// it (`on`), or a note of its own again. A paragraph that becomes part
+    /// of another note loses any link that pointed to it as a note.
+    pub fn footnote_continue(&mut self, span: SpanId, on: bool) -> Result<FootnotePage> {
+        self.require_write()?;
+        let page = crate::review::span_page(&self.conn, span)?;
+        let view = self.footnote_view(page)?;
+        let i = view
+            .starts
+            .iter()
+            .copied()
+            .find(|&i| view.spans[i].id == span)
+            .ok_or_else(|| {
+                SbwbError::InvalidInput("that is not the first word of a footnote paragraph".into())
+            })?;
+        if on && view.starts.first() == Some(&i) {
+            return Err(SbwbError::InvalidInput(
+                "the first footnote on the page has no footnote above it to continue".into(),
+            ));
+        }
+        let s = &view.spans[i];
+        let tx = self.conn.transaction().map_err(db)?;
+        for (id, at) in &view.part_rows {
+            if *at == Some(i) {
+                tx.execute("DELETE FROM footnote_parts WHERE id = ?1", params![id])
+                    .map_err(db)?;
+            }
+        }
+        if on {
+            tx.execute(
+                "INSERT INTO footnote_parts(id, page_index, span, word, seq, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    sbwb_core::HistoryId::new().to_string(),
+                    page.0 as i64,
+                    s.id.to_string(),
+                    s.text,
+                    s.seq as i64,
+                    now()
+                ],
+            )
+            .map_err(db)?;
+            tx.execute(
+                "DELETE FROM footnote_refs WHERE page_index = ?1 AND note_span = ?2",
+                params![page.0 as i64, s.id.to_string()],
+            )
+            .map_err(db)?;
+        }
+        bump(&tx, page)?;
+        tx.commit().map_err(db)?;
+        self.footnotes(page)
     }
 
     fn footnote_rows(&self, page: PageIndex) -> Result<Vec<Row>> {
@@ -218,6 +358,13 @@ impl Project {
                 span: view.spans[*i].id,
                 preview: view.note_preview(*i),
                 marker: m.clone().unwrap_or_default(),
+                parts: view
+                    .parts
+                    .get(i)
+                    .into_iter()
+                    .flatten()
+                    .map(|&k| view.spans[k].id)
+                    .collect(),
             })
             .collect();
         Ok(FootnotePage { notes, refs })
@@ -239,19 +386,12 @@ impl Project {
                     "a footnote reference goes on a word of the text, not on a heading line, footnote, or margin furniture".into(),
                 )
             })?;
+        // any word of a note, its continuing paragraphs included
         let ni = view.spans.iter().position(|s| s.id == note);
         let (ni, note_marker) = ni
-            .and_then(|ni| {
-                view.notes
-                    .iter()
-                    .rfind(|(start, _)| *start <= ni)
-                    .filter(|(start, _)| {
-                        view.spans[*start..=ni]
-                            .iter()
-                            .all(|s| s.region == view.spans[ni].region)
-                    })
-                    .cloned()
-            })
+            .and_then(|ni| view.start_of(ni))
+            .map(|st| view.head_of(st))
+            .and_then(|head| view.notes.iter().find(|(start, _)| *start == head).cloned())
             .ok_or_else(|| SbwbError::InvalidInput("that is not a footnote on this page".into()))?;
         let a = &view.spans[ai];
         let n = &view.spans[ni];
@@ -373,6 +513,22 @@ impl Project {
                 .min_by_key(|&i| (view.spans[i].seq as i64 - seq).abs())
         };
         let tx = self.conn.transaction().map_err(db)?;
+        for (id, at) in &view.part_rows {
+            match at {
+                Some(i) => {
+                    let s = &view.spans[*i];
+                    tx.execute(
+                        "UPDATE footnote_parts SET span = ?2, word = ?3, seq = ?4 WHERE id = ?1",
+                        params![id, s.id.to_string(), s.text, s.seq as i64],
+                    )
+                    .map_err(db)?;
+                }
+                None => {
+                    tx.execute("DELETE FROM footnote_parts WHERE id = ?1", params![id])
+                        .map_err(db)?;
+                }
+            }
+        }
         tx.execute(
             "DELETE FROM footnote_refs WHERE page_index = ?1 AND status = 'suggested'",
             params![page.0 as i64],
@@ -611,5 +767,85 @@ mod tests {
         assert_eq!(f.refs[0].anchor, spans[3].id);
         assert_eq!(f.refs[1].anchor, spans[4].id);
         assert!(f.refs.iter().all(|r| r.status == "linked"));
+    }
+
+    #[test]
+    fn a_footnote_can_run_to_several_paragraphs() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = project(dir.path());
+        let page = PageIndex(0);
+        let body = Region::new(RegionKind::Body, Rect::new(50.0, 50.0, 400.0, 500.0), 0);
+        let foot = Region::new(RegionKind::Footnote, Rect::new(50.0, 600.0, 400.0, 80.0), 1);
+        // the second paragraph of the first note sits in a box of its own
+        let foot2 = Region::new(RegionKind::Footnote, Rect::new(50.0, 690.0, 400.0, 40.0), 2);
+        let regions =
+            serde_json::to_value(vec![body.clone(), foot.clone(), foot2.clone()]).unwrap();
+        p.put_page_layout(
+            page,
+            None,
+            &regions,
+            &serde_json::json!({}),
+            None,
+            true,
+            true,
+        )
+        .unwrap();
+        // "* First." / "More of it." (another box) / "† Second."
+        let mut spans = page_spans(body.id, foot.id);
+        let more: Vec<Span> = ["More", "of", "it."]
+            .iter()
+            .enumerate()
+            .map(|(k, t)| Span {
+                id: SpanId::new(),
+                seq: 0,
+                region: Some(foot2.id),
+                text: t.to_string(),
+                paragraph_start: k == 0,
+                ..spans[7].clone()
+            })
+            .collect();
+        spans.splice(8..8, more);
+        for (k, s) in spans.iter_mut().enumerate() {
+            s.seq = k as u32;
+        }
+        p.put_page_text(page, None, &spans, &[]).unwrap();
+        let f = p.footnotes(page).unwrap();
+        assert_eq!(f.notes.len(), 3, "each paragraph is a note to begin with");
+        let s = p.page_spans(page).unwrap();
+        let more = s[8].id;
+        // the first note can not continue anything
+        assert!(p.footnote_continue(s[6].id, true).is_err());
+        // a link to the paragraph as a note goes when it becomes a part
+        p.footnote_link(s[3].id, more).unwrap();
+        let f = p.footnote_continue(more, true).unwrap();
+        assert_eq!(f.notes.len(), 2);
+        assert_eq!(f.notes[0].parts, [more]);
+        assert!(f.refs.iter().all(|r| r.note != more));
+        // linking a word of the continuation links the whole note
+        let f = p.footnote_link(s[3].id, s[9].id).unwrap();
+        let r = f.refs.iter().find(|r| r.anchor == s[3].id).unwrap();
+        assert_eq!(r.note, s[6].id);
+        // a rerun keeps it
+        p.put_page_text(page, None, &spans_again(&spans), &[])
+            .unwrap();
+        let f = p.footnotes(page).unwrap();
+        let s2 = p.page_spans(page).unwrap();
+        assert_eq!(f.notes.len(), 2);
+        assert_eq!(f.notes[0].parts, [s2[8].id]);
+        // and it can be a note of its own again
+        let f = p.footnote_continue(s2[8].id, false).unwrap();
+        assert_eq!(f.notes.len(), 3);
+        assert!(f.notes.iter().all(|n| n.parts.is_empty()));
+    }
+
+    /// The same words with new ids, as a text-pass rerun makes them.
+    fn spans_again(spans: &[Span]) -> Vec<Span> {
+        spans
+            .iter()
+            .map(|s| Span {
+                id: SpanId::new(),
+                ..s.clone()
+            })
+            .collect()
     }
 }

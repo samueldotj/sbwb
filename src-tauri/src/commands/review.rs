@@ -184,6 +184,22 @@ pub fn text_edit(
     Ok(out)
 }
 
+/// Make a footnote paragraph part of the note above it (`on`), or a note
+/// of its own again.
+#[tauri::command]
+pub fn footnote_continue(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    span: String,
+    on: bool,
+) -> CmdResult<FootnotePage> {
+    let span =
+        SpanId::parse(&span).ok_or_else(|| CommandError::new("invalid_input", "bad span id"))?;
+    let out = with_project(&state, |p| Ok(p.footnote_continue(span, on)?))?;
+    changed(&app);
+    Ok(out)
+}
+
 /// Start a new paragraph at a word (`start`), or join the word's paragraph
 /// to the one before it. Returns the history entry.
 #[tauri::command]

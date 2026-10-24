@@ -261,7 +261,8 @@ export type GroupMatch = { span: string; page: number; seq: number; revision: nu
 export type GroupOutcome = { applied: number; history: string | null; stale: string[] };
 export type TextEditOutcome = { changed: number; history: string | null };
 export type FootnoteRef = { id: string; page: number; anchor: string; note: string; marker: string; status: "linked" | "suggested" | "rejected"; source: "manual" | "detected"; number: number | null };
-export type FootnoteNote = { span: string; preview: string; marker: string };
+/** A footnote: its first paragraph and the first words of the paragraphs that continue it. */
+export type FootnoteNote = { span: string; preview: string; marker: string; parts: string[] };
 export type FootnotePage = { notes: FootnoteNote[]; refs: FootnoteRef[] };
 export type HistoryEntry = { id: string; ts: string; kind: string; label: string; undone: boolean; undoable: boolean; page: number | null };
 /** Spelling dictionaries for the transcript highlight. */
@@ -467,6 +468,8 @@ export const api = {
   footnotesPage: (index: number) => invoke<FootnotePage>("footnotes_page", { index }),
   footnoteLink: (anchor: string, note: string) => invoke<FootnotePage>("footnote_link", { anchor, note }),
   footnoteDecide: (id: string, accept: boolean) => invoke<FootnotePage>("footnote_decide", { id, accept }),
+  /** Make a footnote paragraph part of the note above it (on), or a note of its own again. */
+  footnoteContinue: (span: string, on: boolean) => invoke<FootnotePage>("footnote_continue", { span, on }),
   footnoteDetect: (index: number) => invoke<FootnotePage>("footnote_detect", { index }),
   footnoteAcceptAll: (index: number) => invoke<FootnotePage>("footnote_accept_all", { index }),
   textEdit: (items: { span: string; revision: number }[], text: string) => invoke<TextEditOutcome>("text_edit", { items, text }),

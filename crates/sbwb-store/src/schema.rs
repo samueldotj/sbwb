@@ -4,7 +4,7 @@
 use rusqlite_migration::{Migrations, M};
 
 /// Current project schema version. Bumped by every migration.
-pub const SCHEMA_VERSION: u32 = 9;
+pub const SCHEMA_VERSION: u32 = 10;
 
 pub fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
@@ -17,6 +17,7 @@ pub fn migrations() -> Migrations<'static> {
         M::up(V7),
         M::up(V8),
         M::up(V9),
+        M::up(V10),
     ])
 }
 
@@ -294,4 +295,19 @@ CREATE TABLE paragraph_edits (
   applied INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX paragraph_edits_page ON paragraph_edits(page_index, active);
+"#;
+
+/// v10: footnotes of more than one paragraph (TXT-02): a footnote paragraph
+/// that continues the note above it. The first word's text and position
+/// are kept so a rerun can find it again.
+const V10: &str = r#"
+CREATE TABLE footnote_parts (
+  id TEXT PRIMARY KEY,
+  page_index INTEGER NOT NULL,
+  span TEXT NOT NULL,
+  word TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX footnote_parts_page ON footnote_parts(page_index);
 "#;

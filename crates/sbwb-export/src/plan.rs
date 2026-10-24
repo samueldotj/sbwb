@@ -297,10 +297,10 @@ fn insert_side_notes(
     }
 }
 
-/// Move each linked footnote paragraph out of the page's footnote list and
-/// onto the body word that calls it, stripping the printed markers. A note
-/// whose word is not in the body (excluded, or furniture) stays a footnote
-/// paragraph, with a warning.
+/// Move each linked footnote paragraph, with the paragraphs that continue
+/// it, out of the page's footnote list and onto the body word that calls
+/// it, stripping the printed markers. A note whose word is not in the body
+/// (excluded, or furniture) stays at the foot of the page, with a warning.
 fn link_footnotes(
     page: &PageSnap,
     body: &mut [PlannedParagraph],
@@ -346,9 +346,20 @@ fn link_footnotes(
             "{}{gap}",
             strip_word_marker(&run.text[..core_len], &f.marker)
         );
+        let mut paragraphs = vec![note];
+        for part in &f.parts {
+            if let Some(k) = footnotes
+                .iter()
+                .position(|p| p.runs.first().and_then(|r| r.span) == Some(*part))
+            {
+                let mut p = footnotes.remove(k);
+                p.placement = Placement::FootnoteText;
+                paragraphs.push(p);
+            }
+        }
         run.note = Some(PlannedNote {
             number: f.number,
-            paragraphs: vec![note],
+            paragraphs,
         });
         stats.linked_footnotes += 1;
     }
@@ -680,5 +691,44 @@ mod tests {
         )));
         assert!(p0.body.iter().any(|p| p.placement == Placement::SideNote));
         assert_eq!(p0.break_after, PageBreak::Section);
+    }
+
+    #[test]
+    fn a_linked_footnote_takes_its_further_paragraphs() {
+        let mut snap = sample_snapshot(1, false);
+        snap.settings.furniture = FurniturePolicy::StyledParagraphs;
+        let page = &mut snap.pages[0];
+        let foot = page
+            .regions
+            .iter()
+            .find(|r| r.kind == sbwb_layout::RegionKind::Footnote)
+            .unwrap()
+            .id;
+        // "* Note 1" + "in the margin of history." as two paragraphs
+        let words: Vec<usize> = (0..page.spans.len())
+            .filter(|&i| page.spans[i].region == Some(foot))
+            .collect();
+        page.spans[words[3]].paragraph_start = true;
+        let (note, part) = (page.spans[words[0]].id, page.spans[words[3]].id);
+        let anchor = page.spans.iter().find(|s| s.text == "Second").unwrap().id;
+        page.footnotes = vec![crate::snapshot::FootnoteSnap {
+            anchor,
+            note,
+            number: 1,
+            marker: "*".into(),
+            parts: vec![part],
+        }];
+        let plan = compose(&snap);
+        let p0 = &plan.pages[0];
+        let linked: Vec<&PlannedNote> = p0.body.iter().flat_map(|p| p.notes()).collect();
+        assert_eq!(linked.len(), 1);
+        assert_eq!(linked[0].paragraphs.len(), 2);
+        assert!(linked[0].paragraphs[1].text().starts_with("in the margin"));
+        assert!(
+            p0.body
+                .iter()
+                .all(|p| p.placement != Placement::FootnoteText),
+            "neither paragraph is left at the foot of the page"
+        );
     }
 }

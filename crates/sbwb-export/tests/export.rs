@@ -327,6 +327,7 @@ fn linked_footnotes_become_word_footnotes() {
                 note,
                 number: 1,
                 marker: "*".into(),
+                parts: vec![],
             }];
         }
         let (report, dest) = export(&snap, name);

@@ -159,6 +159,7 @@ pub fn run() {
             commands::review::text_edit,
             commands::review::footnotes_page,
             commands::review::footnote_link,
+            commands::review::footnote_continue,
             commands::review::footnote_decide,
             commands::review::footnote_accept_all,
             commands::review::footnote_detect,

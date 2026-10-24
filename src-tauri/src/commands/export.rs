@@ -84,8 +84,13 @@ fn build_snapshot(
             .map(|l| serde_json::from_value(l.regions).unwrap_or_default())
             .unwrap_or_default();
         let issues = store.issues_for_page(row.index)?;
-        let footnotes: Vec<FootnoteSnap> = store
-            .footnotes(row.index)?
+        let page_notes = store.footnotes(row.index)?;
+        let parts: std::collections::HashMap<_, _> = page_notes
+            .notes
+            .iter()
+            .map(|n| (n.span, n.parts.clone()))
+            .collect();
+        let footnotes: Vec<FootnoteSnap> = page_notes
             .refs
             .into_iter()
             .filter_map(|r| {
@@ -94,6 +99,7 @@ fn build_snapshot(
                     note: r.note,
                     number,
                     marker: r.marker,
+                    parts: parts.get(&r.note).cloned().unwrap_or_default(),
                 })
             })
             .collect();

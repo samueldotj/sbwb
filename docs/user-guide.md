@@ -73,6 +73,13 @@ runs on your computer; nothing is uploaded.
   region (the first word of a region always starts one). Both can be
   undone (Ctrl+Z), carry into the Word export, and are kept when the text
   pass re-runs the page.
+- **Footnotes of several paragraphs.** Each paragraph at the foot of the
+  page starts as a footnote of its own. When one is really more of the
+  footnote above (no marker of its own), click its first word and choose
+  **Continue the footnote above**: it is labelled "footnote · continued",
+  leaves the Link to list, and goes into the same Word footnote as the
+  note above. **Make a separate footnote** undoes it. This works across
+  layout boxes and is kept when the text pass re-runs the page.
 - **Roman numerals.** When the word is a Roman numeral, the word menu
   shows its value with **Convert → 17** to write it as a number, and the
   standard form of an old-style or mixed-case one (CLXXXVIIII, Vii). When
