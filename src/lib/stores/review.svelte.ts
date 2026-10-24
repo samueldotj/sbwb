@@ -52,6 +52,8 @@ class ReviewState {
   /** Track corrections: every corrected word is boxed in green and can be
    *  revisited, whatever the hide-accepted / hide-auto settings say. */
   trackChanges = $state(false);
+  /** Hide words that fall outside every layout region in the transcript. */
+  hideOutside = $state(false);
 
   // ----- current page -----
   page = $state<number | null>(null);
@@ -167,6 +169,7 @@ class ReviewState {
         if (typeof p.track_changes === "boolean") this.trackChanges = p.track_changes;
         if (typeof p.hide_completed === "boolean") this.hideCompleted = p.hide_completed;
         if (typeof p.hide_auto === "boolean") this.hideAuto = p.hide_auto;
+        if (typeof p.hide_outside === "boolean") this.hideOutside = p.hide_outside;
       }
     } catch {
       /* defaults */
@@ -185,6 +188,7 @@ class ReviewState {
         track_changes: this.trackChanges,
         hide_completed: this.hideCompleted,
         hide_auto: this.hideAuto,
+        hide_outside: this.hideOutside,
       })
       .catch(() => {});
   }

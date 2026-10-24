@@ -38,6 +38,10 @@
   });
   const head = $derived(paras.filter((p) => p.kind === "header" || p.kind === "page_number"));
   const body = $derived(paras.filter((p) => !["header", "page_number", "footer", "footnote"].includes(p.kind)));
+  // Text outside every region, hidden on request; a paragraph holding the
+  // selected issue stays so its word can still be decided.
+  const outsideWords = $derived(body.filter((p) => p.region === null).reduce((n, p) => n + p.words.length, 0));
+  const shownBody = $derived(review.hideOutside ? body.filter((p) => p.region !== null || p.words.some((w) => w.span.id === review.selected?.span)) : body);
   const foot = $derived(paras.filter((p) => p.kind === "footer" || p.kind === "footnote"));
   const headLine = $derived(head.map((p) => p.words.map((w) => w.span.text).join(" ")).join(" · "));
   const onPage = $derived(review.page === view.page ? review.matching.length : 0);
@@ -362,6 +366,11 @@
     <button type="button" class="track-btn" class:on={review.trackChanges} aria-pressed={review.trackChanges} onclick={() => { review.trackChanges = !review.trackChanges; revisit = null; review.savePrefs(); }} title="Track corrections: box every corrected word in green; click one to see what it was and change or undo it">
       Corrections&nbsp;<span class="mono-n">{corrections}</span>
     </button>
+    {#if outsideWords > 0 || review.hideOutside}
+      <button type="button" class="track-btn" class:on={review.hideOutside} aria-pressed={review.hideOutside} onclick={() => { review.hideOutside = !review.hideOutside; review.savePrefs(); }} title="Hide the text that lies outside every layout region in the transcript; only what is shown changes">
+        Hide outside&nbsp;<span class="mono-n">{outsideWords}</span>
+      </button>
+    {/if}
     <span class="zoom" role="group" aria-label="Transcript zoom">
       <button type="button" class="zbtn" onclick={() => ui.zoomTranscript(-1)} disabled={ui.transcriptZoom <= TRANSCRIPT_ZOOMS[0]!} aria-label="Zoom transcript out">−</button>
       <button type="button" class="zpct" onclick={() => ui.zoomTranscript(0)} title="Reset to 100%" aria-live="polite">{ui.transcriptZoom}%</button>
@@ -472,7 +481,7 @@
       {#if headLine}
         <p class="runhead" aria-label="Running head">{headLine}</p>
       {/if}
-      {#each body as p, pi (pi)}
+      {#each shownBody as p, pi (pi)}
         <p class="para {p.kind}" data-label={p.label}>
           {#each p.words as w (w.span.id)}{@render fnnum(w.span.id)}{#if w.mark.issue && w.mark.kind !== "none"}<button
               type="button"
