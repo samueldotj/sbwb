@@ -67,6 +67,14 @@ runs on your computer; nothing is uploaded.
   one links the note to this word, moving it if it was linked elsewhere),
   spelling suggestions when the word is underlined, and **Edit text**.
   Double-click still opens the editor straight away.
+- **Roman numerals.** When the word is a Roman numeral, the word menu
+  shows its value with **Convert → 17** to write it as a number, and the
+  standard form of an old-style or mixed-case one (CLXXXVIIII, Vii). When
+  it looks like a misread numeral (1 or l for i, I for l, as in "1V.",
+  "VIL", "Ixvii."), it lists the numerals it could have been: **Use**
+  corrects the numeral, **Convert** corrects it and writes the number.
+  Words such as "did", "civil" or "Du" are left alone. Right-click opens
+  the menu on a numeral that has an issue mark.
 - Scores are heuristics from 0 to 100, labelled with their source ("64% ·
   OCR", "92 · text pass"). They are not probabilities. The second engine
   (ocrs) gives line-level readings and is always shown as unscored.

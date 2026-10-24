@@ -9,6 +9,7 @@
   import { api, errorMessage, type HistoryEntry, type OcrWord, type PageRow, type Span } from "$lib/api";
   import { checkGrammar, type GrammarFix, type GrammarFlag } from "$lib/grammar";
   import { charRuns, countKinds } from "$lib/highlight";
+  import { romanInfo, type RomanInfo } from "$lib/roman";
   import { isTauri } from "$lib/ipc";
   import { KIND_LABEL } from "$lib/stores/layout.svelte";
   import { review } from "$lib/stores/review.svelte";
@@ -96,7 +97,7 @@
   // ----- word menu: a single click (or a right-click on a misspelt word)
   // opens it under the word: link the word to one of the page's footnotes,
   // spelling suggestions when it is underlined, and Edit text -----
-  type WordMenu = { span: string; core: string; x: number; y: number; inNote: boolean; dialect: "en_GB" | "en_US" | null; suggestions: string[] | null; flags: GrammarFlag[] };
+  type WordMenu = { span: string; core: string; x: number; y: number; above: boolean; inNote: boolean; dialect: "en_GB" | "en_US" | null; suggestions: string[] | null; flags: GrammarFlag[]; roman: RomanInfo | null };
   let wordMenu = $state<WordMenu | null>(null);
   let clickTimer: ReturnType<typeof setTimeout> | null = null;
   function openWordMenu(el: HTMLElement) {
@@ -110,7 +111,10 @@
     picked = null;
     review.pickedSpan = span.id;
     const inNote = foot.some((p) => p.kind === "footnote" && p.words.some((w) => w.span.id === span.id));
-    wordMenu = { span: span.id, core, x: popLeft(r.left - host.left), y: r.bottom - host.top + bodyEl.scrollTop + 4, inNote, dialect, suggestions: null, flags: grammarFlags.get(span.id) ?? [] };
+    // Below the word, or above it when the pane has little room left below.
+    const above = host.bottom - r.bottom < 320 && r.top - host.top > host.bottom - r.bottom;
+    const y = above ? r.top - host.top + bodyEl.scrollTop - 4 : r.bottom - host.top + bodyEl.scrollTop + 4;
+    wordMenu = { span: span.id, core, x: popLeft(r.left - host.left), y, above, inNote, dialect, suggestions: null, flags: grammarFlags.get(span.id) ?? [], roman: romanInfo(span.text) };
     if (!dialect) return;
     const done = (s: string[]) => {
       if (wordMenu?.span === span.id) wordMenu = { ...wordMenu, suggestions: s };
@@ -134,7 +138,7 @@
   function onContextMenu(e: MouseEvent) {
     const el = (e.target as Element | null)?.closest<HTMLElement>("[data-span]");
     const span = el?.dataset.span ? review.spanById(el.dataset.span) : null;
-    if (!el || !span || !(misspelt.has(span.text) || grammarFlags.has(span.id))) return;
+    if (!el || !span || !(misspelt.has(span.text) || grammarFlags.has(span.id) || romanInfo(span.text))) return;
     e.preventDefault();
     openWordMenu(el);
   }
@@ -171,18 +175,23 @@
       ui.toast(errorMessage(e), "error", 6000);
     }
   }
-  /** Replace the word with a suggestion, keeping its punctuation (an undoable text edit). */
-  async function useSuggestion(s: string) {
+  /** Replace part of the word (`from`, the word without its punctuation),
+   *  keeping the rest: an undoable text edit. */
+  async function replaceInWord(from: string, to: string) {
     const p = wordMenu;
     const span = p ? review.spanById(p.span) : null;
     if (!p || !span) return;
     wordMenu = null;
     try {
-      await ui.save(() => api.textEdit([{ span: span.id, revision: span.revision }], span.text.replace(p.core, s)));
+      await ui.save(() => api.textEdit([{ span: span.id, revision: span.revision }], span.text.replace(from, to)));
       await review.reload();
     } catch (e) {
       ui.toast(errorMessage(e), "error", 6000);
     }
+  }
+  /** Replace the word with a spelling suggestion, keeping its punctuation. */
+  function useSuggestion(s: string) {
+    if (wordMenu) void replaceInWord(wordMenu.core, s);
   }
   async function addToBook() {
     const p = wordMenu;
@@ -614,7 +623,7 @@
     {#if wordMenu}
       {@const m = wordMenu}
       {@const notes = m.inNote ? [] : review.footnotes.notes}
-      <div class="cands word-pop" style="left:{m.x}px;top:{m.y}px" role="dialog" aria-label="Word {m.core}">
+      <div class="cands word-pop" class:above={m.above} style="left:{m.x}px;top:{m.y}px" role="dialog" aria-label="Word {m.core}">
         <div class="cands-row">
           <b class="serif">{m.core || review.spanById(m.span)?.text}</b>
           <span class="grow"></span>
@@ -635,6 +644,25 @@
               </li>
             {/each}
           </ul>
+        {/if}
+        {#if m.roman}
+          {@const ro = m.roman}
+          <div class="menu-label">Roman numeral</div>
+          {#if ro.value !== null}
+            <span class="small"><span class="serif">{ro.core}</span> = {ro.value}{#if ro.standard} · usually written <span class="serif">{ro.standard}</span>{/if}</span>
+            <div class="cands-row wrap">
+              <button type="button" class="ctl" onclick={() => replaceInWord(ro.core, String(ro.value))}>Convert → {ro.value}</button>
+              {#if ro.standard}<button type="button" class="ctl" onclick={() => replaceInWord(ro.core, ro.standard!)}>Use <span class="serif">{ro.standard}</span></button>{/if}
+            </div>
+          {:else}
+            <span class="small">“<span class="serif">{ro.core}</span>” is not a well-formed numeral; it may be a misreading of:</span>
+            {#each ro.readings as rd (rd.text)}
+              <div class="cands-row wrap">
+                <button type="button" class="ctl" onclick={() => replaceInWord(ro.core, rd.text)} title="Correct the numeral">Use <span class="serif">{rd.text}</span> ({rd.value})</button>
+                <button type="button" class="ctl" onclick={() => replaceInWord(ro.core, String(rd.value))} title="Correct it and write it as a number">Convert → {rd.value}</button>
+              </div>
+            {/each}
+          {/if}
         {/if}
         {#if m.dialect}
           <div class="menu-label">Not in the {DIALECT_LABEL[m.dialect]} dictionary</div>
@@ -662,7 +690,7 @@
         {/if}
         <div class="cands-row">
           <button type="button" class="ctl" onclick={editFromMenu}>Edit text</button>
-          {#if !notes.length && !m.dialect && !m.flags.length}<span class="muted small">{m.inNote ? "This word is in a footnote" : "No footnotes on this page"}</span>{/if}
+          {#if !notes.length && !m.dialect && !m.flags.length && !m.roman}<span class="muted small">{m.inNote ? "This word is in a footnote" : "No footnotes on this page"}</span>{/if}
         </div>
       </div>
     {/if}
@@ -786,6 +814,9 @@
     box-shadow: var(--shadow-page);
     font: 13px var(--font-ui);
     color: var(--text);
+  }
+  .word-pop.above {
+    transform: translateY(-100%);
   }
   .menu-label {
     font-size: 11px;
