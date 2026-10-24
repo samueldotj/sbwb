@@ -36,6 +36,7 @@ runs on your computer; nothing is uploaded.
 | 1–9 | Choose a candidate |
 | R | Recognise a "missing text" area at 300 dpi ×3 |
 | Ctrl+Enter | Approve the page (or remove the approval) |
+| Ctrl+Z | Undo the last change — a decision, text edit, grouped correction, or approval — going further back each time it is pressed; it opens the page the change was on. A change that a later edit depends on is not undone |
 | Ctrl+L | Layout mode; V / R / X / M select, draw, split, merge; in Select, Ctrl- or Shift-click adds a region to the selection and dragging on the page selects every region the rectangle touches; Del deletes the selected regions and the Region tab changes their type together; Ctrl+Z undoes; Esc returns. Layout edits save automatically |
 | PgUp / PgDn | Previous / next page |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Zoom in / out / fit |

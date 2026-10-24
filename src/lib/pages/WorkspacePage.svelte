@@ -235,6 +235,9 @@
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         void approveCurrent();
         e.preventDefault();
+      } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+        void review.undoLatest();
+        e.preventDefault();
       } else if (e.ctrlKey || e.metaKey || e.altKey) {
         return;
       } else if (e.key === "j" || e.key === "J") {
@@ -472,6 +475,7 @@
         {#if view.mode === "review"}
           <kbd>J / K</kbd><span>next / prev issue</span>
           <kbd>A E S L</kbd><span>accept · edit · skip · later</span>
+          <kbd>Ctrl+Z</kbd><span>undo</span>
         {/if}
         <kbd>PgUp/PgDn</kbd><span>prev / next page</span>
         <kbd>Ctrl +/−</kbd><span>zoom</span>

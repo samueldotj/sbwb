@@ -6,6 +6,7 @@
 import {
   api,
   errorMessage,
+  latestUndoable,
   type Decision,
   type FootnotePage,
   type Issue,
@@ -324,8 +325,39 @@ class ReviewState {
   async undo(historyId: string) {
     try {
       await ui.save(() => api.historyUndo(historyId));
+      this.lastUndone = historyId;
       ui.announce("Undone");
       await this.reload();
+    } catch (e) {
+      ui.toast(errorMessage(e), "error", 6000);
+    }
+  }
+
+  /** The history entry undone last, so an Undo offered for it can go. */
+  lastUndone = $state<string | null>(null);
+
+  /** Ctrl+Z: undo the newest change still undoable (PRJ-05), showing its
+   *  page when it was made on another one. */
+  async undoLatest() {
+    if (!isTauri) return;
+    try {
+      const h = latestUndoable(await api.historyList({ limit: 200 }));
+      if (!h) {
+        ui.toast("Nothing to undo", "info", 1800);
+        return;
+      }
+      await ui.save(() => api.historyUndo(h.id));
+      this.lastUndone = h.id;
+      this.editing = null;
+      ui.announce(`Undone: ${h.label}`);
+      ui.toast(`Undone: ${h.label}`, "ok", 3000);
+      if (h.page !== null && h.page !== view.page) {
+        view.goTo(h.page);
+        await this.load(h.page);
+        await this.refreshCounts();
+      } else {
+        await this.reload();
+      }
     } catch (e) {
       ui.toast(errorMessage(e), "error", 6000);
     }

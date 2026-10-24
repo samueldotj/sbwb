@@ -295,6 +295,10 @@
     editor = null;
     lastEdit = null;
   });
+  // Undone some other way (Ctrl+Z, history): the bar has nothing left to undo.
+  $effect(() => {
+    if (lastEdit && review.lastUndone === lastEdit.history) lastEdit = null;
+  });
   async function undoLast() {
     if (!lastEdit) return;
     const id = lastEdit.history;

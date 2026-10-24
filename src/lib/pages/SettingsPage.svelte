@@ -267,7 +267,7 @@
     {:else if section === "shortcuts"}
       <div class="title">Shortcuts</div>
       <div class="rows keys">
-        {#each [["Ctrl+I", "Import PDF"], ["Ctrl+O", "Open project"], ["Ctrl+Shift+S", "Save a copy"], ["Ctrl+W", "Close book"], ["PgUp / PgDn", "Previous / next page"], ["Ctrl+Home / Ctrl+End", "First / last page"], ["Ctrl+= / Ctrl+-", "Zoom in / out"], ["Ctrl+0", "Fit page"], ["Esc", "Back to the pages view"], ["Ctrl+,", "Settings"], ["J / K", "Next / previous issue"], ["A / E / S / L", "Accept / Edit / Skip / Later"], ["1–9", "Choose a candidate"], ["Ctrl+Enter", "Approve page"], ["Ctrl+L", "Layout mode"], ["V / R / X / M", "Layout tools"]] as [k, d] (k)}
+        {#each [["Ctrl+I", "Import PDF"], ["Ctrl+O", "Open project"], ["Ctrl+Shift+S", "Save a copy"], ["Ctrl+W", "Close book"], ["PgUp / PgDn", "Previous / next page"], ["Ctrl+Home / Ctrl+End", "First / last page"], ["Ctrl+= / Ctrl+-", "Zoom in / out"], ["Ctrl+0", "Fit page"], ["Esc", "Back to the pages view"], ["Ctrl+,", "Settings"], ["J / K", "Next / previous issue"], ["A / E / S / L", "Accept / Edit / Skip / Later"], ["1–9", "Choose a candidate"], ["Ctrl+Enter", "Approve page"], ["Ctrl+Z", "Undo the last change"],["Ctrl+L", "Layout mode"], ["V / R / X / M", "Layout tools"]] as [k, d] (k)}
           <div class="row"><span>{d}</span><kbd>{k}</kbd></div>
         {/each}
       </div>

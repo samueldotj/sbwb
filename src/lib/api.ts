@@ -519,6 +519,18 @@ export function parseRanges(text: string): [number, number][] | null {
   return out.length ? out : null;
 }
 
+/// The change Ctrl+Z takes back: the newest history entry that can still be
+/// undone, `entries` newest first. An approval that was removed afterwards
+/// is passed over, since undoing it would change nothing.
+export function latestUndoable(entries: HistoryEntry[]): HistoryEntry | null {
+  const unapproved = new Set<number | null>();
+  for (const h of entries) {
+    if (h.kind === "approve" && !h.undoable) unapproved.add(h.page);
+    else if (h.undoable && !h.undone && !(h.kind === "approve" && unapproved.has(h.page))) return h;
+  }
+  return null;
+}
+
 export function scopeLabel(ranges: [number, number][]): string {
   return ranges.map(([a, b]) => (a === b ? `${a}` : `${a}–${b}`)).join(", ");
 }
