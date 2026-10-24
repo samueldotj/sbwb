@@ -77,6 +77,8 @@ class UiState {
   #pending = 0;
   toasts = $state<Toast[]>([]);
   settingsOpen = $state(false);
+  /// Settings section to show when Settings next opens.
+  settingsSection = $state<string | null>(null);
   /// Inspector tab requested from outside the workspace (rail rows, dev hooks).
   inspectorTab = $state<string | null>(null);
   /// The Export sheet (design 4.5).

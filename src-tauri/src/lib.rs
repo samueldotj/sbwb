@@ -51,6 +51,7 @@ pub fn run() {
             app.manage(commands::ai::AiSlot::default());
             app.manage(commands::queue::QueueSlot::default());
             app.manage(commands::previews::PreviewSlot::default());
+            app.manage(commands::update::UpdateSlot::default());
             commands::queue::load(&app.handle().clone());
 
             // Writer-lock heartbeat (PRJ-02).
@@ -192,6 +193,9 @@ pub fn run() {
             commands::ai::ai_run,
             commands::ai::ai_cancel,
             commands::ai::ai_runs,
+            commands::update::update_check,
+            commands::update::update_install,
+            commands::update::update_open_page,
             commands::queue::queue_list,
             commands::queue::queue_add,
             commands::queue::queue_remove,

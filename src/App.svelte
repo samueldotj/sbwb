@@ -16,6 +16,7 @@
   import { layout } from "$lib/stores/layout.svelte";
   import { project } from "$lib/stores/project.svelte";
   import { ui } from "$lib/stores/ui.svelte";
+  import { update } from "$lib/stores/update.svelte";
   import { isTauri } from "$lib/ipc";
   import { pickPdf, pickProject, pickSaveCopy } from "$lib/dialogs";
   import { api } from "$lib/api";
@@ -179,6 +180,11 @@
         review_store: review,
         layout_store: layout,
         export_open: () => (ui.exportOpen = true),
+        update_store: update,
+        settings: (s: string) => {
+          ui.settingsSection = s;
+          ui.settingsOpen = true;
+        },
         queue_open: () => (ui.queueOpen = true),
         layout: (i: number) => {
           view.open(i);
@@ -191,6 +197,7 @@
       return;
     }
     void api.appInfo().then((i) => (version = i.version)).catch(() => {});
+    if (update.checkAtStartup) void update.check(true);
     let unlisten: (() => void) | undefined;
     void import("@tauri-apps/api/webview").then(async ({ getCurrentWebview }) => {
       unlisten = await getCurrentWebview().onDragDropEvent((event) => {
@@ -271,6 +278,11 @@
     stage={project.busy ?? stageLine}
     running={project.busy !== null || pipeline.state === "running"}
     counters={counters}
+    notice={update.available ? `SBWB ${update.info?.latest} available` : ""}
+    onnotice={() => {
+      ui.settingsSection = "updates";
+      ui.settingsOpen = true;
+    }}
   />
   <Toast />
   <div class="sr-only" aria-live="polite" role="status">{ui.announcement}</div>

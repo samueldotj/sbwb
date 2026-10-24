@@ -6,13 +6,21 @@
   import { project } from "$lib/stores/project.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { review } from "$lib/stores/review.svelte";
+  import { update } from "$lib/stores/update.svelte";
   import { isTauri } from "$lib/ipc";
 
   type Props = { onclose: () => void };
   let { onclose }: Props = $props();
 
-  type Section = "processing" | "review" | "export" | "ai" | "appearance" | "shortcuts" | "storage";
+  type Section = "processing" | "review" | "export" | "ai" | "appearance" | "shortcuts" | "storage" | "updates";
   let section = $state<Section>("processing");
+  // A section asked for from outside (the status bar's update notice).
+  $effect(() => {
+    if (ui.settingsSection) {
+      section = ui.settingsSection as Section;
+      ui.settingsSection = null;
+    }
+  });
   let settings = $state<ProcessingSettings | null>(null);
   let saved = $state<ProcessingSettings | null>(null);
   let preview = $state<{ rerun_pages: number; approved_untouched: number; effective_workers: number } | null>(null);
@@ -119,6 +127,7 @@
     <button type="button" class:on={section === "appearance"} onclick={() => (section = "appearance")}>Appearance</button>
     <button type="button" class:on={section === "shortcuts"} onclick={() => (section = "shortcuts")}>Shortcuts</button>
     <button type="button" class:on={section === "storage"} onclick={() => (section = "storage")}>Storage &amp; privacy</button>
+    <button type="button" class:on={section === "updates"} onclick={() => (section = "updates")}>Updates{#if update.available}<span class="dot" aria-label="update available"></span>{/if}</button>
     <div class="foot mono">core {version} · tesseract {storage?.tesseract_version ?? "?"}</div>
     <button type="button" class="back" onclick={onclose}>← Back <kbd>Esc</kbd></button>
   </nav>
@@ -278,6 +287,37 @@
         <div class="row"><div><div class="name">Render cache</div><div class="hint mono">{storage?.cache_dir ?? "no book open"}</div></div><div class="inline"><span class="mono">{formatBytes(storage?.cache_bytes ?? 0)}</span><button type="button" class="secondary" onclick={clearCache} disabled={!project.isOpen}>Clear renders</button></div></div>
         <div class="row"><div><div class="name">Log folder</div><div class="hint mono">{storage?.log_dir ?? ""}</div></div><span></span></div>
         <div class="row"><div><div class="name">Model packs</div><div class="hint mono">{storage?.tessdata_dir ?? ""}</div></div><div class="packs">{#each models as m (m.entry.pack)}<div class="mono">{m.entry.label}: {m.status === "verified" ? "verified" : typeof m.status === "string" ? m.status : "corrupt"}</div>{/each}</div></div>
+        <div class="row"><div><div class="name">Update check</div><div class="hint words">Only when you check, or at startup if turned on under Updates. GitHub sees your IP address and the SBWB version; nothing about your books is sent.</div></div><span></span></div>
+      </div>
+    {:else if section === "updates"}
+      <div class="title">Updates</div>
+      <div class="sub">New versions are published as GitHub releases. Installing downloads the installer, checks it against the release's SHA-256 checksums, and reopens SBWB when it finishes.</div>
+      <div class="rows">
+        <div class="row">
+          <div><div class="name">This version</div><div class="hint">{update.checkedAt ? `Checked ${new Date(update.checkedAt).toLocaleTimeString()}` : "Not checked yet"}{update.error ? ` · ${update.error}` : ""}</div></div>
+          <div class="inline"><span class="mono">{version}</span><button type="button" class="secondary" onclick={() => update.check()} disabled={update.checking || !!update.downloading}>{update.checking ? "Checking…" : "Check for updates"}</button></div>
+        </div>
+        {#if update.info?.newer}
+          <div class="row">
+            <div>
+              <div class="name">{update.info.name} is available</div>
+              <div class="hint">{update.info.published_at ? `Released ${new Date(update.info.published_at).toLocaleDateString()} · ` : ""}{update.info.installer ? `${update.info.installer.name}, ${formatBytes(update.info.installer.size)}` : "This release has no installer for this copy."}</div>
+              {#if update.downloading}
+                <div class="progress" role="progressbar" aria-label="Download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow={update.downloading.total ? Math.round((update.downloading.done / update.downloading.total) * 100) : 0}><span style:width="{update.downloading.total ? (update.downloading.done / update.downloading.total) * 100 : 0}%"></span></div>
+              {/if}
+            </div>
+            <div class="inline">
+              <button type="button" class="primary" onclick={() => update.install()} disabled={!update.info.installer || !!update.downloading}>{update.downloading ? `Downloading ${formatBytes(update.downloading.done)}…` : "Download and install"}</button>
+            </div>
+          </div>
+          {#if update.info.notes}
+            <div class="row notes"><div><div class="name">What's new</div><pre class="hint">{update.info.notes.replace(/^#+\s*/gm, "")}</pre></div><button type="button" class="link" onclick={() => void api.updateOpenPage().catch((e) => ui.toast(errorMessage(e), "error"))}>Release page</button></div>
+          {/if}
+        {/if}
+        <div class="row">
+          <div><div class="name">Check at startup</div><div class="hint words">Ask GitHub for a newer version each time SBWB opens. Nothing is downloaded without your confirmation.</div></div>
+          <label class="toggle"><input type="checkbox" checked={update.checkAtStartup} onchange={(e) => update.setCheckAtStartup((e.currentTarget as HTMLInputElement).checked)} aria-label="Check for updates at startup" /><span></span></label>
+        </div>
       </div>
     {/if}
   </div>
@@ -509,5 +549,47 @@
     font-size: 11px;
     display: grid;
     gap: 2px;
+  }
+  .dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-left: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    vertical-align: middle;
+  }
+  .progress {
+    margin-top: 8px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--track);
+    overflow: hidden;
+  }
+  .progress span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+  }
+  .hint.words {
+    word-break: normal;
+  }
+  .notes pre {
+    margin: 4px 0 0;
+    white-space: pre-wrap;
+    word-break: normal;
+    font-family: inherit;
+    max-height: 220px;
+    overflow: auto;
+  }
+  .link {
+    all: unset;
+    justify-self: end;
+    align-self: start;
+    color: var(--accent);
+    cursor: default;
+  }
+  .link:focus-visible {
+    outline: 2px solid var(--accent);
   }
 </style>

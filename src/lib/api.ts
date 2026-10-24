@@ -402,6 +402,22 @@ export type QueueItem = {
 };
 export type QueueView = { items: QueueItem[]; running: boolean };
 
+export type UpdateInfo = {
+  current: string;
+  latest: string;
+  newer: boolean;
+  name: string;
+  notes: string;
+  url: string;
+  published_at: string | null;
+  installer: { name: string; size: number; browser_download_url: string } | null;
+};
+
+export type UpdateEvent =
+  | { type: "progress"; done: number; total: number }
+  | { type: "downloaded"; path: string; launching: boolean }
+  | { type: "failed"; message: string };
+
 export type CommandError = { code: string; message: string };
 
 export function isCommandError(e: unknown): e is CommandError {
@@ -416,6 +432,9 @@ export function errorMessage(e: unknown): string {
 
 export const api = {
   appInfo: () => invoke<{ version: string; identifier: string; tesseract: string }>("app_info"),
+  updateCheck: () => invoke<UpdateInfo>("update_check"),
+  updateInstall: () => invoke<void>("update_install"),
+  updateOpenPage: () => invoke<void>("update_open_page"),
   inspectSource: (path: string, password?: string) =>
     invoke<SourceCheck>("inspect_source", { path, password: password ?? null }),
   importPdf: (req: { source: string; project_path?: string; password?: string; first_pages?: number | null }) =>

@@ -180,7 +180,17 @@ Modern profile in which period spellings (haue, vnto, iudge, warre, citie)
 count as known words and are never proposed for correction. Changing the
 profile reruns only the text pass.
 
-## 9. Limitations in this release
+## 9. Updates
+
+**Settings → Updates → Check for updates** asks GitHub for the latest
+release. When a newer one exists, **Download and install** fetches its
+installer, checks it against the release's `SHA256SUMS.txt`, closes SBWB
+(processing stops at the current page; finished work is kept), runs the
+installer and reopens SBWB. Turn on **Check at startup** to be told about a
+new version in the status bar; nothing is downloaded without confirmation.
+GitHub sees your IP address and the SBWB version, nothing about your books.
+
+## 10. Limitations in this release
 
 - Windows 11 x64 only. macOS and Linux builds compile but are not qualified.
 - English (British) lexicons; the Early Modern profile is rule-based, not a period dictionary.
@@ -191,7 +201,7 @@ profile reruns only the text pass.
 - Word pagination is not checked; source page boundaries are preserved as
   breaks, not as identical physical pages.
 
-## 10. Where things are
+## 11. Where things are
 
 - Project file: `<book>.sbwb` next to the PDF (or where you chose), with a
   `<book>.sbwb.cache` folder of renders that can be cleared from Settings.

@@ -10,3 +10,4 @@ pub mod refine;
 pub mod review;
 pub mod settings;
 pub mod text;
+pub mod update;

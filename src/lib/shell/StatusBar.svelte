@@ -10,6 +10,9 @@
     savedAgo?: string;
     projectFile?: string;
     saveError?: string;
+    /** A short notice on the right, such as an available update. */
+    notice?: string;
+    onnotice?: () => void;
   };
   let {
     stage = "",
@@ -19,6 +22,8 @@
     savedAgo = "",
     projectFile = "",
     saveError = "",
+    notice = "",
+    onnotice,
   }: Props = $props();
 
   const saveLabel = $derived(
@@ -41,6 +46,7 @@
   {/if}
   {#if counters}<span class="sep">|</span><span>{counters}</span>{/if}
   <span class="grow"></span>
+  {#if notice}<button type="button" class="notice" onclick={() => onnotice?.()}>{notice}</button>{/if}
   {#if saveLabel}
     <span class:failed={saveState === "failed"} title={saveError}>{saveLabel}{saveState === "failed" && saveError ? ` · ${saveError}` : ""}</span>
   {/if}
@@ -101,6 +107,15 @@
   .failed {
     color: var(--danger);
     font-weight: 600;
+  }
+  .notice {
+    all: unset;
+    color: var(--accent);
+    font-weight: 600;
+    cursor: default;
+  }
+  .notice:focus-visible {
+    outline: 2px solid var(--accent);
   }
   .file {
     overflow: hidden;

@@ -42,6 +42,8 @@ crossbeam-channel.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
 http = "1"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "default-tls"] }
+sha2.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
