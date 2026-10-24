@@ -54,7 +54,7 @@
   const kindCounts = $derived(countKinds([headLine, ...[...shownBody, ...foot].flatMap((p) => p.words.map((w) => w.span.text))]));
   function onWindowClick(e: MouseEvent) {
     if (hlOpen && hlRoot && !hlRoot.contains(e.target as Node)) hlOpen = false;
-    if (spellPop && !(e.target as Element | null)?.closest?.(".spell-pop")) spellPop = null;
+    if (wordMenu && !(e.target as Element | null)?.closest?.(".word-pop")) wordMenu = null;
   }
 
   // ----- spelling: words missing from the chosen dictionary get a wavy
@@ -89,31 +89,79 @@
   function coreOf(t: string): string {
     return t.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
   }
-  type SpellPop = { span: string; core: string; dialect: "en_GB" | "en_US"; x: number; y: number; suggestions: string[] | null };
-  let spellPop = $state<SpellPop | null>(null);
+  // ----- word menu: a single click (or a right-click on a misspelt word)
+  // opens it under the word: link the word to one of the page's footnotes,
+  // spelling suggestions when it is underlined, and Edit text -----
+  type WordMenu = { span: string; core: string; x: number; y: number; inNote: boolean; dialect: "en_GB" | "en_US" | null; suggestions: string[] | null };
+  let wordMenu = $state<WordMenu | null>(null);
+  let clickTimer: ReturnType<typeof setTimeout> | null = null;
+  function openWordMenu(el: HTMLElement) {
+    const span = el.dataset.span ? review.spanById(el.dataset.span) : null;
+    if (!span || !bodyEl) return;
+    const host = bodyEl.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    const core = coreOf(span.text);
+    const dialect = review.spelling !== "off" && misspelt.has(span.text) ? review.spelling : null;
+    revisit = null;
+    picked = null;
+    review.pickedSpan = span.id;
+    const inNote = foot.some((p) => p.kind === "footnote" && p.words.some((w) => w.span.id === span.id));
+    wordMenu = { span: span.id, core, x: popLeft(r.left - host.left), y: r.bottom - host.top + bodyEl.scrollTop + 4, inNote, dialect, suggestions: null };
+    if (!dialect) return;
+    const done = (s: string[]) => {
+      if (wordMenu?.span === span.id) wordMenu = { ...wordMenu, suggestions: s };
+    };
+    api.spellSuggest(core, dialect).then(done, () => done([]));
+  }
+  /** A plain click on a word; the delay lets a double-click edit instead. */
+  function onWordClick(e: MouseEvent) {
+    if (editor) return;
+    const t = e.target as Element | null;
+    if (!t || t.closest("button, .cands, .editor, .pick, sup, input, textarea")) return;
+    const el = t.closest<HTMLElement>("[data-span]");
+    const sel = window.getSelection();
+    if (!el || (sel && !sel.isCollapsed)) return;
+    if (clickTimer) clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => {
+      clickTimer = null;
+      openWordMenu(el);
+    }, 250);
+  }
   function onContextMenu(e: MouseEvent) {
-    const dialect = review.spelling;
-    if (dialect === "off" || !bodyEl) return;
+    if (review.spelling === "off") return;
     const el = (e.target as Element | null)?.closest<HTMLElement>("[data-span]");
     const span = el?.dataset.span ? review.spanById(el.dataset.span) : null;
     if (!el || !span || !misspelt.has(span.text)) return;
     e.preventDefault();
-    const host = bodyEl.getBoundingClientRect();
-    const r = el.getBoundingClientRect();
-    const core = coreOf(span.text);
-    revisit = null;
-    spellPop = { span: span.id, core, dialect, x: popLeft(r.left - host.left), y: r.bottom - host.top + bodyEl.scrollTop + 4, suggestions: null };
-    const done = (s: string[]) => {
-      if (spellPop?.span === span.id) spellPop = { ...spellPop, suggestions: s };
-    };
-    api.spellSuggest(core, dialect).then(done, () => done([]));
+    openWordMenu(el);
+  }
+  /** Link the word to a footnote (moving the note's link if it had one). */
+  async function linkTo(note: string) {
+    const m = wordMenu;
+    if (!m) return;
+    wordMenu = null;
+    await review.footnote(() => api.footnoteLink(m.span, note));
+    ui.announce("Footnote linked");
+  }
+  /** The note's opening, for the Link to list. */
+  function noteHead(preview: string): string {
+    const t = preview.trim();
+    return t.length > 10 ? `${t.slice(0, 10)}…` : t;
+  }
+  function editFromMenu() {
+    const m = wordMenu;
+    const i = m ? review.spans.findIndex((x) => x.id === m.span) : -1;
+    if (!m || i < 0) return;
+    wordMenu = null;
+    picked = { from: i, to: i, x: m.x, y: m.y - 4 };
+    openEditor();
   }
   /** Replace the word with a suggestion, keeping its punctuation (an undoable text edit). */
   async function useSuggestion(s: string) {
-    const p = spellPop;
+    const p = wordMenu;
     const span = p ? review.spanById(p.span) : null;
     if (!p || !span) return;
-    spellPop = null;
+    wordMenu = null;
     try {
       await ui.save(() => api.textEdit([{ span: span.id, revision: span.revision }], span.text.replace(p.core, s)));
       await review.reload();
@@ -122,9 +170,9 @@
     }
   }
   async function addToBook() {
-    const p = spellPop;
+    const p = wordMenu;
     if (!p) return;
-    spellPop = null;
+    wordMenu = null;
     try {
       await ui.save(() => api.vocabAdd(p.core, "vocab"));
       vocabTick++;
@@ -228,9 +276,9 @@
     }
   }
   function onTrackClick(e: MouseEvent) {
-    if (!review.trackChanges) return;
-    const el = (e.target as Element | null)?.closest<HTMLElement>("mark.accepted[data-span], mark.auto[data-span]");
+    const el = review.trackChanges ? (e.target as Element | null)?.closest<HTMLElement>("mark.accepted[data-span], mark.auto[data-span]") : null;
     if (el?.dataset.span) void openRevisit(el.dataset.span, el);
+    else onWordClick(e);
   }
 
   // ----- raw fallback -----
@@ -327,6 +375,9 @@
   }
   /** Double-click a word: edit that one word straight away. */
   function onDoubleClick(e: MouseEvent) {
+    if (clickTimer) clearTimeout(clickTimer);
+    clickTimer = null;
+    wordMenu = null;
     if (editor || !bodyEl) return;
     const el = (e.target as Element | null)?.closest?.("[data-span]") as HTMLElement | null;
     if (!el) return;
@@ -385,7 +436,7 @@
   $effect(() => {
     void view.page;
     picked = null;
-    spellPop = null;
+    wordMenu = null;
     editor = null;
     lastEdit = null;
   });
@@ -477,7 +528,7 @@
             </select>
             {#if review.spelling !== "off"}<span class="mono-n">{misspeltCount}</span>{/if}
           </label>
-          {#if review.spelling !== "off"}<span class="muted small">Right-click an underlined word for suggestions or to add it to this book.</span>{/if}
+          {#if review.spelling !== "off"}<span class="muted small">Click an underlined word for suggestions or to add it to this book.</span>{/if}
         </div>
       {/if}
     </div>
@@ -543,25 +594,49 @@
         </ul>
       </div>
     {/if}
-    {#if spellPop}
-      {@const sp = spellPop}
-      <div class="cands spell-pop" style="left:{sp.x}px;top:{sp.y}px" role="dialog" aria-label="Spelling of {sp.core}">
+    {#if wordMenu}
+      {@const m = wordMenu}
+      {@const notes = m.inNote ? [] : review.footnotes.notes}
+      <div class="cands word-pop" style="left:{m.x}px;top:{m.y}px" role="dialog" aria-label="Word {m.core}">
         <div class="cands-row">
-          <span class="small">“<b class="serif">{sp.core}</b>” is not in the {DIALECT_LABEL[sp.dialect]} dictionary</span>
+          <b class="serif">{m.core || review.spanById(m.span)?.text}</b>
           <span class="grow"></span>
-          <button type="button" class="ctl x" onclick={() => (spellPop = null)} aria-label="Close">✕</button>
+          <button type="button" class="ctl x" onclick={() => (wordMenu = null)} aria-label="Close">✕</button>
         </div>
-        <div class="cands-row wrap">
-          {#if sp.suggestions === null}
-            <span class="muted small">Looking for suggestions…</span>
-          {:else if sp.suggestions.length === 0}
-            <span class="muted small">No suggestions</span>
-          {:else}
-            {#each sp.suggestions as s (s)}<button type="button" class="ctl" onclick={() => useSuggestion(s)}>{s}</button>{/each}
-          {/if}
-        </div>
+        {#if notes.length}
+          <div class="menu-label">Link to</div>
+          <ul class="notes">
+            {#each notes as n (n.span)}
+              {@const ref = fnByNote.get(n.span)}
+              {@const here = ref?.anchor === m.span}
+              <li>
+                <button type="button" class="note-btn" disabled={here} onclick={() => linkTo(n.span)} title={here ? "Already linked to this word" : ref ? `Linked to another word; this moves it here` : `Link footnote ${n.marker || ""} to this word`}>
+                  <span class="mono-n">{ref?.number ?? (n.marker || "·")}</span>
+                  <span class="serif">{noteHead(n.preview)}</span>
+                  {#if here}<span class="muted small">linked</span>{:else if ref}<span class="muted small">move</span>{/if}
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        {#if m.dialect}
+          <div class="menu-label">Not in the {DIALECT_LABEL[m.dialect]} dictionary</div>
+          <div class="cands-row wrap">
+            {#if m.suggestions === null}
+              <span class="muted small">Looking for suggestions…</span>
+            {:else if m.suggestions.length === 0}
+              <span class="muted small">No suggestions</span>
+            {:else}
+              {#each m.suggestions as s (s)}<button type="button" class="ctl" onclick={() => useSuggestion(s)}>{s}</button>{/each}
+            {/if}
+          </div>
+          <div class="cands-row">
+            <button type="button" class="ctl" onclick={addToBook}>Add “{m.core}” to this book</button>
+          </div>
+        {/if}
         <div class="cands-row">
-          <button type="button" class="ctl" onclick={addToBook}>Add “{sp.core}” to this book</button>
+          <button type="button" class="ctl" onclick={editFromMenu}>Edit text</button>
+          {#if !notes.length && !m.dialect}<span class="muted small">{m.inNote ? "This word is in a footnote" : "No footnotes on this page"}</span>{/if}
         </div>
       </div>
     {/if}
@@ -685,6 +760,42 @@
     box-shadow: var(--shadow-page);
     font: 13px var(--font-ui);
     color: var(--text);
+  }
+  .menu-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+  .notes {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 2px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .note-btn {
+    all: unset;
+    box-sizing: border-box;
+    width: 100%;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 3px 6px;
+    border-radius: 4px;
+    cursor: default;
+  }
+  .note-btn:hover:not(:disabled),
+  .note-btn:focus-visible {
+    background: var(--accent-bg);
+  }
+  .note-btn:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+  .note-btn:disabled {
+    color: var(--muted);
   }
   .hl-sep {
     height: 1px;

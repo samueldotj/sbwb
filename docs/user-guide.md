@@ -49,10 +49,15 @@ runs on your computer; nothing is uploaded.
 - **Spelling.** In the transcript's Highlight menu, choose Spelling: UK
   English or US English. Words that are in neither that dictionary, the
   Webster 1913 word list, nor this book's own words get a wavy red
-  underline. Right-click one for suggestions (choosing one is an undoable
-  edit) or to add it to this book's words. An added word also counts as
-  known to the text pass. Both dictionaries are bundled; nothing goes
-  online.
+  underline. Click (or right-click) one for suggestions (choosing one is
+  an undoable edit) or to add it to this book's words. An added word also
+  counts as known to the text pass. Both dictionaries are bundled; nothing
+  goes online.
+- **Word menu.** Click any plain word in the transcript for a menu: **Link
+  to** lists the footnotes on the page by their first characters (choosing
+  one links the note to this word, moving it if it was linked elsewhere),
+  spelling suggestions when the word is underlined, and **Edit text**.
+  Double-click still opens the editor straight away.
 - Scores are heuristics from 0 to 100, labelled with their source ("64% ·
   OCR", "92 · text pass"). They are not probabilities. The second engine
   (ocrs) gives line-level readings and is always shown as unscored.
