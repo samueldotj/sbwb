@@ -54,6 +54,10 @@ class ReviewState {
   trackChanges = $state(false);
   /** Hide words that fall outside every layout region in the transcript (on by default). */
   hideOutside = $state(true);
+  /** Highlight digits / punctuation / unusual characters in the transcript. */
+  highlightNumbers = $state(false);
+  highlightPunctuation = $state(false);
+  highlightSpecial = $state(false);
 
   // ----- current page -----
   page = $state<number | null>(null);
@@ -170,6 +174,9 @@ class ReviewState {
         if (typeof p.hide_completed === "boolean") this.hideCompleted = p.hide_completed;
         if (typeof p.hide_auto === "boolean") this.hideAuto = p.hide_auto;
         if (typeof p.hide_outside === "boolean") this.hideOutside = p.hide_outside;
+        if (typeof p.highlight_numbers === "boolean") this.highlightNumbers = p.highlight_numbers;
+        if (typeof p.highlight_punctuation === "boolean") this.highlightPunctuation = p.highlight_punctuation;
+        if (typeof p.highlight_special === "boolean") this.highlightSpecial = p.highlight_special;
       }
     } catch {
       /* defaults */
@@ -189,6 +196,9 @@ class ReviewState {
         hide_completed: this.hideCompleted,
         hide_auto: this.hideAuto,
         hide_outside: this.hideOutside,
+        highlight_numbers: this.highlightNumbers,
+        highlight_punctuation: this.highlightPunctuation,
+        highlight_special: this.highlightSpecial,
       })
       .catch(() => {});
   }

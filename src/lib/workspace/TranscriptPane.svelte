@@ -7,6 +7,7 @@
   // focus on a mark highlights the source word on the scan; click selects
   // the issue. Falls back to raw OCR lines before the text pass has run.
   import { api, errorMessage, type HistoryEntry, type OcrWord, type PageRow, type Span } from "$lib/api";
+  import { charRuns, countKinds } from "$lib/highlight";
   import { KIND_LABEL } from "$lib/stores/layout.svelte";
   import { review } from "$lib/stores/review.svelte";
   import { TRANSCRIPT_ZOOMS, ui } from "$lib/stores/ui.svelte";
@@ -44,6 +45,15 @@
   const shownBody = $derived(review.hideOutside ? body.filter((p) => p.region !== null || p.words.some((w) => w.span.id === review.selected?.span)) : body);
   const foot = $derived(paras.filter((p) => p.kind === "footer" || p.kind === "footnote"));
   const headLine = $derived(head.map((p) => p.words.map((w) => w.span.text).join(" ")).join(" · "));
+  // Highlight numbers / special characters (a menu in the header); the
+  // counts cover the text drawn on the page.
+  let hlOpen = $state(false);
+  let hlRoot = $state<HTMLElement | null>(null);
+  const hlOn = $derived(review.highlightNumbers || review.highlightPunctuation || review.highlightSpecial);
+  const kindCounts = $derived(countKinds([headLine, ...[...shownBody, ...foot].flatMap((p) => p.words.map((w) => w.span.text))]));
+  function onWindowClick(e: MouseEvent) {
+    if (hlOpen && hlRoot && !hlRoot.contains(e.target as Node)) hlOpen = false;
+  }
   const onPage = $derived(review.page === view.page ? review.matching.length : 0);
   const corrections = $derived(review.page === view.page ? review.spans.filter((s) => s.origin !== "ocr" && s.text).length : 0);
 
@@ -334,6 +344,10 @@
   {@const r = fnByAnchor.get(id)}
   {#if r}<sup class="fnref" class:sug={r.status === "suggested"} title={r.status === "suggested" ? "Suggested footnote reference: accept or reject it in the Text pass tab" : `Footnote ${r.number}`}>{r.number ?? "?"}</sup>{/if}
 {/snippet}
+{#snippet wtext(t: string)}{#if hlOn}{#each charRuns(t, { numbers: review.highlightNumbers, punctuation: review.highlightPunctuation, special: review.highlightSpecial }) as r, ri (ri)}{#if r.kind}<span class="hl {r.kind}">{r.text}</span>{:else}{r.text}{/if}{/each}{:else}{t}{/if}{/snippet}
+
+<svelte:window onclick={onWindowClick} />
+
 {#snippet fnnum(id: string)}
   {@const r = fnByNote.get(id)}
   {#if r}<sup class="fnnum" title="Footnote {r.number}">{r.number}</sup>{/if}
@@ -366,6 +380,16 @@
     <button type="button" class="track-btn" class:on={review.trackChanges} aria-pressed={review.trackChanges} onclick={() => { review.trackChanges = !review.trackChanges; revisit = null; review.savePrefs(); }} title="Track corrections: box every corrected word in green; click one to see what it was and change or undo it">
       Corrections&nbsp;<span class="mono-n">{corrections}</span>
     </button>
+    <div class="hl-menu" bind:this={hlRoot}>
+      <button type="button" class="track-btn" class:on={hlOn} aria-haspopup="true" aria-expanded={hlOpen} onclick={() => (hlOpen = !hlOpen)} title="Highlight numbers, punctuation or special characters in the transcript">Highlight ▾</button>
+      {#if hlOpen}
+        <div class="hl-pop" role="group" aria-label="Highlight characters">
+          <label><input type="checkbox" bind:checked={review.highlightNumbers} onchange={() => review.savePrefs()} /> <span class="hl num">12</span> Numbers <span class="mono-n">{kindCounts.num}</span></label>
+          <label><input type="checkbox" bind:checked={review.highlightPunctuation} onchange={() => review.savePrefs()} /> <span class="hl punct">.,;</span> Punctuation <span class="mono-n">{kindCounts.punct}</span></label>
+          <label><input type="checkbox" bind:checked={review.highlightSpecial} onchange={() => review.savePrefs()} /> <span class="hl sym">¢*</span> Special characters <span class="mono-n">{kindCounts.sym}</span></label>
+        </div>
+      {/if}
+    </div>
     {#if outsideWords > 0}
       <button type="button" class="track-btn" onclick={() => { review.hideOutside = !review.hideOutside; review.savePrefs(); }} title="{review.hideOutside ? 'Show' : 'Hide'} the text that lies outside every layout region in the transcript; only what is shown changes">
         {review.hideOutside ? "Show" : "Hide"} outside&nbsp;<span class="mono-n">{outsideWords}</span>
@@ -479,7 +503,7 @@
     {/if}
     {#if paras.length}
       {#if headLine}
-        <p class="runhead" aria-label="Running head">{headLine}</p>
+        <p class="runhead" aria-label="Running head">{@render wtext(headLine)}</p>
       {/if}
       {#each shownBody as p, pi (pi)}
         <p class="para {p.kind}" data-label={p.label}>
@@ -496,20 +520,20 @@
               onfocus={() => (review.hoverSpan = w.span.id)}
               onblur={() => (review.hoverSpan = null)}
               onclick={() => review.select(w.mark.issue!.id)}
-              onkeydown={(e) => onMarkKey(e, w)}>{w.span.text}</button>{:else if w.mark.kind !== "none"}<mark
+              onkeydown={(e) => onMarkKey(e, w)}>{@render wtext(w.span.text)}</button>{:else if w.mark.kind !== "none"}<mark
               class="mark {w.mark.kind}"
               class:focused={review.selected?.span === w.span.id}
               data-span={w.span.id}
-              title={title(w)}>{w.span.text}</mark>{:else}<span
+              title={title(w)}>{@render wtext(w.span.text)}</mark>{:else}<span
               data-span={w.span.id}
-              class:focused={review.selected?.span === w.span.id}>{w.span.text}</span>{/if}{@render fnref(w.span.id)}{w.span.trailing}{/each}
+              class:focused={review.selected?.span === w.span.id}>{@render wtext(w.span.text)}</span>{/if}{@render fnref(w.span.id)}{w.span.trailing}{/each}
         </p>
       {/each}
       {#if foot.length}
         <hr class="divider" />
         {#each foot as p, pi (pi)}
           <p class="para {p.kind}" data-label={p.label}>
-            {#each p.words as w (w.span.id)}{@render fnnum(w.span.id)}{#if w.mark.issue && w.mark.kind !== "none"}<button type="button" class="mark {w.mark.kind}" class:focused={review.selected?.span === w.span.id} data-span={w.span.id} aria-label="{w.span.text}: {w.mark.issue.kind.replace('_', ' ')}" title={title(w)} onmouseenter={() => (review.hoverSpan = w.span.id)} onmouseleave={() => (review.hoverSpan = null)} onfocus={() => (review.hoverSpan = w.span.id)} onblur={() => (review.hoverSpan = null)} onclick={() => review.select(w.mark.issue!.id)} onkeydown={(e) => onMarkKey(e, w)}>{w.span.text}</button>{:else if w.mark.kind !== "none"}<mark class="mark {w.mark.kind}" data-span={w.span.id} title={title(w)}>{w.span.text}</mark>{:else}<span data-span={w.span.id}>{w.span.text}</span>{/if}{@render fnref(w.span.id)}{w.span.trailing}{/each}
+            {#each p.words as w (w.span.id)}{@render fnnum(w.span.id)}{#if w.mark.issue && w.mark.kind !== "none"}<button type="button" class="mark {w.mark.kind}" class:focused={review.selected?.span === w.span.id} data-span={w.span.id} aria-label="{w.span.text}: {w.mark.issue.kind.replace('_', ' ')}" title={title(w)} onmouseenter={() => (review.hoverSpan = w.span.id)} onmouseleave={() => (review.hoverSpan = null)} onfocus={() => (review.hoverSpan = w.span.id)} onblur={() => (review.hoverSpan = null)} onclick={() => review.select(w.mark.issue!.id)} onkeydown={(e) => onMarkKey(e, w)}>{@render wtext(w.span.text)}</button>{:else if w.mark.kind !== "none"}<mark class="mark {w.mark.kind}" data-span={w.span.id} title={title(w)}>{@render wtext(w.span.text)}</mark>{:else}<span data-span={w.span.id}>{@render wtext(w.span.text)}</span>{/if}{@render fnref(w.span.id)}{w.span.trailing}{/each}
           </p>
         {/each}
       {/if}
@@ -530,6 +554,44 @@
 </section>
 
 <style>
+  .hl-menu {
+    position: relative;
+    flex-shrink: 0;
+  }
+  .hl-pop {
+    position: fixed;
+    z-index: 20;
+    margin-top: 4px;
+    display: grid;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: var(--raised);
+    box-shadow: var(--shadow-page);
+    font: 13px var(--font-ui);
+    color: var(--text);
+  }
+  .hl-pop label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .hl {
+    border-radius: 2px;
+  }
+  .hl.num {
+    background: color-mix(in srgb, var(--region-header) 28%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--region-header) 60%, transparent);
+  }
+  .hl.punct {
+    background: color-mix(in srgb, var(--warn) 40%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--warn) 80%, transparent);
+  }
+  .hl.sym {
+    background: color-mix(in srgb, var(--danger) 28%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 70%, transparent);
+  }
   .transcript {
     background: var(--paper);
     display: grid;
