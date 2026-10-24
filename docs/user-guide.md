@@ -53,6 +53,15 @@ runs on your computer; nothing is uploaded.
   an undoable edit) or to add it to this book's words. An added word also
   counts as known to the text pass. Both dictionaries are bundled; nothing
   goes online.
+- **Grammar.** Tick Grammar in the Highlight menu to underline simple
+  problems in blue: more than one space between words, no space after a
+  comma, semicolon or full stop, a space before punctuation (" ;"), a
+  missing or extra space at a quotation mark, a lower-case word after a
+  full stop (not after abbreviations such as vol., pp., etc. or Roman
+  numerals), and a word repeated ("the the"). Click an underlined word
+  to see the problem and, where there is one, a **Fix** button that makes
+  the change as an undoable edit. Old books often set a space before ; and
+  :, so expect many of those.
 - **Word menu.** Click any plain word in the transcript for a menu: **Link
   to** lists the footnotes on the page by their first characters (choosing
   one links the note to this word, moving it if it was linked elsewhere),

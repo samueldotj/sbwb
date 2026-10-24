@@ -7,6 +7,7 @@
   // focus on a mark highlights the source word on the scan; click selects
   // the issue. Falls back to raw OCR lines before the text pass has run.
   import { api, errorMessage, type HistoryEntry, type OcrWord, type PageRow, type Span } from "$lib/api";
+  import { checkGrammar, type GrammarFix, type GrammarFlag } from "$lib/grammar";
   import { charRuns, countKinds } from "$lib/highlight";
   import { isTauri } from "$lib/ipc";
   import { KIND_LABEL } from "$lib/stores/layout.svelte";
@@ -84,6 +85,9 @@
         ui.toast(`Spell check unavailable: ${errorMessage(e)}`, "error", 6000);
       });
   });
+  // Grammar: simple spacing, punctuation and capital checks, worked out here.
+  const grammarFlags = $derived<Map<string, GrammarFlag[]>>(review.grammar && review.page === view.page ? checkGrammar(review.spans) : new Map());
+  const grammarCount = $derived([...shownBody, ...foot].reduce((n, p) => n + p.words.reduce((k, w) => k + (grammarFlags.get(w.span.id)?.length ?? 0), 0), 0));
   const misspeltCount = $derived([...shownBody, ...foot].reduce((n, p) => n + p.words.filter((w) => misspelt.has(w.span.text)).length, 0));
   /** The word without surrounding punctuation or quotes. */
   function coreOf(t: string): string {
@@ -92,7 +96,7 @@
   // ----- word menu: a single click (or a right-click on a misspelt word)
   // opens it under the word: link the word to one of the page's footnotes,
   // spelling suggestions when it is underlined, and Edit text -----
-  type WordMenu = { span: string; core: string; x: number; y: number; inNote: boolean; dialect: "en_GB" | "en_US" | null; suggestions: string[] | null };
+  type WordMenu = { span: string; core: string; x: number; y: number; inNote: boolean; dialect: "en_GB" | "en_US" | null; suggestions: string[] | null; flags: GrammarFlag[] };
   let wordMenu = $state<WordMenu | null>(null);
   let clickTimer: ReturnType<typeof setTimeout> | null = null;
   function openWordMenu(el: HTMLElement) {
@@ -106,7 +110,7 @@
     picked = null;
     review.pickedSpan = span.id;
     const inNote = foot.some((p) => p.kind === "footnote" && p.words.some((w) => w.span.id === span.id));
-    wordMenu = { span: span.id, core, x: popLeft(r.left - host.left), y: r.bottom - host.top + bodyEl.scrollTop + 4, inNote, dialect, suggestions: null };
+    wordMenu = { span: span.id, core, x: popLeft(r.left - host.left), y: r.bottom - host.top + bodyEl.scrollTop + 4, inNote, dialect, suggestions: null, flags: grammarFlags.get(span.id) ?? [] };
     if (!dialect) return;
     const done = (s: string[]) => {
       if (wordMenu?.span === span.id) wordMenu = { ...wordMenu, suggestions: s };
@@ -128,10 +132,9 @@
     }, 250);
   }
   function onContextMenu(e: MouseEvent) {
-    if (review.spelling === "off") return;
     const el = (e.target as Element | null)?.closest<HTMLElement>("[data-span]");
     const span = el?.dataset.span ? review.spanById(el.dataset.span) : null;
-    if (!el || !span || !misspelt.has(span.text)) return;
+    if (!el || !span || !(misspelt.has(span.text) || grammarFlags.has(span.id))) return;
     e.preventDefault();
     openWordMenu(el);
   }
@@ -155,6 +158,18 @@
     wordMenu = null;
     picked = { from: i, to: i, x: m.x, y: m.y - 4 };
     openEditor();
+  }
+  /** Apply a grammar fix: one undoable text edit of the words it names. */
+  async function applyFix(f: GrammarFix) {
+    const items = f.spans.map((id) => review.spanById(id)).filter((s) => s != null).map((s) => ({ span: s.id, revision: s.revision }));
+    wordMenu = null;
+    if (items.length !== f.spans.length) return;
+    try {
+      await ui.save(() => api.textEdit(items, f.text));
+      await review.reload();
+    } catch (e) {
+      ui.toast(errorMessage(e), "error", 6000);
+    }
   }
   /** Replace the word with a suggestion, keeping its punctuation (an undoable text edit). */
   async function useSuggestion(s: string) {
@@ -475,7 +490,8 @@
   {@const r = fnByAnchor.get(id)}
   {#if r}<sup class="fnref" class:sug={r.status === "suggested"} title={r.status === "suggested" ? "Suggested footnote reference: accept or reject it in the Text pass tab" : `Footnote ${r.number}`}>{r.number ?? "?"}</sup>{/if}
 {/snippet}
-{#snippet wtext(t: string)}{#if misspelt.has(t)}<span class="misspelt" title="Not in the {review.spelling === 'en_US' ? 'US' : 'UK'} English dictionary · right-click for suggestions">{@render chars(t)}</span>{:else}{@render chars(t)}{/if}{/snippet}
+{#snippet wtext(t: string, id: string | null = null)}{@const gf = id ? grammarFlags.get(id) : undefined}{#if gf}<span class="gram" title={gf.map((f) => f.message).join(" · ")}>{@render spell(t)}</span>{:else}{@render spell(t)}{/if}{/snippet}
+{#snippet spell(t: string)}{#if misspelt.has(t)}<span class="misspelt" title="Not in the {review.spelling === 'en_US' ? 'US' : 'UK'} English dictionary · right-click for suggestions">{@render chars(t)}</span>{:else}{@render chars(t)}{/if}{/snippet}
 {#snippet chars(t: string)}{#if hlOn}{#each charRuns(t, { numbers: review.highlightNumbers, punctuation: review.highlightPunctuation, special: review.highlightSpecial }) as r, ri (ri)}{#if r.kind}<span class="hl {r.kind}">{r.text}</span>{:else}{r.text}{/if}{/each}{:else}{t}{/if}{/snippet}
 
 <svelte:window onclick={onWindowClick} />
@@ -513,7 +529,7 @@
       Corrections&nbsp;<span class="mono-n">{corrections}</span>
     </button>
     <div class="hl-menu" bind:this={hlRoot}>
-      <button type="button" class="track-btn" class:on={hlOn || review.spelling !== "off"} aria-haspopup="true" aria-expanded={hlOpen} onclick={() => (hlOpen = !hlOpen)} title="Highlight numbers, punctuation, special characters or spelling mistakes in the transcript">Highlight ▾</button>
+      <button type="button" class="track-btn" class:on={hlOn || review.spelling !== "off" || review.grammar} aria-haspopup="true" aria-expanded={hlOpen} onclick={() => (hlOpen = !hlOpen)} title="Highlight numbers, punctuation, special characters, spelling mistakes or grammar problems in the transcript">Highlight ▾</button>
       {#if hlOpen}
         <div class="hl-pop" role="group" aria-label="Highlight characters">
           <label><input type="checkbox" bind:checked={review.highlightNumbers} onchange={() => review.savePrefs()} /> <span class="hl num">12</span> Numbers <span class="mono-n">{kindCounts.num}</span></label>
@@ -528,7 +544,8 @@
             </select>
             {#if review.spelling !== "off"}<span class="mono-n">{misspeltCount}</span>{/if}
           </label>
-          {#if review.spelling !== "off"}<span class="muted small">Click an underlined word for suggestions or to add it to this book.</span>{/if}
+          <label><input type="checkbox" bind:checked={review.grammar} onchange={() => review.savePrefs()} /> <span class="gram">a,b</span> Grammar {#if review.grammar}<span class="mono-n">{grammarCount}</span>{/if}</label>
+          {#if review.spelling !== "off" || review.grammar}<span class="muted small">Click an underlined word for suggestions{review.spelling !== "off" ? " or to add it to this book" : ""}.</span>{/if}
         </div>
       {/if}
     </div>
@@ -634,9 +651,18 @@
             <button type="button" class="ctl" onclick={addToBook}>Add “{m.core}” to this book</button>
           </div>
         {/if}
+        {#if m.flags.length}
+          <div class="menu-label">Grammar</div>
+          {#each m.flags as f, fi (fi)}
+            <div class="cands-row wrap">
+              <span class="small">{f.message}</span>
+              {#if f.fix}<button type="button" class="ctl" onclick={() => applyFix(f.fix!)} title="Change to “{f.fix.text}”">Fix → <span class="serif">{f.fix.text}</span></button>{/if}
+            </div>
+          {/each}
+        {/if}
         <div class="cands-row">
           <button type="button" class="ctl" onclick={editFromMenu}>Edit text</button>
-          {#if !notes.length && !m.dialect}<span class="muted small">{m.inNote ? "This word is in a footnote" : "No footnotes on this page"}</span>{/if}
+          {#if !notes.length && !m.dialect && !m.flags.length}<span class="muted small">{m.inNote ? "This word is in a footnote" : "No footnotes on this page"}</span>{/if}
         </div>
       </div>
     {/if}
@@ -709,20 +735,20 @@
               onfocus={() => (review.hoverSpan = w.span.id)}
               onblur={() => (review.hoverSpan = null)}
               onclick={() => review.select(w.mark.issue!.id)}
-              onkeydown={(e) => onMarkKey(e, w)}>{@render wtext(w.span.text)}</button>{:else if w.mark.kind !== "none"}<mark
+              onkeydown={(e) => onMarkKey(e, w)}>{@render wtext(w.span.text, w.span.id)}</button>{:else if w.mark.kind !== "none"}<mark
               class="mark {w.mark.kind}"
               class:focused={review.selected?.span === w.span.id}
               data-span={w.span.id}
-              title={title(w)}>{@render wtext(w.span.text)}</mark>{:else}<span
+              title={title(w)}>{@render wtext(w.span.text, w.span.id)}</mark>{:else}<span
               data-span={w.span.id}
-              class:focused={review.selected?.span === w.span.id}>{@render wtext(w.span.text)}</span>{/if}{@render fnref(w.span.id)}{w.span.trailing}{/each}
+              class:focused={review.selected?.span === w.span.id}>{@render wtext(w.span.text, w.span.id)}</span>{/if}{@render fnref(w.span.id)}{w.span.trailing}{/each}
         </p>
       {/each}
       {#if foot.length}
         <hr class="divider" />
         {#each foot as p, pi (pi)}
           <p class="para {p.kind}" data-label={p.label}>
-            {#each p.words as w (w.span.id)}{@render fnnum(w.span.id)}{#if w.mark.issue && w.mark.kind !== "none"}<button type="button" class="mark {w.mark.kind}" class:focused={review.selected?.span === w.span.id} data-span={w.span.id} aria-label="{w.span.text}: {w.mark.issue.kind.replace('_', ' ')}" title={title(w)} onmouseenter={() => (review.hoverSpan = w.span.id)} onmouseleave={() => (review.hoverSpan = null)} onfocus={() => (review.hoverSpan = w.span.id)} onblur={() => (review.hoverSpan = null)} onclick={() => review.select(w.mark.issue!.id)} onkeydown={(e) => onMarkKey(e, w)}>{@render wtext(w.span.text)}</button>{:else if w.mark.kind !== "none"}<mark class="mark {w.mark.kind}" data-span={w.span.id} title={title(w)}>{@render wtext(w.span.text)}</mark>{:else}<span data-span={w.span.id}>{@render wtext(w.span.text)}</span>{/if}{@render fnref(w.span.id)}{w.span.trailing}{/each}
+            {#each p.words as w (w.span.id)}{@render fnnum(w.span.id)}{#if w.mark.issue && w.mark.kind !== "none"}<button type="button" class="mark {w.mark.kind}" class:focused={review.selected?.span === w.span.id} data-span={w.span.id} aria-label="{w.span.text}: {w.mark.issue.kind.replace('_', ' ')}" title={title(w)} onmouseenter={() => (review.hoverSpan = w.span.id)} onmouseleave={() => (review.hoverSpan = null)} onfocus={() => (review.hoverSpan = w.span.id)} onblur={() => (review.hoverSpan = null)} onclick={() => review.select(w.mark.issue!.id)} onkeydown={(e) => onMarkKey(e, w)}>{@render wtext(w.span.text, w.span.id)}</button>{:else if w.mark.kind !== "none"}<mark class="mark {w.mark.kind}" data-span={w.span.id} title={title(w)}>{@render wtext(w.span.text, w.span.id)}</mark>{:else}<span data-span={w.span.id}>{@render wtext(w.span.text, w.span.id)}</span>{/if}{@render fnref(w.span.id)}{w.span.trailing}{/each}
           </p>
         {/each}
       {/if}
@@ -804,6 +830,12 @@
   .hl-pop .small {
     max-width: 220px;
     white-space: normal;
+  }
+  .gram {
+    text-decoration: underline wavy var(--region-header);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 6px;
+    text-decoration-skip-ink: none;
   }
   .misspelt {
     text-decoration: underline wavy var(--danger);

@@ -61,6 +61,8 @@ class ReviewState {
   highlightSpecial = $state(false);
   /** Underline words missing from this dictionary (and the book's words). */
   spelling = $state<"off" | SpellDialect>("off");
+  /** Underline simple grammar and spacing problems. */
+  grammar = $state(false);
 
   // ----- current page -----
   page = $state<number | null>(null);
@@ -181,6 +183,7 @@ class ReviewState {
         if (typeof p.highlight_punctuation === "boolean") this.highlightPunctuation = p.highlight_punctuation;
         if (typeof p.highlight_special === "boolean") this.highlightSpecial = p.highlight_special;
         if (p.spelling === "off" || p.spelling === "en_GB" || p.spelling === "en_US") this.spelling = p.spelling;
+        if (typeof p.grammar === "boolean") this.grammar = p.grammar;
       }
     } catch {
       /* defaults */
@@ -204,6 +207,7 @@ class ReviewState {
         highlight_punctuation: this.highlightPunctuation,
         highlight_special: this.highlightSpecial,
         spelling: this.spelling,
+        grammar: this.grammar,
       })
       .catch(() => {});
   }
