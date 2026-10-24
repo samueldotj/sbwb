@@ -1,5 +1,50 @@
 # Release notes
 
+## 0.3.0 (2026-10-23)
+
+Opening a 0.2.0 project upgrades its file (schema 8 → 10) after saving a
+backup beside it (`.pre-v9.bak`, `.pre-v10.bak`); 0.2.0 cannot open an
+upgraded project.
+
+### Transcript
+
+- Click a word for a menu under it: link it to one of the page's
+  footnotes (listed by their first characters), spelling suggestions,
+  grammar fixes, Roman numerals, **Edit text**, and paragraph tools.
+  Double-click still edits the word straight away.
+- **Spelling** in UK or US English (Highlight menu): words in neither the
+  dictionary, the Webster 1913 list nor the book's own words get a wavy
+  red underline, with suggestions and **Add to this book**. Both SCOWL
+  dictionaries are bundled; nothing goes online.
+- **Grammar** (Highlight menu): blue underlines for extra spaces, a
+  missing space after punctuation, a space before punctuation, quotation
+  mark spacing, a lower-case word after a full stop, and repeated words,
+  most with a one-click fix.
+- **Roman numerals**: the menu shows a numeral's value with **Convert**
+  to a number, and for a misread one ("1V.", "VIL", "Ixvii.") the
+  numerals it could have been.
+- **Paragraphs**: start a new paragraph at a word, or join a paragraph to
+  the one above (the line break goes too). Undoable, exported, and kept
+  when the text pass re-runs the page.
+- **Footnotes of several paragraphs**: mark a footnote paragraph as
+  continuing the note above; it goes into the same Word footnote.
+- **Highlight** numbers, ordinary punctuation and special characters.
+- Text outside every layout region is hidden by default (**Show
+  outside**).
+- Hovering any word highlights it on the scan; corrected words can be
+  tracked (**Corrections**) and revisited, and an issue's candidates open
+  at the word.
+
+### Review
+
+- **Ctrl+Z** undoes the last change - a decision, text edit, grouped
+  correction, approval or paragraph change - one step back per press,
+  opening the page it was on.
+- Approving a page names the open issues it would acknowledge, and can
+  happen by itself once a page's issues are resolved (**Auto-approve page
+  when resolved**).
+- A book reopens where it was left: mode, page, inspector tab and zoom.
+
 ## 0.2.0 (2026-10-19)
 
 Opening a 0.1.0 project upgrades its file (schema 6 → 8) after saving a
