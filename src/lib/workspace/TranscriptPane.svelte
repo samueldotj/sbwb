@@ -50,17 +50,42 @@
   // Marginal notes sit beside the text: each goes in the left or right
   // column (the margin it was dragged to, or else the side of the body text
   // its box is on in the scan), next to the last paragraph that starts at
-  // or above the line it belongs to.
-  type Row = { para: Para; left: Para[]; right: Para[] };
+  // or above the line it belongs to, and at the top, middle or bottom of
+  // that paragraph by where that line falls in it.
+  type NotePos = "top" | "middle" | "bottom";
+  const NOTE_POSITIONS: NotePos[] = ["top", "middle", "bottom"];
+  type Slots = Record<NotePos, Para[]>;
+  type Row = { para: Para; left: Slots; right: Slots };
+  const noSlots = (): Slots => ({ top: [], middle: [], bottom: [] });
   /** Page-space top of a paragraph: its first anchored word. */
   function paraTop(p: Para): number {
     return p.words.find((w) => w.span.anchors.length)?.span.anchors[0]?.bbox.y ?? Infinity;
   }
+  /** Page-space bottom of a paragraph: the lowest edge of its words. */
+  function paraBottom(p: Para): number {
+    let b = -Infinity;
+    for (const w of p.words) for (const a of w.span.anchors) b = Math.max(b, a.bbox.y + a.bbox.h);
+    return b;
+  }
+  /** The height on the page a note placed at `pos` of a paragraph is saved at. */
+  function placeY(p: Para, pos: NotePos): number {
+    const top = paraTop(p);
+    const bottom = paraBottom(p);
+    if (!Number.isFinite(bottom) || bottom <= top || pos === "top") return top;
+    return pos === "middle" ? (top + bottom) / 2 : bottom - 1;
+  }
+  function posOf(p: Para, y: number): NotePos {
+    const top = paraTop(p);
+    const bottom = paraBottom(p);
+    if (!Number.isFinite(bottom) || bottom <= top) return "top";
+    const f = (y - top) / (bottom - top);
+    return f < 0.25 ? "top" : f > 0.75 ? "bottom" : "middle";
+  }
   const rows = $derived.by((): Row[] => {
     const notes = shownBody.filter((p) => p.kind === "marginalia");
     const main = shownBody.filter((p) => p.kind !== "marginalia");
-    const out: Row[] = main.map((p) => ({ para: p, left: [], right: [] }));
-    if (!notes.length || !out.length) return shownBody.map((p) => ({ para: p, left: [], right: [] }));
+    const out: Row[] = main.map((p) => ({ para: p, left: noSlots(), right: noSlots() }));
+    if (!notes.length || !out.length) return shownBody.map((p) => ({ para: p, left: noSlots(), right: noSlots() }));
     const byId = new Map(review.regions.map((r) => [r.id, r]));
     const box = (p: Para) => {
       const r = p.region ? byId.get(p.region) : undefined;
@@ -79,24 +104,30 @@
       });
       const row = out[k]!;
       const left = r?.side ? r.side === "left" : !!b && b.x + b.w / 2 < mid;
-      (left ? row.left : row.right).push(n);
+      (left ? row.left : row.right)[posOf(row.para, y)].push(n);
     }
     return out;
   });
-  const hasLeft = $derived(rows.some((r) => r.left.length));
-  const hasRight = $derived(rows.some((r) => r.right.length));
+  const any = (s: Slots) => s.top.length + s.middle.length + s.bottom.length > 0;
+  const hasLeft = $derived(rows.some((r) => any(r.left)));
+  const hasRight = $derived(rows.some((r) => any(r.right)));
 
-  // ----- moving a marginal note: drag it beside another paragraph, or into
-  // the other margin. Pointer events, since HTML drag and drop does not
-  // work in the app window on Windows. -----
-  type NoteDrag = { region: string; el: HTMLElement; x0: number; y0: number; pointer: number; moved: boolean };
+  // ----- moving a marginal note: drag it to the top, middle or bottom of
+  // another paragraph, or into the other margin. The text is 2pt smaller
+  // while dragging so more of the page is in view; a floating copy of the
+  // note follows the pointer. Pointer events, since HTML drag and drop does
+  // not work in the app window on Windows. -----
+  type NoteDrag = { region: string; el: HTMLElement; x0: number; y0: number; pointer: number; moved: boolean; ghost: HTMLElement | null; ox: number; oy: number };
+  type DropAt = { row: number; side: "left" | "right"; pos: NotePos };
   let noteDrag: NoteDrag | null = null;
   let dragging = $state(false);
-  let dropAt = $state<{ row: number; side: "left" | "right" } | null>(null);
+  let dropAt = $state<DropAt | null>(null);
   let suppressClick = false;
   function notePointerDown(e: PointerEvent, region: string | null) {
     if (e.button !== 0 || !region || editor) return;
-    noteDrag = { region, el: e.currentTarget as HTMLElement, x0: e.clientX, y0: e.clientY, pointer: e.pointerId, moved: false };
+    const el = e.currentTarget as HTMLElement;
+    const r = el.getBoundingClientRect();
+    noteDrag = { region, el, x0: e.clientX, y0: e.clientY, pointer: e.pointerId, moved: false, ghost: null, ox: e.clientX - r.left, oy: e.clientY - r.top };
   }
   function notePointerMove(e: PointerEvent) {
     const d = noteDrag;
@@ -106,14 +137,29 @@
     if (!d.moved) {
       if (Math.hypot(dx, dy) < 6) return;
       d.moved = true;
-      dragging = true;
       wordMenu = null;
       window.getSelection()?.removeAllRanges();
+      // a floating copy, sized like the note, follows the pointer
+      const cs = getComputedStyle(d.el);
+      const g = d.el.cloneNode(true) as HTMLElement;
+      g.classList.remove("side-note");
+      g.classList.add("note-ghost");
+      g.style.width = `${d.el.getBoundingClientRect().width}px`;
+      g.style.font = cs.font;
+      g.style.color = cs.color;
+      document.body.appendChild(g);
+      d.ghost = g;
       d.el.classList.add("lifted");
+      dragging = true;
     }
-    d.el.style.transform = `translate(${dx}px, ${dy}px)`;
-    const at = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("aside.side[data-row]");
-    dropAt = at ? { row: Number(at.dataset.row), side: at.dataset.side === "left" ? "left" : "right" } : null;
+    if (d.ghost) {
+      d.ghost.style.left = `${e.clientX - d.ox}px`;
+      d.ghost.style.top = `${e.clientY - d.oy}px`;
+    }
+    const at = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-pos]");
+    dropAt = at
+      ? { row: Number(at.dataset.row), side: at.dataset.side === "left" ? "left" : "right", pos: (at.dataset.pos as NotePos) ?? "top" }
+      : null;
   }
   function notePointerUp(e: PointerEvent) {
     const d = noteDrag;
@@ -121,7 +167,7 @@
     noteDrag = null;
     if (!d.moved) return;
     d.el.classList.remove("lifted");
-    d.el.style.transform = "";
+    d.ghost?.remove();
     // the click that ends a drag is not a click on a word
     suppressClick = true;
     setTimeout(() => (suppressClick = false), 300);
@@ -130,9 +176,9 @@
     dropAt = null;
     if (target && e.type === "pointerup") void placeNote(d.region, target);
   }
-  async function placeNote(region: string, at: { row: number; side: "left" | "right" }) {
+  async function placeNote(region: string, at: DropAt) {
     const row = rows[at.row];
-    const y = row ? paraTop(row.para) : Infinity;
+    const y = row ? placeY(row.para, at.pos) : Infinity;
     if (!Number.isFinite(y)) return;
     review.regions = review.regions.map((g) => (g.id === region ? { ...g, anchor_y: y, side: at.side } : g));
     try {
@@ -644,6 +690,15 @@
 
 <svelte:window onclick={onWindowClick} onpointermove={notePointerMove} onpointerup={notePointerUp} onpointercancel={notePointerUp} />
 
+{#snippet noteSlots(s: Slots, pi: number, side: "left" | "right")}
+  {#each NOTE_POSITIONS as pos (pos)}
+    <div class="slot {pos}" class:over={dropAt?.row === pi && dropAt.side === side && dropAt.pos === pos} data-row={pi} data-side={side} data-pos={pos}>
+      {#each s[pos] as n, ni (ni)}{@render sideNote(n)}{/each}
+      {#if dragging && !s[pos].length}<span class="slot-hint">{pos}</span>{/if}
+    </div>
+  {/each}
+{/snippet}
+
 {#snippet sideNote(n: Para)}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="side-note" title="Drag to move this note beside another paragraph or into the other margin" onpointerdown={(e) => notePointerDown(e, n.region)}>{@render bodyPara(n)}</div>
@@ -745,7 +800,7 @@
     class:track={review.trackChanges}
     bind:this={bodyEl}
     onclick={onTrackClick}
-    style="font-size:calc(var(--font-size-transcript) * {ui.transcriptZoom / 100})"
+    style="font-size:calc(var(--font-size-transcript) * {ui.transcriptZoom / 100}{dragging ? ' - 2pt' : ''})"
     onmouseup={onSelect}
     ondblclick={onDoubleClick}
     oncontextmenu={onContextMenu}
@@ -930,9 +985,9 @@
       <div class="flow" class:left={hasLeft || dragging} class:right={hasRight || dragging} class:dragging>
         {#each rows as row, pi (pi)}
           <div class="row">
-            {#if hasLeft || dragging}<aside class="side left" class:over={dropAt?.row === pi && dropAt.side === "left"} data-row={pi} data-side="left" aria-label="Marginal notes">{#each row.left as n, ni (ni)}{@render sideNote(n)}{/each}</aside>{/if}
+            {#if hasLeft || dragging}<aside class="side left" aria-label="Marginal notes">{@render noteSlots(row.left, pi, "left")}</aside>{/if}
             {@render bodyPara(row.para)}
-            {#if hasRight || dragging}<aside class="side right" class:over={dropAt?.row === pi && dropAt.side === "right"} data-row={pi} data-side="right" aria-label="Marginal notes">{#each row.right as n, ni (ni)}{@render sideNote(n)}{/each}</aside>{/if}
+            {#if hasRight || dragging}<aside class="side right" aria-label="Marginal notes">{@render noteSlots(row.right, pi, "right")}</aside>{/if}
           </div>
         {/each}
       </div>
@@ -1418,7 +1473,19 @@
   }
   .side {
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .slot.top {
     padding-top: 0.25em;
+  }
+  /* the middle slot takes the free height, so the bottom one sits at the
+     foot of the paragraph */
+  .slot.middle {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
   }
   .side .para {
     margin-bottom: 0.7em;
@@ -1433,22 +1500,40 @@
     background: color-mix(in srgb, var(--accent-bg) 45%, transparent);
   }
   :global(.side-note.lifted) {
-    z-index: 6;
-    cursor: grabbing;
+    opacity: 0.3;
+  }
+  :global(.note-ghost) {
+    position: fixed;
+    z-index: 50;
     pointer-events: none;
-    opacity: 0.85;
+    padding: 4px 6px;
+    border-radius: 6px;
     background: var(--raised);
     box-shadow: 0 6px 18px rgb(0 0 0 / 0.25);
+    opacity: 0.92;
   }
-  .flow.dragging .side {
+  .flow.dragging .slot {
+    position: relative;
     min-height: 2.2em;
+    margin: 2px 0;
     border-radius: 6px;
     outline: 1px dashed var(--border);
-    outline-offset: 2px;
+    outline-offset: -1px;
   }
-  .flow.dragging .side.over {
+  .flow.dragging .slot.over {
     outline: 2px solid var(--accent);
     background: color-mix(in srgb, var(--accent-bg) 50%, transparent);
+  }
+  .slot-hint {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font: 500 10px var(--font-ui);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    pointer-events: none;
   }
   .side.left .para {
     text-align: right;

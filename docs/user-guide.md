@@ -48,10 +48,13 @@ runs on your computer; nothing is uploaded.
 
 - **Marginal notes** appear in a column to the left or right of the text,
   on the side their box is on the scan, beside the paragraph they sit
-  next to. In a narrow transcript pane they follow that paragraph. Drag a
-  note to move it beside another paragraph of the page or into the other
-  margin; the place is saved with the page's layout (the text pass is not
-  re-run) and the Word export puts the note's box there too.
+  next to, at its top, middle or bottom. In a narrow transcript pane they
+  follow that paragraph. Drag a note to move it: while dragging the text
+  is 2pt smaller so more of the page is in view, and each paragraph shows
+  Top, Middle and Bottom spots in both margins; drop the note on one. The
+  place is saved with the page's layout (the text pass is not re-run).
+  The Word export puts a note's box at the start of the paragraph for Top,
+  and at the start of the next paragraph for Middle and Bottom.
 - **Spelling.** In the transcript's Highlight menu, choose Spelling: UK
   English or US English. Words that are in neither that dictionary, the
   Webster 1913 word list, nor this book's own words get a wavy red
