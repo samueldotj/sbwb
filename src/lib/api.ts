@@ -470,6 +470,8 @@ export const api = {
   footnoteDetect: (index: number) => invoke<FootnotePage>("footnote_detect", { index }),
   footnoteAcceptAll: (index: number) => invoke<FootnotePage>("footnote_accept_all", { index }),
   textEdit: (items: { span: string; revision: number }[], text: string) => invoke<TextEditOutcome>("text_edit", { items, text }),
+  /** Start a paragraph at a word, or (start false) join its paragraph to the one before. */
+  paragraphSet: (span: string, start: boolean) => invoke<string>("paragraph_set", { span, start }),
   historyList: (opts: { limit?: number; span?: string } = {}) => invoke<HistoryEntry[]>("history_list", { limit: opts.limit ?? null, span: opts.span ?? null }),
   historyUndo: (id: string) => invoke<void>("history_undo", { id }),
   draftPut: (span: string, text: string) => invoke<void>("draft_put", { span, text }),

@@ -4,7 +4,7 @@
 use rusqlite_migration::{Migrations, M};
 
 /// Current project schema version. Bumped by every migration.
-pub const SCHEMA_VERSION: u32 = 8;
+pub const SCHEMA_VERSION: u32 = 9;
 
 pub fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
@@ -16,6 +16,7 @@ pub fn migrations() -> Migrations<'static> {
         M::up(V6),
         M::up(V7),
         M::up(V8),
+        M::up(V9),
     ])
 }
 
@@ -275,4 +276,22 @@ CREATE TABLE footnote_refs (
   created_at TEXT NOT NULL
 );
 CREATE INDEX footnote_refs_page ON footnote_refs(page_index);
+"#;
+
+/// v9: paragraph breaks made or removed in the transcript. Kept so a
+/// text-pass rerun can put them back: the word (and the one before it)
+/// and where it was; `start` is whether a paragraph starts there.
+const V9: &str = r#"
+CREATE TABLE paragraph_edits (
+  id TEXT PRIMARY KEY,
+  page_index INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  word TEXT NOT NULL,
+  prev_word TEXT NOT NULL,
+  start INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  applied INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX paragraph_edits_page ON paragraph_edits(page_index, active);
 "#;

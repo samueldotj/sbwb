@@ -164,6 +164,7 @@ pub fn run() {
             commands::review::footnote_detect,
             commands::review::history_list,
             commands::review::history_undo,
+            commands::review::paragraph_set,
             commands::review::draft_put,
             commands::review::draft_delete,
             commands::review::draft_list,

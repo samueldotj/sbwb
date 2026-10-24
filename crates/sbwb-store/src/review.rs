@@ -234,6 +234,7 @@ impl Project {
     pub fn rebuild_issues(&mut self, page: PageIndex) -> Result<()> {
         self.require_write()?;
         self.reapply_text_edits(page)?;
+        self.reapply_paragraph_edits(page)?;
         self.refresh_footnotes(page)?;
         let spans = self.page_spans(page)?;
         let proposals: Vec<sbwb_text::Proposal> = self
@@ -1157,6 +1158,170 @@ impl Project {
         })
     }
 
+    /// Start a new paragraph at a word, or join the word's paragraph to the
+    /// one before it. Only within one region: the first word of a region
+    /// always starts a paragraph. A join also turns the line break that
+    /// ended the paragraph before into a space (a break left by an earlier
+    /// join can be joined the same way). The words themselves do not
+    /// change. One undoable history entry; the change is recorded so a
+    /// text-pass rerun puts it back.
+    pub fn set_paragraph_start(&mut self, span: SpanId, start: bool) -> Result<HistoryId> {
+        self.require_write()?;
+        let page = span_page(&self.conn, span)?;
+        let spans = self.page_spans(page)?;
+        let i = spans
+            .iter()
+            .position(|s| s.id == span && !s.text.is_empty())
+            .ok_or_else(|| SbwbError::NotFound("the word no longer exists".into()))?;
+        let s = &spans[i];
+        let prev = spans[..i]
+            .iter()
+            .rev()
+            .find(|p| !p.text.is_empty())
+            .filter(|p| p.region == s.region);
+        let Some(prev) = prev else {
+            return Err(SbwbError::InvalidInput(
+                if start {
+                    "this word already starts its region"
+                } else {
+                    "only paragraphs in the same region can be joined"
+                }
+                .into(),
+            ));
+        };
+        let line_break = prev.trailing.contains('\n');
+        if s.paragraph_start == start && (start || !line_break) {
+            return Err(SbwbError::Conflict(
+                if start {
+                    "a paragraph already starts here"
+                } else {
+                    "this word does not start a paragraph"
+                }
+                .into(),
+            ));
+        }
+        let history = HistoryId::new();
+        let label = format!(
+            "{} at “{}” · page {}",
+            if start {
+                "New paragraph"
+            } else {
+                "Joined paragraphs"
+            },
+            clip(&s.text),
+            page.number()
+        );
+        let payload = serde_json::json!({
+            "kind": "paragraph", "page": page.0, "span": span, "start": start, "was": s.paragraph_start,
+            "prev": prev.id, "prev_trailing": prev.trailing,
+        });
+        let tx = self.conn.transaction().map_err(db)?;
+        tx.execute(
+            "UPDATE spans SET paragraph_start = ?2 WHERE id = ?1",
+            params![span.to_string(), start as i64],
+        )
+        .map_err(db)?;
+        if !start && line_break {
+            tx.execute(
+                "UPDATE spans SET trailing = ' ' WHERE id = ?1",
+                params![prev.id.to_string()],
+            )
+            .map_err(db)?;
+        }
+        tx.execute(
+            "UPDATE pages SET text_revision = text_revision + 1 WHERE page_index = ?1",
+            params![page.0 as i64],
+        )
+        .map_err(db)?;
+        tx.execute(
+            "INSERT INTO history(id, ts, kind, label, payload) VALUES (?1, ?2, 'paragraph', ?3, ?4)",
+            params![
+                history.to_string(),
+                now(),
+                label,
+                serde_json::to_string(&payload)?
+            ],
+        )
+        .map_err(db)?;
+        tx.execute(
+            "INSERT INTO paragraph_edits(id, page_index, seq, word, prev_word, start, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                history.to_string(),
+                page.0 as i64,
+                s.seq as i64,
+                s.text,
+                prev.text,
+                start as i64,
+                now()
+            ],
+        )
+        .map_err(db)?;
+        tx.commit().map_err(db)?;
+        Ok(history)
+    }
+
+    /// After a rerun replaced the page's words, put paragraph changes back
+    /// where the word and the one before it are found again in one region,
+    /// nearest to where they were (a join also loses the line break again).
+    /// A change whose words are gone is dropped.
+    fn reapply_paragraph_edits(&mut self, page: PageIndex) -> Result<()> {
+        let pending: Vec<(String, i64, String, String, bool)> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, seq, word, prev_word, start FROM paragraph_edits WHERE page_index = ?1 AND active = 1 AND applied = 0 ORDER BY created_at, rowid")
+                .map_err(db)?;
+            let rows = stmt
+                .query_map(params![page.0 as i64], |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get::<_, i64>(4)? != 0,
+                    ))
+                })
+                .map_err(db)?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(db)?
+        };
+        for (id, seq, word, prev_word, start) in pending {
+            let spans = self.page_spans(page)?;
+            let words: Vec<usize> = (0..spans.len())
+                .filter(|&i| !spans[i].text.is_empty())
+                .collect();
+            let found = words
+                .windows(2)
+                .filter(|w| {
+                    let (a, b) = (&spans[w[0]], &spans[w[1]]);
+                    a.text == prev_word && b.text == word && a.region == b.region
+                })
+                .min_by_key(|w| (spans[w[1]].seq as i64 - seq).abs())
+                .map(|w| (spans[w[0]].id, spans[w[1]].id));
+            let tx = self.conn.transaction().map_err(db)?;
+            if let Some((prev, span)) = found {
+                tx.execute(
+                    "UPDATE spans SET paragraph_start = ?2 WHERE id = ?1",
+                    params![span.to_string(), start as i64],
+                )
+                .map_err(db)?;
+                if !start {
+                    tx.execute(
+                        "UPDATE spans SET trailing = ' ' WHERE id = ?1 AND trailing LIKE '%' || char(10) || '%'",
+                        params![prev.to_string()],
+                    )
+                    .map_err(db)?;
+                }
+            }
+            tx.execute(
+                "UPDATE paragraph_edits SET applied = 1 WHERE id = ?1",
+                params![id],
+            )
+            .map_err(db)?;
+            tx.commit().map_err(db)?;
+        }
+        Ok(())
+    }
+
     /// After a rerun replaced the page's words, put free edits back where
     /// their original words are found again, nearest to where they were.
     /// An edit whose words are gone is dropped.
@@ -1223,7 +1388,11 @@ impl Project {
                     undone: r.get::<_, i64>(4)? != 0,
                     undoable: matches!(
                         v.get("kind").and_then(|k| k.as_str()),
-                        Some("decision") | Some("group") | Some("edit") | Some("approve")
+                        Some("decision")
+                            | Some("group")
+                            | Some("edit")
+                            | Some("approve")
+                            | Some("paragraph")
                     ),
                     page: v.get("page").and_then(|p| p.as_u64()).map(|p| p as u32),
                 })
@@ -1395,6 +1564,46 @@ impl Project {
                 .map_err(db)?;
                 tx.execute(
                     "UPDATE text_edits SET active = 0 WHERE id = ?1",
+                    params![id.to_string()],
+                )
+                .map_err(db)?;
+            }
+            "paragraph" => {
+                let span = v["span"].as_str().unwrap_or("");
+                let start = v["start"].as_bool().unwrap_or(false);
+                let cur: Option<i64> = tx
+                    .query_row(
+                        "SELECT paragraph_start FROM spans WHERE id = ?1",
+                        params![span],
+                        |r| r.get(0),
+                    )
+                    .optional()
+                    .map_err(db)?;
+                if cur != Some(start as i64) {
+                    return Err(SbwbError::Conflict(
+                        "this paragraph changed again since; undo blocked".into(),
+                    ));
+                }
+                let was = v["was"].as_bool().unwrap_or(!start);
+                tx.execute(
+                    "UPDATE spans SET paragraph_start = ?2 WHERE id = ?1",
+                    params![span, was as i64],
+                )
+                .map_err(db)?;
+                if let (Some(prev), Some(t)) = (v["prev"].as_str(), v["prev_trailing"].as_str()) {
+                    tx.execute(
+                        "UPDATE spans SET trailing = ?2 WHERE id = ?1",
+                        params![prev, t],
+                    )
+                    .map_err(db)?;
+                }
+                tx.execute(
+                    "UPDATE pages SET text_revision = text_revision + 1 WHERE page_index = ?1",
+                    params![v["page"].as_i64().unwrap_or(-1)],
+                )
+                .map_err(db)?;
+                tx.execute(
+                    "UPDATE paragraph_edits SET active = 0 WHERE id = ?1",
                     params![id.to_string()],
                 )
                 .map_err(db)?;
@@ -2107,6 +2316,92 @@ mod tests {
         // a second rebuild does not apply it twice
         p.rebuild_issues(page).unwrap();
         assert_eq!(p.page_spans(page).unwrap()[2].text, "into");
+    }
+
+    #[test]
+    fn paragraphs_split_join_undo_and_rerun() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path(), 1);
+        let page = PageIndex(0);
+        let words = |region: sbwb_core::RegionId| -> Vec<Span> {
+            ["One", "two.", "Three", "four."]
+                .iter()
+                .enumerate()
+                .map(|(i, t)| Span {
+                    region: Some(region),
+                    ..span(0, i as u32, t, 95.0)
+                })
+                .collect()
+        };
+        let starts = |p: &Project| -> Vec<bool> {
+            p.page_spans(page)
+                .unwrap()
+                .iter()
+                .map(|s| s.paragraph_start)
+                .collect()
+        };
+        p.put_page_text(page, None, &words(sbwb_core::RegionId::new()), &[])
+            .unwrap();
+        let s = p.page_spans(page).unwrap();
+        let text_rev = |p: &Project| p.pages().unwrap()[0].text_revision;
+        let rev = text_rev(&p);
+        // a new paragraph at "Three"
+        let h = p.set_paragraph_start(s[2].id, true).unwrap();
+        assert_eq!(starts(&p), [true, false, true, false]);
+        assert!(text_rev(&p) > rev);
+        assert!(p.set_paragraph_start(s[2].id, true).is_err(), "already one");
+        assert!(
+            p.set_paragraph_start(s[0].id, false).is_err(),
+            "nothing before it to join"
+        );
+        assert!(p.history(5).unwrap()[0].undoable);
+        p.undo(h).unwrap();
+        assert_eq!(starts(&p), [true, false, false, false]);
+        // split again; a rerun with fresh words keeps the break
+        p.set_paragraph_start(s[2].id, true).unwrap();
+        p.put_page_text(page, None, &words(sbwb_core::RegionId::new()), &[])
+            .unwrap();
+        assert_eq!(starts(&p), [true, false, true, false]);
+        // join it back
+        let s2 = p.page_spans(page).unwrap();
+        p.set_paragraph_start(s2[2].id, false).unwrap();
+        assert_eq!(starts(&p), [true, false, false, false]);
+        // the text pass ends a paragraph with a line break: a join turns it
+        // into a space, undo brings it back
+        // (other words, so the joins recorded above do not replay here)
+        let mut broken = words(sbwb_core::RegionId::new());
+        broken[1].text = "beta.".into();
+        broken[2].text = "Gamma".into();
+        broken[1].trailing = "\n".into();
+        broken[2].paragraph_start = true;
+        p.put_page_text(page, None, &broken, &[]).unwrap();
+        let s5 = p.page_spans(page).unwrap();
+        let h = p.set_paragraph_start(s5[2].id, false).unwrap();
+        let gaps = |p: &Project| -> Vec<String> {
+            p.page_spans(page)
+                .unwrap()
+                .iter()
+                .map(|s| s.trailing.clone())
+                .collect()
+        };
+        assert_eq!(starts(&p), [true, false, false, false]);
+        assert_eq!(gaps(&p), [" ", " ", " ", " "]);
+        p.undo(h).unwrap();
+        assert_eq!(starts(&p), [true, false, true, false]);
+        assert_eq!(gaps(&p)[1], "\n");
+        // a break left inside a paragraph (an earlier join) can be joined
+        broken[2].paragraph_start = false;
+        p.put_page_text(page, None, &broken, &[]).unwrap();
+        let s6 = p.page_spans(page).unwrap();
+        p.set_paragraph_start(s6[2].id, false).unwrap();
+        assert_eq!(gaps(&p)[1], " ");
+        // words in another region cannot be joined
+        let mut two = words(sbwb_core::RegionId::new());
+        two[2].region = Some(sbwb_core::RegionId::new());
+        two[3].region = two[2].region;
+        p.put_page_text(page, None, &two, &[]).unwrap();
+        let s3 = p.page_spans(page).unwrap();
+        assert!(p.set_paragraph_start(s3[2].id, false).is_err());
     }
 
     #[test]

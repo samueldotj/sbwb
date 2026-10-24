@@ -67,6 +67,12 @@ runs on your computer; nothing is uploaded.
   one links the note to this word, moving it if it was linked elsewhere),
   spelling suggestions when the word is underlined, and **Edit text**.
   Double-click still opens the editor straight away.
+- **Paragraphs.** The word menu also has **¶ New paragraph here**, which
+  starts a paragraph at that word, and on the first word of a paragraph
+  **Join with paragraph above**. Paragraphs join only within one layout
+  region (the first word of a region always starts one). Both can be
+  undone (Ctrl+Z), carry into the Word export, and are kept when the text
+  pass re-runs the page.
 - **Roman numerals.** When the word is a Roman numeral, the word menu
   shows its value with **Convert → 17** to write it as a number, and the
   standard form of an old-style or mixed-case one (CLXXXVIIII, Vii). When

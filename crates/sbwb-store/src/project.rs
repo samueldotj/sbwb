@@ -1032,9 +1032,15 @@ impl Project {
             params![page.0 as i64],
         )
         .map_err(db)?;
-        // Free edits are re-applied to the new words by rebuild_issues.
+        // Free edits and paragraph changes are re-applied to the new words
+        // by rebuild_issues.
         tx.execute(
             "UPDATE text_edits SET applied = 0 WHERE page_index = ?1 AND active = 1",
+            params![page.0 as i64],
+        )
+        .map_err(db)?;
+        tx.execute(
+            "UPDATE paragraph_edits SET applied = 0 WHERE page_index = ?1 AND active = 1",
             params![page.0 as i64],
         )
         .map_err(db)?;

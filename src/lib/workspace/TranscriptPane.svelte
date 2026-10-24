@@ -97,7 +97,7 @@
   // ----- word menu: a single click (or a right-click on a misspelt word)
   // opens it under the word: link the word to one of the page's footnotes,
   // spelling suggestions when it is underlined, and Edit text -----
-  type WordMenu = { span: string; core: string; x: number; y: number; above: boolean; inNote: boolean; dialect: "en_GB" | "en_US" | null; suggestions: string[] | null; flags: GrammarFlag[]; roman: RomanInfo | null };
+  type WordMenu = { span: string; core: string; x: number; y: number; above: boolean; inNote: boolean; dialect: "en_GB" | "en_US" | null; suggestions: string[] | null; flags: GrammarFlag[]; roman: RomanInfo | null; para: "split" | "join" | null };
   let wordMenu = $state<WordMenu | null>(null);
   let clickTimer: ReturnType<typeof setTimeout> | null = null;
   function openWordMenu(el: HTMLElement) {
@@ -114,12 +114,38 @@
     // Below the word, or above it when the pane has little room left below.
     const above = host.bottom - r.bottom < 320 && r.top - host.top > host.bottom - r.bottom;
     const y = above ? r.top - host.top + bodyEl.scrollTop - 4 : r.bottom - host.top + bodyEl.scrollTop + 4;
-    wordMenu = { span: span.id, core, x: popLeft(r.left - host.left), y, above, inNote, dialect, suggestions: null, flags: grammarFlags.get(span.id) ?? [], roman: romanInfo(span.text) };
+    wordMenu = { span: span.id, core, x: popLeft(r.left - host.left), y, above, inNote, dialect, suggestions: null, flags: grammarFlags.get(span.id) ?? [], roman: romanInfo(span.text), para: paragraphAction(span.id) };
     if (!dialect) return;
     const done = (s: string[]) => {
       if (wordMenu?.span === span.id) wordMenu = { ...wordMenu, suggestions: s };
     };
     api.spellSuggest(core, dialect).then(done, () => done([]));
+  }
+  /** What the word menu can do with paragraphs at this word: start one
+   *  here, or (for a paragraph's first word, or a word after a line break
+   *  an earlier join left) join it to the paragraph before when that is
+   *  in the same region. */
+  function paragraphAction(id: string): "split" | "join" | null {
+    const i = review.spans.findIndex((s) => s.id === id);
+    const s = review.spans[i];
+    if (!s) return null;
+    let k = i - 1;
+    while (k >= 0 && !review.spans[k]!.text) k--;
+    const prev = review.spans[k];
+    if (!prev || prev.region !== s.region) return null;
+    return s.paragraph_start || prev.trailing.includes("\n") ? "join" : "split";
+  }
+  async function setParagraph(start: boolean) {
+    const m = wordMenu;
+    if (!m) return;
+    wordMenu = null;
+    try {
+      await ui.save(() => api.paragraphSet(m.span, start));
+      await review.reload();
+      ui.announce(start ? "New paragraph" : "Paragraphs joined");
+    } catch (e) {
+      ui.toast(errorMessage(e), "error", 6000);
+    }
   }
   /** A plain click on a word; the delay lets a double-click edit instead. */
   function onWordClick(e: MouseEvent) {
@@ -688,8 +714,13 @@
             </div>
           {/each}
         {/if}
-        <div class="cands-row">
+        <div class="cands-row wrap">
           <button type="button" class="ctl" onclick={editFromMenu}>Edit text</button>
+          {#if m.para === "split"}
+            <button type="button" class="ctl" onclick={() => setParagraph(true)} title="Start a new paragraph at this word">¶ New paragraph here</button>
+          {:else if m.para === "join"}
+            <button type="button" class="ctl" onclick={() => setParagraph(false)} title="Join this paragraph to the one before it">Join with paragraph above</button>
+          {/if}
           {#if !notes.length && !m.dialect && !m.flags.length && !m.roman}<span class="muted small">{m.inNote ? "This word is in a footnote" : "No footnotes on this page"}</span>{/if}
         </div>
       </div>

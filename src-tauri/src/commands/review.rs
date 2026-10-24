@@ -184,6 +184,22 @@ pub fn text_edit(
     Ok(out)
 }
 
+/// Start a new paragraph at a word (`start`), or join the word's paragraph
+/// to the one before it. Returns the history entry.
+#[tauri::command]
+pub fn paragraph_set(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    span: String,
+    start: bool,
+) -> CmdResult<String> {
+    let span =
+        SpanId::parse(&span).ok_or_else(|| CommandError::new("invalid_input", "bad span id"))?;
+    let h = with_project(&state, |p| Ok(p.set_paragraph_start(span, start)?))?;
+    changed(&app);
+    Ok(h.to_string())
+}
+
 /// The page's footnotes and references (TXT-02).
 #[tauri::command]
 pub fn footnotes_page(state: State<'_, AppState>, index: u32) -> CmdResult<FootnotePage> {
