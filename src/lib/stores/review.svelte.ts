@@ -17,6 +17,7 @@ import {
   type PageText,
   type Region,
   type Span,
+  type SpellDialect,
 } from "$lib/api";
 import { isTauri, listen } from "$lib/ipc";
 import { project } from "./project.svelte";
@@ -58,6 +59,8 @@ class ReviewState {
   highlightNumbers = $state(false);
   highlightPunctuation = $state(false);
   highlightSpecial = $state(false);
+  /** Underline words missing from this dictionary (and the book's words). */
+  spelling = $state<"off" | SpellDialect>("off");
 
   // ----- current page -----
   page = $state<number | null>(null);
@@ -177,6 +180,7 @@ class ReviewState {
         if (typeof p.highlight_numbers === "boolean") this.highlightNumbers = p.highlight_numbers;
         if (typeof p.highlight_punctuation === "boolean") this.highlightPunctuation = p.highlight_punctuation;
         if (typeof p.highlight_special === "boolean") this.highlightSpecial = p.highlight_special;
+        if (p.spelling === "off" || p.spelling === "en_GB" || p.spelling === "en_US") this.spelling = p.spelling;
       }
     } catch {
       /* defaults */
@@ -199,6 +203,7 @@ class ReviewState {
         highlight_numbers: this.highlightNumbers,
         highlight_punctuation: this.highlightPunctuation,
         highlight_special: this.highlightSpecial,
+        spelling: this.spelling,
       })
       .catch(() => {});
   }

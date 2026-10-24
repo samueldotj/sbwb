@@ -48,6 +48,8 @@
       "../models/ocrs/text-recognition.rten": "tessdata/ocrs/text-recognition.rten",
       "../fixtures/lexicons/hunspell-en_GB-large/en_GB-large.aff": "lexicons/en_GB-large.aff",
       "../fixtures/lexicons/hunspell-en_GB-large/en_GB-large.dic": "lexicons/en_GB-large.dic",
+      "../fixtures/lexicons/hunspell-en_US-large/en_US-large.aff": "lexicons/en_US-large.aff",
+      "../fixtures/lexicons/hunspell-en_US-large/en_US-large.dic": "lexicons/en_US-large.dic",
       "../fixtures/lexicons/webster-1913-headwords.txt": "lexicons/webster-1913-headwords.txt"
     },
     "windows": {

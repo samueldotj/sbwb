@@ -43,9 +43,10 @@ Scan characteristics (matter for pipeline design):
 | `webster-1913-gutenberg-29765.txt` (29 MB, not in git) | Project Gutenberg eBook #29765, https://www.gutenberg.org/ebooks/29765 | Public domain (Gutenberg license for the file) | Period vocabulary for 19th-century texts; headword extraction |
 | `en_GB.dic`, `en_GB.aff`, `en_GB-README.txt` | LibreOffice dictionaries repo, `en/` | LGPL 3 / see README | Modern British spelling, Hunspell format |
 | `hunspell-en_GB-large/` | SCOWL release rel-2026.02.25, `hunspell-en_GB-large-2026.02.25.zip` from GitHub en-wl/wordlist releases, unpacked | SCOWL permissive (MIT-like, see README) | Larger British list incl. variants |
+| `hunspell-en_US-large/` | SCOWL release rel-2026.02.25, `hunspell-en_US-large-2026.02.25.zip` (SHA-256 06ab5a2a12c29033f100988d3b0a5e53dcad40bf2473ccb78270619d1da99321) from GitHub en-wl/wordlist releases, unpacked | SCOWL permissive (MIT-like, see README) | American spelling for the transcript's spelling highlight |
 | `scowl-2026.02.25.tar.gz` (not in git) | GitHub en-wl/wordlist tag rel-2026.02.25 | SCOWL permissive | Build custom size-95 lists incl. archaic words |
 | `webster-1913-headwords.txt` (91,632 lines) | Extracted from the Gutenberg text above | Public domain | Period headword list loaded by the text pass alongside Hunspell |
-| `dev/` (not in git) | Copies of the three files the app bundles, made by `scripts/fetch-deps.ps1` | as above | Flat layout matching the packaged `lexicons/` resource dir |
+| `dev/` (not in git) | Copies of the five files the app bundles, made by `scripts/fetch-deps.ps1` | as above | Flat layout matching the packaged `lexicons/` resource dir |
 
 Not yet fetched, listed for later evaluation:
 

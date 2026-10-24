@@ -57,7 +57,7 @@ An advisory that cannot be fixed in this workspace is listed in
 `deny.toml` with the crate it comes from; anything with a fixed release is
 updated instead.
 
-Environment overrides: `SBWB_PDFIUM_DIR`, `SBWB_TESSDATA_DIR`, `SBWB_LEXICON_DIR` (a flat folder with `en_GB-large.aff`, `en_GB-large.dic`, `webster-1913-headwords.txt`; in dev `scripts/fetch-deps.ps1` makes `fixtures/lexicons/dev/`), `SBWB_LOG`
+Environment overrides: `SBWB_PDFIUM_DIR`, `SBWB_TESSDATA_DIR`, `SBWB_LEXICON_DIR` (a flat folder with `en_GB-large.aff`, `en_GB-large.dic`, `en_US-large.aff`, `en_US-large.dic`, `webster-1913-headwords.txt`; in dev `scripts/fetch-deps.ps1` makes `fixtures/lexicons/dev/`), `SBWB_LOG`
 (tracing filter, default `info`). Logs go to the Tauri app log directory
 with the home path redacted.
 

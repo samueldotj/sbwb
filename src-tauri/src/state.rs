@@ -1,5 +1,6 @@
 //! Application state shared by commands.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -31,7 +32,13 @@ pub struct AppState {
     /// Renders for the page on screen that are waiting for or using the
     /// render worker; prefetch gives way to them.
     render_waiting: AtomicUsize,
+    /// Dictionaries loaded for the transcript's spelling highlight, one per
+    /// dialect and language profile, kept for the session.
+    pub spell: SpellCache,
 }
+
+pub type SpellCache =
+    Arc<Mutex<HashMap<(sbwb_text::Dialect, sbwb_text::LanguageProfile), Arc<sbwb_text::Lexicon>>>>;
 
 impl AppState {
     pub fn new(resources: Resources) -> Self {
@@ -42,6 +49,7 @@ impl AppState {
             render_workers: (0..render_pool_size()).map(|_| Mutex::new(None)).collect(),
             next_render: AtomicUsize::new(0),
             render_waiting: AtomicUsize::new(0),
+            spell: SpellCache::default(),
         }
     }
 

@@ -144,6 +144,8 @@ pub fn run() {
             commands::text::vocab_list,
             commands::text::vocab_add,
             commands::text::vocab_remove,
+            commands::text::spell_check,
+            commands::text::spell_suggest,
             commands::review::review_counts,
             commands::review::page_issues,
             commands::review::next_issue,

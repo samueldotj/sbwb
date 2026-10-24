@@ -264,6 +264,8 @@ export type FootnoteRef = { id: string; page: number; anchor: string; note: stri
 export type FootnoteNote = { span: string; preview: string; marker: string };
 export type FootnotePage = { notes: FootnoteNote[]; refs: FootnoteRef[] };
 export type HistoryEntry = { id: string; ts: string; kind: string; label: string; undone: boolean; undoable: boolean; page: number | null };
+/** Spelling dictionaries for the transcript highlight. */
+export type SpellDialect = "en_GB" | "en_US";
 export type Draft = { span: string; page: number; text: string; updated_at: string };
 
 export const ISSUE_KIND_LABEL: Record<IssueKind, string> = {
@@ -449,6 +451,8 @@ export const api = {
   vocabList: () => invoke<[string, string][]>("vocab_list"),
   vocabAdd: (word: string, kind: "vocab" | "protected") => invoke<void>("vocab_add", { word, kind }),
   vocabRemove: (word: string) => invoke<void>("vocab_remove", { word }),
+  spellCheck: (words: string[], dialect: SpellDialect) => invoke<string[]>("spell_check", { words, dialect }),
+  spellSuggest: (word: string, dialect: SpellDialect) => invoke<string[]>("spell_suggest", { word, dialect }),
   reviewCounts: (filter: IssueFilter) => invoke<ReviewCounts>("review_counts", { filter }),
   pageIssues: (index: number) => invoke<Issue[]>("page_issues", { index }),
   nextIssue: (from: string | null, fromPage: number | null, forward: boolean, filter: IssueFilter) => invoke<NextIssue>("next_issue", { from, fromPage, forward, filter }),
@@ -471,7 +475,7 @@ export const api = {
   draftPut: (span: string, text: string) => invoke<void>("draft_put", { span, text }),
   draftDelete: (span: string) => invoke<void>("draft_delete", { span }),
   draftList: (index?: number) => invoke<Draft[]>("draft_list", { index: index ?? null }),
-  reviewPrefsGet: () => invoke<Partial<IssueFilter> & { auto_advance?: boolean; auto_approve?: boolean; track_changes?: boolean; hide_completed?: boolean; hide_auto?: boolean; hide_outside?: boolean; highlight_numbers?: boolean; highlight_punctuation?: boolean; highlight_special?: boolean } | null>("review_prefs_get"),
+  reviewPrefsGet: () => invoke<Partial<IssueFilter> & { auto_advance?: boolean; auto_approve?: boolean; track_changes?: boolean; hide_completed?: boolean; hide_auto?: boolean; hide_outside?: boolean; highlight_numbers?: boolean; highlight_punctuation?: boolean; highlight_special?: boolean; spelling?: "off" | SpellDialect } | null>("review_prefs_get"),
   reviewPrefsSet: (prefs: unknown) => invoke<void>("review_prefs_set", { prefs }),
   exportReadiness: () => invoke<Readiness>("export_readiness"),
   exportPreview: (settings: ExportSettings) => invoke<ExportPreview>("export_preview", { settings }),

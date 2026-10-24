@@ -58,7 +58,7 @@ foreach ($m in $models) {
 $lexSrc = Join-Path $root "fixtures/lexicons"
 $lexDev = Join-Path $lexSrc "dev"
 New-Item -ItemType Directory -Force $lexDev | Out-Null
-foreach ($f in @("hunspell-en_GB-large/en_GB-large.aff", "hunspell-en_GB-large/en_GB-large.dic", "webster-1913-headwords.txt")) {
+foreach ($f in @("hunspell-en_GB-large/en_GB-large.aff", "hunspell-en_GB-large/en_GB-large.dic", "hunspell-en_US-large/en_US-large.aff", "hunspell-en_US-large/en_US-large.dic", "webster-1913-headwords.txt")) {
   Copy-Item (Join-Path $lexSrc $f) (Join-Path $lexDev (Split-Path $f -Leaf)) -Force
 }
 Write-Host "lexicons ok: $lexDev"

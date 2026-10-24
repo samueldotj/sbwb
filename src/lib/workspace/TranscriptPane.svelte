@@ -8,6 +8,7 @@
   // the issue. Falls back to raw OCR lines before the text pass has run.
   import { api, errorMessage, type HistoryEntry, type OcrWord, type PageRow, type Span } from "$lib/api";
   import { charRuns, countKinds } from "$lib/highlight";
+  import { isTauri } from "$lib/ipc";
   import { KIND_LABEL } from "$lib/stores/layout.svelte";
   import { review } from "$lib/stores/review.svelte";
   import { TRANSCRIPT_ZOOMS, ui } from "$lib/stores/ui.svelte";
@@ -53,6 +54,84 @@
   const kindCounts = $derived(countKinds([headLine, ...[...shownBody, ...foot].flatMap((p) => p.words.map((w) => w.span.text))]));
   function onWindowClick(e: MouseEvent) {
     if (hlOpen && hlRoot && !hlRoot.contains(e.target as Node)) hlOpen = false;
+    if (spellPop && !(e.target as Element | null)?.closest?.(".spell-pop")) spellPop = null;
+  }
+
+  // ----- spelling: words missing from the chosen dictionary get a wavy
+  // underline; right-click one for suggestions or to add it to the book -----
+  const DIALECT_LABEL = { en_GB: "UK English", en_US: "US English" } as const;
+  let misspelt = $state<Set<string>>(new Set());
+  let vocabTick = $state(0);
+  let spellToken = 0;
+  const pageTexts = $derived(review.page === view.page ? [...new Set(review.spans.map((s) => s.text).filter(Boolean))] : []);
+  $effect(() => {
+    const dialect = review.spelling;
+    const words = pageTexts;
+    void vocabTick;
+    const t = ++spellToken;
+    if (dialect === "off" || !words.length || !isTauri) {
+      misspelt = new Set();
+      return;
+    }
+    api
+      .spellCheck(words, dialect)
+      .then((r) => {
+        if (t === spellToken) misspelt = new Set(r);
+      })
+      .catch((e) => {
+        if (t !== spellToken) return;
+        misspelt = new Set();
+        ui.toast(`Spell check unavailable: ${errorMessage(e)}`, "error", 6000);
+      });
+  });
+  const misspeltCount = $derived([...shownBody, ...foot].reduce((n, p) => n + p.words.filter((w) => misspelt.has(w.span.text)).length, 0));
+  /** The word without surrounding punctuation or quotes. */
+  function coreOf(t: string): string {
+    return t.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  }
+  type SpellPop = { span: string; core: string; dialect: "en_GB" | "en_US"; x: number; y: number; suggestions: string[] | null };
+  let spellPop = $state<SpellPop | null>(null);
+  function onContextMenu(e: MouseEvent) {
+    const dialect = review.spelling;
+    if (dialect === "off" || !bodyEl) return;
+    const el = (e.target as Element | null)?.closest<HTMLElement>("[data-span]");
+    const span = el?.dataset.span ? review.spanById(el.dataset.span) : null;
+    if (!el || !span || !misspelt.has(span.text)) return;
+    e.preventDefault();
+    const host = bodyEl.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    const core = coreOf(span.text);
+    revisit = null;
+    spellPop = { span: span.id, core, dialect, x: popLeft(r.left - host.left), y: r.bottom - host.top + bodyEl.scrollTop + 4, suggestions: null };
+    const done = (s: string[]) => {
+      if (spellPop?.span === span.id) spellPop = { ...spellPop, suggestions: s };
+    };
+    api.spellSuggest(core, dialect).then(done, () => done([]));
+  }
+  /** Replace the word with a suggestion, keeping its punctuation (an undoable text edit). */
+  async function useSuggestion(s: string) {
+    const p = spellPop;
+    const span = p ? review.spanById(p.span) : null;
+    if (!p || !span) return;
+    spellPop = null;
+    try {
+      await ui.save(() => api.textEdit([{ span: span.id, revision: span.revision }], span.text.replace(p.core, s)));
+      await review.reload();
+    } catch (e) {
+      ui.toast(errorMessage(e), "error", 6000);
+    }
+  }
+  async function addToBook() {
+    const p = spellPop;
+    if (!p) return;
+    spellPop = null;
+    try {
+      await ui.save(() => api.vocabAdd(p.core, "vocab"));
+      vocabTick++;
+      ui.toast(`Added “${p.core}” to this book's words`, "ok", 3000);
+    } catch (e) {
+      ui.toast(errorMessage(e), "error", 6000);
+    }
   }
   const onPage = $derived(review.page === view.page ? review.matching.length : 0);
   const corrections = $derived(review.page === view.page ? review.spans.filter((s) => s.origin !== "ocr" && s.text).length : 0);
@@ -306,6 +385,7 @@
   $effect(() => {
     void view.page;
     picked = null;
+    spellPop = null;
     editor = null;
     lastEdit = null;
   });
@@ -344,7 +424,8 @@
   {@const r = fnByAnchor.get(id)}
   {#if r}<sup class="fnref" class:sug={r.status === "suggested"} title={r.status === "suggested" ? "Suggested footnote reference: accept or reject it in the Text pass tab" : `Footnote ${r.number}`}>{r.number ?? "?"}</sup>{/if}
 {/snippet}
-{#snippet wtext(t: string)}{#if hlOn}{#each charRuns(t, { numbers: review.highlightNumbers, punctuation: review.highlightPunctuation, special: review.highlightSpecial }) as r, ri (ri)}{#if r.kind}<span class="hl {r.kind}">{r.text}</span>{:else}{r.text}{/if}{/each}{:else}{t}{/if}{/snippet}
+{#snippet wtext(t: string)}{#if misspelt.has(t)}<span class="misspelt" title="Not in the {review.spelling === 'en_US' ? 'US' : 'UK'} English dictionary · right-click for suggestions">{@render chars(t)}</span>{:else}{@render chars(t)}{/if}{/snippet}
+{#snippet chars(t: string)}{#if hlOn}{#each charRuns(t, { numbers: review.highlightNumbers, punctuation: review.highlightPunctuation, special: review.highlightSpecial }) as r, ri (ri)}{#if r.kind}<span class="hl {r.kind}">{r.text}</span>{:else}{r.text}{/if}{/each}{:else}{t}{/if}{/snippet}
 
 <svelte:window onclick={onWindowClick} />
 
@@ -381,12 +462,22 @@
       Corrections&nbsp;<span class="mono-n">{corrections}</span>
     </button>
     <div class="hl-menu" bind:this={hlRoot}>
-      <button type="button" class="track-btn" class:on={hlOn} aria-haspopup="true" aria-expanded={hlOpen} onclick={() => (hlOpen = !hlOpen)} title="Highlight numbers, punctuation or special characters in the transcript">Highlight ▾</button>
+      <button type="button" class="track-btn" class:on={hlOn || review.spelling !== "off"} aria-haspopup="true" aria-expanded={hlOpen} onclick={() => (hlOpen = !hlOpen)} title="Highlight numbers, punctuation, special characters or spelling mistakes in the transcript">Highlight ▾</button>
       {#if hlOpen}
         <div class="hl-pop" role="group" aria-label="Highlight characters">
           <label><input type="checkbox" bind:checked={review.highlightNumbers} onchange={() => review.savePrefs()} /> <span class="hl num">12</span> Numbers <span class="mono-n">{kindCounts.num}</span></label>
           <label><input type="checkbox" bind:checked={review.highlightPunctuation} onchange={() => review.savePrefs()} /> <span class="hl punct">.,;</span> Punctuation <span class="mono-n">{kindCounts.punct}</span></label>
           <label><input type="checkbox" bind:checked={review.highlightSpecial} onchange={() => review.savePrefs()} /> <span class="hl sym">¢*</span> Special characters <span class="mono-n">{kindCounts.sym}</span></label>
+          <div class="hl-sep" role="separator"></div>
+          <label><span class="misspelt">abc</span> Spelling
+            <select bind:value={review.spelling} onchange={() => review.savePrefs()} aria-label="Spelling dictionary">
+              <option value="off">Off</option>
+              <option value="en_GB">UK English</option>
+              <option value="en_US">US English</option>
+            </select>
+            {#if review.spelling !== "off"}<span class="mono-n">{misspeltCount}</span>{/if}
+          </label>
+          {#if review.spelling !== "off"}<span class="muted small">Right-click an underlined word for suggestions or to add it to this book.</span>{/if}
         </div>
       {/if}
     </div>
@@ -411,6 +502,7 @@
     style="font-size:calc(var(--font-size-transcript) * {ui.transcriptZoom / 100})"
     onmouseup={onSelect}
     ondblclick={onDoubleClick}
+    oncontextmenu={onContextMenu}
     onmouseover={pointAtWord}
     onfocusin={pointAtWord}
     onmouseleave={() => (review.hoverSpan = null)}
@@ -449,6 +541,28 @@
             </li>
           {/each}
         </ul>
+      </div>
+    {/if}
+    {#if spellPop}
+      {@const sp = spellPop}
+      <div class="cands spell-pop" style="left:{sp.x}px;top:{sp.y}px" role="dialog" aria-label="Spelling of {sp.core}">
+        <div class="cands-row">
+          <span class="small">“<b class="serif">{sp.core}</b>” is not in the {DIALECT_LABEL[sp.dialect]} dictionary</span>
+          <span class="grow"></span>
+          <button type="button" class="ctl x" onclick={() => (spellPop = null)} aria-label="Close">✕</button>
+        </div>
+        <div class="cands-row wrap">
+          {#if sp.suggestions === null}
+            <span class="muted small">Looking for suggestions…</span>
+          {:else if sp.suggestions.length === 0}
+            <span class="muted small">No suggestions</span>
+          {:else}
+            {#each sp.suggestions as s (s)}<button type="button" class="ctl" onclick={() => useSuggestion(s)}>{s}</button>{/each}
+          {/if}
+        </div>
+        <div class="cands-row">
+          <button type="button" class="ctl" onclick={addToBook}>Add “{sp.core}” to this book</button>
+        </div>
       </div>
     {/if}
     {#if revisit}
@@ -571,6 +685,20 @@
     box-shadow: var(--shadow-page);
     font: 13px var(--font-ui);
     color: var(--text);
+  }
+  .hl-sep {
+    height: 1px;
+    background: var(--border-soft);
+  }
+  .hl-pop .small {
+    max-width: 220px;
+    white-space: normal;
+  }
+  .misspelt {
+    text-decoration: underline wavy var(--danger);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    text-decoration-skip-ink: none;
   }
   .hl-pop label {
     display: flex;

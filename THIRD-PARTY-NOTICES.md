@@ -778,5 +778,5 @@ SBWB is MIT licensed. It links or bundles the following third-party software. Fu
 - `Newsreader[opsz,wght].ttf` — SIL Open Font License 1.1
 - `SourceSans3-Italic[wght].ttf` — SIL Open Font License 1.1
 - `SourceSans3[wght].ttf` — SIL Open Font License 1.1
-- Hunspell en_GB-large word list — SCOWL (Kevin Atkinson), MIT-like permissive license
+- Hunspell en_GB-large and en_US-large word lists — SCOWL (Kevin Atkinson), MIT-like permissive license
 - Webster's 1913 dictionary headwords — public domain (Project Gutenberg #29765)

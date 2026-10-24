@@ -1,7 +1,9 @@
-//! Lexicon service (TXT-01, D-07): Hunspell en_GB via spellbook, Webster
-//! 1913 headwords, and per-project vocabulary and protected words. Unknown
-//! words are never treated as mistakes by themselves; the lexicon only
-//! decides whether a candidate correction is a known word.
+//! Lexicon service (TXT-01, D-07): Hunspell en_GB or en_US via spellbook,
+//! Webster 1913 headwords, and per-project vocabulary and protected words.
+//! The text pass never treats an unknown word as a mistake by itself; the
+//! lexicon decides whether a candidate correction is a known word, and
+//! [`Lexicon::misspelt`] marks unknown words for the transcript's spelling
+//! highlight, which only shows them.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -15,13 +17,42 @@ pub struct LexiconPaths {
     pub webster_headwords: Option<PathBuf>,
 }
 
+/// Spelling dictionary: the SCOWL "large" Hunspell list for British or
+/// American English. The text pass uses British.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
+pub enum Dialect {
+    #[default]
+    #[serde(rename = "en_GB")]
+    British,
+    #[serde(rename = "en_US")]
+    American,
+}
+
+impl Dialect {
+    pub fn code(self) -> &'static str {
+        match self {
+            Dialect::British => "en_GB",
+            Dialect::American => "en_US",
+        }
+    }
+}
+
 impl LexiconPaths {
     /// `dir` holds `en_GB-large.aff`, `en_GB-large.dic`, and
     /// `webster-1913-headwords.txt`.
     pub fn in_dir(dir: &Path) -> Self {
+        Self::for_dialect(dir, Dialect::British)
+    }
+
+    /// `dir` holds `<code>-large.aff` / `.dic` for the dialect and
+    /// `webster-1913-headwords.txt`.
+    pub fn for_dialect(dir: &Path, dialect: Dialect) -> Self {
+        let c = dialect.code();
         Self {
-            hunspell_aff: dir.join("en_GB-large.aff"),
-            hunspell_dic: dir.join("en_GB-large.dic"),
+            hunspell_aff: dir.join(format!("{c}-large.aff")),
+            hunspell_dic: dir.join(format!("{c}-large.dic")),
             webster_headwords: Some(dir.join("webster-1913-headwords.txt")),
         }
     }
@@ -30,13 +61,19 @@ impl LexiconPaths {
 /// Development default: the repository's `fixtures/lexicons` (with the
 /// Hunspell pack unpacked into its subfolder). `SBWB_LEXICON_DIR` overrides.
 pub fn default_paths() -> LexiconPaths {
+    default_paths_for(Dialect::British)
+}
+
+/// [`default_paths`] for either dialect.
+pub fn default_paths_for(dialect: Dialect) -> LexiconPaths {
     if let Some(d) = std::env::var_os("SBWB_LEXICON_DIR") {
-        return LexiconPaths::in_dir(Path::new(&d));
+        return LexiconPaths::for_dialect(Path::new(&d), dialect);
     }
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lexicons");
+    let c = dialect.code();
     LexiconPaths {
-        hunspell_aff: root.join("hunspell-en_GB-large/en_GB-large.aff"),
-        hunspell_dic: root.join("hunspell-en_GB-large/en_GB-large.dic"),
+        hunspell_aff: root.join(format!("hunspell-{c}-large/{c}-large.aff")),
+        hunspell_dic: root.join(format!("hunspell-{c}-large/{c}-large.dic")),
         webster_headwords: Some(root.join("webster-1913-headwords.txt")),
     }
 }
@@ -44,7 +81,9 @@ pub fn default_paths() -> LexiconPaths {
 /// Language profile (TXT-01, D-06): the modern British lexicon, or Early
 /// Modern English where period spellings (u/v, i/j, final -e, doubled
 /// consonants, -ie, -ck) count as known so they are never "corrected".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum LanguageProfile {
     #[default]
@@ -253,6 +292,30 @@ impl Lexicon {
         }
         out
     }
+
+    /// Whether a transcript token reads as a spelling mistake: it has two or
+    /// more letters and no digits, and neither it nor (for a hyphenated
+    /// compound) every one of its parts is a known word. Curly apostrophes
+    /// count as straight ones, and a leading or trailing one is ignored.
+    pub fn misspelt(&self, token: &str) -> bool {
+        let w = strip(token).replace('’', "'");
+        let w = w.trim_matches('\'');
+        if w.chars().filter(|c| c.is_alphabetic()).count() < 2 || w.chars().any(|c| c.is_numeric())
+        {
+            return false;
+        }
+        if self.known(w) {
+            return false;
+        }
+        // A possessive of a known word (India's) is known.
+        if let Some(base) = w.strip_suffix("'s").or_else(|| w.strip_suffix("'S")) {
+            if self.known(base) {
+                return false;
+            }
+        }
+        let parts: Vec<&str> = w.split(['-', '–', '—']).filter(|p| !p.is_empty()).collect();
+        !(parts.len() > 1 && parts.iter().all(|p| self.known(p)))
+    }
 }
 
 /// Strip leading/trailing punctuation (keeps inner hyphens and apostrophes).
@@ -283,6 +346,58 @@ mod tests {
         assert!(lex.is_protected("Sesostris,"));
         let s = lex.suggest("modem");
         assert!(!s.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod spelling_tests {
+    use super::*;
+
+    #[test]
+    fn marks_misspellings_by_dialect() {
+        let gb = default_paths_for(Dialect::British);
+        let us = default_paths_for(Dialect::American);
+        if !gb.hunspell_dic.exists() || !us.hunspell_dic.exists() {
+            eprintln!("skipping: lexicon files missing");
+            return;
+        }
+        let mut gb = Lexicon::load(&LexiconPaths {
+            webster_headwords: None,
+            ..gb
+        })
+        .unwrap();
+        let us = Lexicon::load(&LexiconPaths {
+            webster_headwords: None,
+            ..us
+        })
+        .unwrap();
+        // ordinary text, punctuation, possessives and compounds
+        for w in [
+            "Christians,",
+            "“truth",
+            "Persia’s",
+            "sixth-century",
+            "(which)",
+        ] {
+            assert!(!gb.misspelt(w), "{w} flagged in en_GB");
+            assert!(!us.misspelt(w), "{w} flagged in en_US");
+        }
+        // not words: numbers, single letters, bare punctuation
+        for w in ["610.", "1839", "a", "I.", "—", "3rd"] {
+            assert!(!gb.misspelt(w), "{w} flagged");
+        }
+        // OCR errors
+        for w in ["Edesscnus", "influ_cnce", "Scventeenth", "tbe"] {
+            assert!(gb.misspelt(w), "{w} not flagged in en_GB");
+            assert!(us.misspelt(w), "{w} not flagged in en_US");
+        }
+        // the two dictionaries differ
+        assert!(!gb.misspelt("colour") && gb.misspelt("color"));
+        assert!(!us.misspelt("color") && us.misspelt("colour"));
+        // a book's own word is known
+        assert!(gb.misspelt("Calliana"));
+        gb.add_vocab(["Calliana".to_string()]);
+        assert!(!gb.misspelt("Calliana."));
     }
 }
 

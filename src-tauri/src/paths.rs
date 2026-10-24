@@ -13,7 +13,8 @@ use tauri::{AppHandle, Manager};
 pub struct Resources {
     pub pdfium_dir: PathBuf,
     pub tessdata_dir: PathBuf,
-    /// Hunspell en_GB-large and the Webster 1913 headword list (TXT-01).
+    /// Hunspell en_GB-large and en_US-large and the Webster 1913 headword
+    /// list (TXT-01).
     pub lexicon_dir: PathBuf,
 }
 

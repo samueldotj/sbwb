@@ -3,11 +3,11 @@
 
 use sbwb_core::{PageIndex, Stage};
 use sbwb_store::StoredProposal;
-use sbwb_text::Span;
+use sbwb_text::{Dialect, Lexicon, LexiconPaths, Span};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::state::{AppState, CmdResult, CommandError};
+use crate::state::{AppState, CmdResult, CommandError, SpellCache};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PageTextView {
@@ -192,4 +192,102 @@ pub fn vocab_remove(app: AppHandle, state: State<'_, AppState>, word: String) ->
     }
     let _ = app.emit(crate::commands::project::EVENT_PROJECT_CHANGED, ());
     Ok(())
+}
+
+// ----- spelling highlight -----
+
+/// The book's own words and its language profile, read under the project
+/// lock so the dictionary work below runs without it.
+fn book_words(state: &AppState) -> CmdResult<(Vec<String>, sbwb_text::LanguageProfile)> {
+    let guard = state
+        .project
+        .lock()
+        .map_err(|_| CommandError::new("other", "state poisoned"))?;
+    let p = guard
+        .as_ref()
+        .ok_or_else(|| CommandError::new("not_found", "no open book"))?;
+    let words = p.store.vocab()?.into_iter().map(|(w, _)| w).collect();
+    let profile = sbwb_pipeline::ProcessingSettings::load(&p.store)?.language;
+    Ok((words, profile))
+}
+
+/// The dictionary for a dialect and profile, loaded on first use.
+fn dictionary(
+    cache: &SpellCache,
+    dir: &std::path::Path,
+    dialect: Dialect,
+    profile: sbwb_text::LanguageProfile,
+) -> CmdResult<std::sync::Arc<Lexicon>> {
+    if let Some(l) = cache
+        .lock()
+        .map_err(|_| CommandError::new("other", "state poisoned"))?
+        .get(&(dialect, profile))
+    {
+        return Ok(l.clone());
+    }
+    let mut lex = Lexicon::load(&LexiconPaths::for_dialect(dir, dialect))?;
+    lex.set_profile(profile);
+    let lex = std::sync::Arc::new(lex);
+    cache
+        .lock()
+        .map_err(|_| CommandError::new("other", "state poisoned"))?
+        .insert((dialect, profile), lex.clone());
+    Ok(lex)
+}
+
+/// Which of `words` (transcript tokens) are spelling mistakes in the chosen
+/// dictionary, counting Webster 1913 and the book's own words as known.
+/// Nothing is changed; the transcript only underlines them.
+#[tauri::command]
+pub async fn spell_check(
+    state: State<'_, AppState>,
+    words: Vec<String>,
+    dialect: Dialect,
+) -> CmdResult<Vec<String>> {
+    let (book, profile) = book_words(&state)?;
+    let cache = state.spell.clone();
+    let dir = state.resources.lexicon_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let lex = dictionary(&cache, &dir, dialect, profile)?;
+        let book: std::collections::HashSet<String> = book
+            .iter()
+            .map(|w| {
+                sbwb_text::lexicon::strip(w)
+                    .replace('’', "'")
+                    .to_lowercase()
+            })
+            .collect();
+        Ok(words
+            .into_iter()
+            .filter(|w| {
+                !book.contains(
+                    &sbwb_text::lexicon::strip(w)
+                        .replace('’', "'")
+                        .to_lowercase(),
+                ) && lex.misspelt(w)
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| CommandError::new("other", e))?
+}
+
+/// Dictionary suggestions for a misspelt word, best first.
+#[tauri::command]
+pub async fn spell_suggest(
+    state: State<'_, AppState>,
+    word: String,
+    dialect: Dialect,
+) -> CmdResult<Vec<String>> {
+    let (_, profile) = book_words(&state)?;
+    let cache = state.spell.clone();
+    let dir = state.resources.lexicon_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let lex = dictionary(&cache, &dir, dialect, profile)?;
+        let mut out = lex.suggest(&word.replace('’', "'"));
+        out.truncate(6);
+        Ok(out)
+    })
+    .await
+    .map_err(|e| CommandError::new("other", e))?
 }

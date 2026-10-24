@@ -46,6 +46,13 @@ runs on your computer; nothing is uploaded.
 
 ## 3. What the marks and scores mean
 
+- **Spelling.** In the transcript's Highlight menu, choose Spelling: UK
+  English or US English. Words that are in neither that dictionary, the
+  Webster 1913 word list, nor this book's own words get a wavy red
+  underline. Right-click one for suggestions (choosing one is an undoable
+  edit) or to add it to this book's words. An added word also counts as
+  known to the text pass. Both dictionaries are bundled; nothing goes
+  online.
 - Scores are heuristics from 0 to 100, labelled with their source ("64% ·
   OCR", "92 · text pass"). They are not probabilities. The second engine
   (ocrs) gives line-level readings and is always shown as unscored.
