@@ -33,6 +33,8 @@ class PipelineStore {
   stages = $state<StageProgress[]>([]);
   activity = $state("");
   workers = $state(0);
+  /** Start another run when this one finishes (work became due mid-run). */
+  #startAgain = false;
   log = $state<LogLine[]>([]);
   #unlisten: (() => void) | null = null;
 
@@ -96,6 +98,9 @@ class PipelineStore {
         this.state = e.cancelled ? "idle" : "done";
         if (e.failed > 0) ui.toast(`Processing finished: ${e.done} pages, ${e.failed} failed`, "warn", 6000);
         else if (!e.cancelled) ui.toast(`Processing finished: ${e.done} pages`, "ok");
+        // A cancelled run cancels the queued one too.
+        if (this.#startAgain && !e.cancelled) void this.start();
+        this.#startAgain = false;
         break;
       case "unit":
         break;
@@ -116,6 +121,17 @@ class PipelineStore {
     } catch (e) {
       ui.toast(errorMessage(e), "error", 6000);
     }
+  }
+  /** Start processing now, or once the current run finishes, since a run
+   *  plans its pages when it starts. Returns whether it had to wait. */
+  async startWhenIdle(): Promise<boolean> {
+    await this.refresh();
+    if (this.state === "running" || this.state === "paused" || this.state === "stopping") {
+      this.#startAgain = true;
+      return true;
+    }
+    await this.start();
+    return false;
   }
   async pause() {
     await api.pipelinePause().catch((e) => ui.toast(errorMessage(e), "error"));

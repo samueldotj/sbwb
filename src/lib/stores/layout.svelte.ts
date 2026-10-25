@@ -4,6 +4,7 @@
 
 import { api, errorMessage, type Region, type RegionKind, type WordStructure } from "$lib/api";
 import { isTauri } from "$lib/ipc";
+import { pipeline } from "./pipeline.svelte";
 import { ui } from "./ui.svelte";
 
 export type Tool = "select" | "draw" | "split" | "merge";
@@ -22,6 +23,13 @@ export const KIND_LABEL: Record<RegionKind, string> = {
   uncertain: "uncertain",
   ignore: "ignore",
 };
+
+/** The "In Word" structure a region takes on when it becomes `kind`. */
+function structureFor(kind: RegionKind, current: WordStructure): WordStructure {
+  if (kind === "heading") return "heading1";
+  if (kind === "body") return "text";
+  return current;
+}
 
 export const KIND_PLACEMENT: Record<RegionKind, string> = {
   body: "→ body",
@@ -90,6 +98,10 @@ class LayoutState {
   wordsRevision = $state(0);
   /** Pages whose empty side notes were already tried on load. */
   #sideNotesTried = new Set<number>();
+  /** Pages saved since Layout mode was entered; their text pass is due. */
+  #edited = new Set<number>();
+  /** Side-note reads still in flight; the text pass waits for their words. */
+  #sideNoteReads = new Set<Promise<void>>();
   #undo: Region[][] = [];
   #loadToken = 0;
   #saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -242,8 +254,7 @@ class LayoutState {
   }
 
   setKind(id: string, kind: RegionKind) {
-    this.#push();
-    this.regions = this.regions.map((r) => (r.id === id ? { ...r, kind, manual: true } : r));
+    this.setKindMany([id], kind);
   }
   setStructure(id: string, structure: WordStructure) {
     this.#push();
@@ -260,7 +271,7 @@ class LayoutState {
       kind,
       bbox,
       order: this.regions.length,
-      structure: "text",
+      structure: structureFor(kind, "text"),
       column: null,
       score: 1,
       manual: true,
@@ -286,7 +297,9 @@ class LayoutState {
   setKindMany(ids: string[], kind: RegionKind) {
     if (ids.length === 0) return;
     this.#push();
-    this.regions = this.regions.map((r) => (ids.includes(r.id) ? { ...r, kind, manual: true } : r));
+    this.regions = this.regions.map((r) =>
+      ids.includes(r.id) ? { ...r, kind, structure: r.kind === kind ? r.structure : structureFor(kind, r.structure), manual: true } : r,
+    );
   }
   /// Split a region horizontally at a page-space y.
   splitAt(id: string, y: number) {
@@ -345,7 +358,10 @@ class LayoutState {
         if (JSON.stringify($state.snapshot(this.regions)) === sentJson) this.regions = structuredClone(l.regions);
         this.manual = l.manual;
         this.revision = l.revision;
-        void this.#readSideNotes(page, l.regions);
+        this.#edited.add(page);
+        const read = this.#readSideNotes(page, l.regions);
+        this.#sideNoteReads.add(read);
+        void read.finally(() => this.#sideNoteReads.delete(read));
         return true;
       } catch (e) {
         ui.toast(`Could not save the layout: ${errorMessage(e)}`, "error", 6000);
@@ -378,12 +394,26 @@ class LayoutState {
     if (this.page === null) return;
     await this.flush();
     this.#clearUndo();
+    // Re-analysing starts processing for this page itself.
+    this.#edited.delete(this.page);
     try {
       await api.layoutRerun(this.page);
       ui.toast("Re-analysing the page layout", "info");
     } catch (e) {
       ui.toast(errorMessage(e), "error", 6000);
     }
+  }
+  /** Leaving Layout mode: save what is pending, then re-run the text pass
+   *  for every page edited there (the save already marked it due). */
+  async finishEditing() {
+    await this.flush();
+    await Promise.allSettled([...this.#sideNoteReads]);
+    const n = this.#edited.size;
+    if (n === 0 || !isTauri) return;
+    const which = n === 1 ? `page ${[...this.#edited][0]! + 1}` : `${n} edited pages`;
+    this.#edited.clear();
+    const queued = await pipeline.startWhenIdle();
+    ui.toast(queued ? `Re-running the text pass for ${which} once processing finishes` : `Re-running the text pass for ${which}`, "info");
   }
 }
 

@@ -226,6 +226,14 @@
     await layout.flush();
     view.mode = "review";
   }
+  // However Layout mode is left (Done, Esc, the rail, Review), re-run the
+  // text pass for the pages edited there.
+  let lastMode = view.mode;
+  $effect(() => {
+    const mode = view.mode;
+    if (lastMode === "layout" && mode !== "layout") void layout.finishEditing();
+    lastMode = mode;
+  });
   function onkeydown(e: KeyboardEvent) {
     const typing = (e.target as HTMLElement | null)?.closest("input, textarea, [contenteditable]");
     if (typing) return;

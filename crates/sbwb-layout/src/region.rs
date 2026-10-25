@@ -70,6 +70,13 @@ impl RegionKind {
             _ => "→ body",
         }
     }
+    /// The "In Word" structure a region of this class starts with.
+    pub fn default_structure(self) -> WordStructure {
+        match self {
+            RegionKind::Heading => WordStructure::Heading1,
+            _ => WordStructure::Text,
+        }
+    }
     /// Reading-order rank between classes (lower first).
     pub fn rank(self) -> u8 {
         match self {
@@ -142,7 +149,7 @@ impl Region {
             kind,
             bbox,
             order,
-            structure: WordStructure::Text,
+            structure: kind.default_structure(),
             column: None,
             score: 1.0,
             manual: false,

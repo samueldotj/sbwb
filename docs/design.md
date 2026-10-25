@@ -232,7 +232,8 @@ are grouped into one region and split only where Word structure differs.
 **Region inspector**: Type chips (body, header, marginalia, footnote, page
 no., ignore; plus catchword, illustration, table, uncertain from LAY-01,
 shown in an overflow row), **In Word** radios (Ordinary text, Heading 1·2·3,
-Table cell), Bounds as x/y/w/h percentages, "Split after line…" and "Merge
+Table cell; making a region a heading sets Heading 1, making it body sets
+Ordinary text), Bounds as x/y/w/h percentages, "Split after line…" and "Merge
 with next", the consequence note "Changing a body region re-runs the text
 pass for this page and clears its approval", footer **Revert** and **Save
 layout**. Status bar: "Layout · page 48 · unsaved changes" and "Esc returns
