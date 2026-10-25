@@ -385,6 +385,7 @@ export type AiRunRecord = {
   elapsed_ms: number | null;
 };
 export type AiStatus = { providers: AiProviderStatus[]; open_suggestions: number; last_run: AiRunRecord | null };
+export type PromptPreview = { default_instructions: string; rules: string; max_instructions: number; system: string; user: string | null };
 export type CostEstimate = { usd: number | null; input_per_mtok: number | null; output_per_mtok: number | null; prices_as_of: string };
 export type Estimate = { pages: number[]; words: number; chars: number; approx_tokens: number; approx_output_tokens: number; requests: number; payload_kinds: string[] };
 
@@ -527,9 +528,10 @@ export const api = {
   aiKeySet: (provider: string, key: string, remember: boolean) => invoke<boolean>("ai_key_set", { provider, key, remember }),
   aiKeyForget: (provider: string) => invoke<void>("ai_key_forget", { provider }),
   aiModels: (provider: string) => invoke<ModelInfo[]>("ai_models", { provider }),
-  aiEstimate: (pages: number[]) => invoke<Estimate>("ai_estimate", { pages }),
+  aiEstimate: (pages: number[], instructions: string) => invoke<Estimate>("ai_estimate", { pages, instructions }),
+  aiPrompt: (page: number | null, instructions: string) => invoke<PromptPreview>("ai_prompt", { page, instructions }),
   aiCost: (provider: string, model: string, inputTokens: number, outputTokens: number) => invoke<CostEstimate>("ai_cost", { provider, model, inputTokens, outputTokens }),
-  aiRun: (req: { provider: string; model: string; pages: number[]; max_requests: number; max_input_chars: number; consent: boolean }) => invoke<string>("ai_run", { req }),
+  aiRun: (req: { provider: string; model: string; pages: number[]; max_requests: number; max_input_chars: number; instructions: string; consent: boolean }) => invoke<string>("ai_run", { req }),
   aiCancel: () => invoke<void>("ai_cancel"),
   aiRuns: () => invoke<AiRunRecord[]>("ai_runs"),
   queueList: () => invoke<QueueView>("queue_list"),

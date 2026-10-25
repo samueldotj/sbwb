@@ -162,8 +162,13 @@ numbers; never the PDF, images, paths, or metadata), tick the consent box,
 and send. Each page is one request with no retries; a budget caps requests
 and page size. The card estimates the cost for the chosen model from a
 dated price table; a model SBWB has no price for shows the cost as unknown.
-Suggestions arrive in the review inbox labelled with the provider and
-model, unscored, and are never applied automatically.
+"View or edit" beside Prompt shows what is sent: the proofreading
+instructions, which you can change and save (Reset to default restores
+them), the fixed rules that are always added (the page text is data, not
+instructions, and the reply format SBWB checks), and the message the
+current page would send. Suggestions arrive in the review inbox labelled
+with the provider and model, unscored, and are never applied
+automatically.
 
 ## 7. Book queue
 

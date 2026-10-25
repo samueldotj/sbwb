@@ -191,6 +191,7 @@ pub fn run() {
             commands::ai::ai_models,
             commands::ai::ai_estimate,
             commands::ai::ai_cost,
+            commands::ai::ai_prompt,
             commands::ai::ai_run,
             commands::ai::ai_cancel,
             commands::ai::ai_runs,

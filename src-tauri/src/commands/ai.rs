@@ -165,8 +165,79 @@ fn payload_for(
     ))
 }
 
+/// The instructions to send: `None` (the default) when blank; an error
+/// when longer than the prompt allows.
+fn custom_instructions(instructions: Option<&str>) -> CmdResult<Option<&str>> {
+    let Some(i) = instructions.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    if i.chars().count() > sbwb_ai::prompt::MAX_INSTRUCTIONS {
+        return Err(CommandError::new(
+            "invalid_input",
+            format!(
+                "the prompt instructions are longer than {} characters",
+                sbwb_ai::prompt::MAX_INSTRUCTIONS
+            ),
+        ));
+    }
+    Ok(Some(i))
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PromptPreview {
+    pub default_instructions: &'static str,
+    /// Always sent after the instructions; not editable (AI-03).
+    pub rules: &'static str,
+    pub max_instructions: usize,
+    /// The full system prompt for `instructions`.
+    pub system: String,
+    /// The data message for the requested page, exactly as it would be
+    /// sent; `None` when the page has no saved words.
+    pub user: Option<String>,
+}
+
+/// Show the prompt in the AI tab: the editable instructions, the fixed
+/// rules, and the message one page would send.
 #[tauri::command]
-pub fn ai_estimate(state: State<'_, AppState>, pages: Vec<u32>) -> CmdResult<Estimate> {
+pub fn ai_prompt(
+    state: State<'_, AppState>,
+    page: Option<u32>,
+    instructions: Option<String>,
+) -> CmdResult<PromptPreview> {
+    let system = sbwb_ai::prompt::system(custom_instructions(instructions.as_deref())?);
+    let user = match page {
+        Some(i) => {
+            let guard = state
+                .project
+                .lock()
+                .map_err(|_| CommandError::new("other", "state poisoned"))?;
+            match guard.as_ref() {
+                Some(p) => {
+                    let (payload, _) = payload_for(&p.store, PageIndex(i))?;
+                    (!payload.words.is_empty()).then(|| sbwb_ai::prompt::user_message(&payload))
+                }
+                None => None,
+            }
+        }
+        None => None,
+    };
+    Ok(PromptPreview {
+        default_instructions: sbwb_ai::prompt::INSTRUCTIONS,
+        rules: sbwb_ai::prompt::RULES,
+        max_instructions: sbwb_ai::prompt::MAX_INSTRUCTIONS,
+        system,
+        user,
+    })
+}
+
+#[tauri::command]
+pub fn ai_estimate(
+    state: State<'_, AppState>,
+    pages: Vec<u32>,
+    instructions: Option<String>,
+) -> CmdResult<Estimate> {
+    // an over-long prompt is refused at send time; estimate it as written
+    let system = sbwb_ai::prompt::system(instructions.as_deref());
     let guard = state
         .project
         .lock()
@@ -186,7 +257,7 @@ pub fn ai_estimate(state: State<'_, AppState>, pages: Vec<u32>) -> CmdResult<Est
         }
         words += payload.words.len();
         chars += payload.chars();
-        tokens += payload.approx_tokens();
+        tokens += payload.approx_tokens(&system);
         output_tokens += payload.approx_output_tokens();
         included.push(i);
     }
@@ -231,6 +302,10 @@ pub struct AiRunRequest {
     pub pages: Vec<u32>,
     pub max_requests: u32,
     pub max_input_chars: usize,
+    /// Proofreading instructions from the AI tab; blank or missing means
+    /// the default. The fixed rules are always added.
+    #[serde(default)]
+    pub instructions: Option<String>,
     /// The user ticked the consent box on the card that listed the payload.
     pub consent: bool,
 }
@@ -271,6 +346,9 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
     if req.model.trim().is_empty() {
         return Err(CommandError::new("invalid_input", "choose a model"));
     }
+    let instructions = custom_instructions(req.instructions.as_deref())?;
+    let custom_prompt = instructions.is_some();
+    let system = sbwb_ai::prompt::system(instructions);
     let slot = app.state::<AiSlot>();
     {
         let mut running = slot
@@ -316,7 +394,7 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
         provider: provider.id().into(),
         model: req.model.clone(),
         pages: pages.clone(),
-        consent: serde_json::json!({ "payload": ["saved words with ids", "page numbers"], "max_requests": req.max_requests, "max_input_chars": req.max_input_chars, "confirmed": true }),
+        consent: serde_json::json!({ "payload": ["saved words with ids", "page numbers"], "max_requests": req.max_requests, "max_input_chars": req.max_input_chars, "custom_prompt": custom_prompt, "confirmed": true }),
         requests: 0,
         chars_sent: 0,
         input_tokens: None,
@@ -370,7 +448,7 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
                 if payload.0.words.is_empty() {
                     continue;
                 }
-                match sbwb_ai::check_page(&conn, &payload.0, &budget, &cancel) {
+                match sbwb_ai::check_page(&conn, &system, &payload.0, &budget, &cancel) {
                     Ok(out) => {
                         record.requests += out.usage.requests;
                         record.chars_sent += out.usage.chars_sent as u64;
@@ -421,7 +499,7 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
                         let _ = p.store.add_history(
                             "ai",
                             &format!("AI check · {} · {} page{} · {} suggestions", label, record.pages.len(), if record.pages.len() == 1 { "" } else { "s" }, record.suggestions),
-                            &serde_json::json!({ "run": record.id, "provider": record.provider, "model": record.model, "pages": record.pages, "status": record.status }),
+                            &serde_json::json!({ "run": record.id, "provider": record.provider, "model": record.model, "pages": record.pages, "status": record.status, "custom_prompt": custom_prompt }),
                         );
                     }
                 }

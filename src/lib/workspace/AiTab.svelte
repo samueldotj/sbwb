@@ -1,9 +1,10 @@
 <script lang="ts">
   // AI tab (design 4.6, AI-01..03): enable toggle, provider and model,
-  // key status, page selection, the "what leaves this machine" consent
-  // card, budgets, Send, cancel, and the last run with a link into the
-  // review. Nothing is sent without the consent box ticked on this card.
-  import { api, errorMessage, parseRanges, type AiRunRecord, type AiStatus, type CostEstimate, type Estimate, type ModelInfo, type ProjectSummary } from "$lib/api";
+  // key status, page selection, the prompt (view and edit the
+  // instructions; the data and reply-format rules stay fixed), the "what
+  // leaves this machine" consent card, budgets, Send, cancel, and the last
+  // run with a link into the review. Nothing is sent without the consent box ticked on this card.
+  import { api, errorMessage, parseRanges, type AiRunRecord, type AiStatus, type CostEstimate, type Estimate, type ModelInfo, type ProjectSummary, type PromptPreview } from "$lib/api";
   import { isTauri, listen } from "$lib/ipc";
   import { review } from "$lib/stores/review.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -13,15 +14,16 @@
   let { summary }: Props = $props();
 
   const PREF_KEY = "sbwb.ai.prefs";
-  type Prefs = { enabled: boolean; provider: string; model: string; maxRequests: number; maxChars: number };
+  // instructions: the user's edited prompt instructions; "" means the default
+  type Prefs = { enabled: boolean; provider: string; model: string; maxRequests: number; maxChars: number; instructions: string };
   function loadPrefs(): Prefs {
     try {
       const v = JSON.parse(localStorage.getItem(PREF_KEY) ?? "");
-      if (v && typeof v === "object") return { enabled: !!v.enabled, provider: v.provider ?? "openai", model: v.model ?? "", maxRequests: v.maxRequests ?? 10, maxChars: v.maxChars ?? 200000 };
+      if (v && typeof v === "object") return { enabled: !!v.enabled, provider: v.provider ?? "openai", model: v.model ?? "", maxRequests: v.maxRequests ?? 10, maxChars: v.maxChars ?? 200000, instructions: typeof v.instructions === "string" ? v.instructions : "" };
     } catch {
       /* defaults */
     }
-    return { enabled: false, provider: "openai", model: "", maxRequests: 10, maxChars: 200000 };
+    return { enabled: false, provider: "openai", model: "", maxRequests: 10, maxChars: 200000, instructions: "" };
   }
   let prefs = $state<Prefs>(loadPrefs());
   $effect(() => {
@@ -47,6 +49,10 @@
   let lastError = $state("");
   let runs = $state<AiRunRecord[]>([]);
   let showRuns = $state(false);
+  let promptOpen = $state(false);
+  let preview = $state<PromptPreview | null>(null);
+  let draft = $state("");
+  let draftReady = false;
   let unlisten: (() => void) | null = null;
 
   const providerStatus = $derived(status?.providers.find((p) => p.provider === prefs.provider) ?? null);
@@ -98,10 +104,11 @@
       estimate = null;
       return;
     }
+    const instructions = prefs.instructions;
     consent = false;
     let cancelled = false;
     api
-      .aiEstimate(ps)
+      .aiEstimate(ps, instructions)
       .then((e) => {
         if (!cancelled) estimate = e;
       })
@@ -130,6 +137,48 @@
       cancelled = true;
     };
   });
+
+  // the prompt as it would be sent with the current page, while the panel is open
+  $effect(() => {
+    const page = view.page;
+    const instructions = prefs.instructions;
+    if (!isTauri || !promptOpen) return;
+    let cancelled = false;
+    api
+      .aiPrompt(page, instructions)
+      .then((p) => {
+        if (cancelled) return;
+        preview = p;
+        if (!draftReady) {
+          draft = instructions || p.default_instructions;
+          draftReady = true;
+        }
+      })
+      .catch((e) => ui.toast(errorMessage(e), "error"));
+    return () => {
+      cancelled = true;
+    };
+  });
+  // a draft equal to the default is saved as "" so later default changes reach it
+  const normalized = $derived(preview && draft.trim() !== preview.default_instructions ? draft.trim() : "");
+  const promptDirty = $derived(!!preview && normalized !== prefs.instructions);
+  const dataLines = $derived.by(() => {
+    const lines = (preview?.user ?? "").trimEnd().split("\n");
+    return { shown: lines.slice(0, 14).join("\n"), more: Math.max(0, lines.length - 14) };
+  });
+  function togglePrompt() {
+    promptOpen = !promptOpen;
+    draftReady = false;
+  }
+  function savePrompt() {
+    if (!preview || !draft.trim()) return;
+    prefs.instructions = normalized;
+    draft = prefs.instructions || preview.default_instructions;
+    ui.toast(prefs.instructions ? "Prompt instructions saved" : "Using the default prompt instructions", "ok");
+  }
+  function resetPrompt() {
+    if (preview) draft = preview.default_instructions;
+  }
 
   async function saveKey() {
     try {
@@ -162,7 +211,7 @@
     if (!estimate || !consent) return;
     lastError = "";
     try {
-      await api.aiRun({ provider: prefs.provider, model: prefs.model.trim(), pages: estimate.pages, max_requests: prefs.maxRequests, max_input_chars: prefs.maxChars, consent });
+      await api.aiRun({ provider: prefs.provider, model: prefs.model.trim(), pages: estimate.pages, max_requests: prefs.maxRequests, max_input_chars: prefs.maxChars, instructions: prefs.instructions, consent });
       running = { page: estimate.pages[0] ?? 0, done: 0, total: estimate.pages.length };
     } catch (e) {
       lastError = errorMessage(e);
@@ -248,11 +297,41 @@
     {#if scopeKind === "range"}<input type="text" class="range" bind:value={rangeText} placeholder="e.g. 10-20, 35" aria-label="Page range" />{/if}
   </div>
 
+  <div class="prompt">
+    <div class="prompthead">
+      <span class="label">Prompt</span>
+      <span class="tag" class:edited={!!prefs.instructions}>{prefs.instructions ? "Edited" : "Default"}</span>
+      <button type="button" class="link" onclick={togglePrompt} aria-expanded={promptOpen}>{promptOpen ? "Hide" : "View or edit"}</button>
+    </div>
+    {#if promptOpen}
+      {#if preview}
+        <label class="small promptlabel" for="ai-instructions">Instructions <span class="muted">(you can change these)</span></label>
+        <textarea id="ai-instructions" rows="7" bind:value={draft} maxlength={preview.max_instructions}></textarea>
+        <div class="promptfoot">
+          <span class="muted small">{draft.trim().length} / {preview.max_instructions}</span>
+          <button type="button" class="ctl" onclick={resetPrompt} disabled={draft.trim() === preview.default_instructions}>Reset to default</button>
+          <button type="button" class="ctl primary" onclick={savePrompt} disabled={!promptDirty || !draft.trim()}>Save</button>
+        </div>
+        <div class="small promptlabel">Always added <span class="muted">(keeps the page text as data and the reply in the format SBWB checks)</span></div>
+        <pre class="fixed">{preview.rules}</pre>
+        <div class="small promptlabel">Sent with it, one message per page (page {view.page + 1})</div>
+        {#if preview.user}
+          <pre class="fixed">{dataLines.shown}{dataLines.more ? `\n… ${dataLines.more} more line${dataLines.more === 1 ? "" : "s"}` : ""}</pre>
+        {:else}
+          <p class="muted small">This page has no saved words yet.</p>
+        {/if}
+      {:else}
+        <p class="muted small">Loading the prompt…</p>
+      {/if}
+    {/if}
+  </div>
+
   <div class="card" aria-label="What leaves this machine">
     <div class="label">What leaves this machine</div>
     {#if estimate && estimate.pages.length}
       <ul class="small">
         {#each estimate.payload_kinds as k, i (i)}<li>{k}</li>{/each}
+        <li>the prompt: {prefs.instructions ? "your edited instructions" : "the default instructions"} and the fixed rules</li>
         <li>{estimate.pages.length} page{estimate.pages.length === 1 ? "" : "s"}, {estimate.words} words, about {estimate.approx_tokens} tokens in {estimate.requests} request{estimate.requests === 1 ? "" : "s"}</li>
         <li>Not sent: the PDF, scan images, file paths, project metadata, other pages</li>
         {#if !prefs.model.trim()}
@@ -407,6 +486,63 @@
   }
   .range {
     margin-top: 6px;
+  }
+  .prompt {
+    display: grid;
+    gap: 6px;
+  }
+  .prompthead {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .prompthead .label {
+    margin-bottom: 0;
+  }
+  .tag.edited {
+    background: var(--primary-bg);
+    border-color: var(--primary-bg);
+    color: var(--primary-fg);
+  }
+  .promptlabel {
+    color: var(--text-2);
+  }
+  .promptfoot {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .promptfoot .muted {
+    flex: 1;
+  }
+  textarea {
+    padding: 6px;
+    border: 1px solid var(--border-input);
+    border-radius: 5px;
+    background: var(--paper);
+    color: var(--text);
+    font: 12.5px/1.45 var(--font-ui);
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+  }
+  textarea:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .fixed {
+    margin: 0;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--raised);
+    color: var(--text-2);
+    font: 11.5px/1.45 var(--font-mono);
+    white-space: pre-wrap;
+    word-break: break-word;
+    tab-size: 4;
+    max-height: 180px;
+    overflow: auto;
   }
   .card {
     padding: 10px;

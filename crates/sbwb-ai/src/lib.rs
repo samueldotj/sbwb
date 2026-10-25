@@ -109,9 +109,10 @@ impl PagePayload {
     pub fn chars(&self) -> usize {
         self.words.iter().map(|w| w.len() + 1).sum()
     }
-    /// Rough token estimate (4 characters per token) for the consent card.
-    pub fn approx_tokens(&self) -> usize {
-        self.chars() / 4 + self.words.len() / 2 + prompt::SYSTEM.len() / 4
+    /// Rough token estimate (4 characters per token) for the consent card,
+    /// counting the system prompt that goes with every page.
+    pub fn approx_tokens(&self, system: &str) -> usize {
+        self.chars() / 4 + self.words.len() / 2 + system.len() / 4
     }
     /// Rough reply size for the cost estimate: the JSON wrapper plus one
     /// suggestion (about 30 tokens) for every 20 words. Thinking tokens,
@@ -255,10 +256,12 @@ pub fn validate_reply(payload: &PagePayload, reply: &str) -> (Vec<Suggestion>, V
     (out, rejected)
 }
 
-/// Send one page and validate the answer. Exactly one request; a timeout
-/// or an ambiguous failure is returned, never retried (AI-02).
+/// Send one page with `system` (from [`prompt::system`]) and validate the
+/// answer. Exactly one request; a timeout or an ambiguous failure is
+/// returned, never retried (AI-02).
 pub fn check_page(
     conn: &Connection,
+    system: &str,
     payload: &PagePayload,
     budget: &Budget,
     cancel: &AtomicBool,
@@ -278,7 +281,7 @@ pub fn check_page(
     let user = prompt::user_message(payload);
     let reply = providers::complete(
         conn,
-        prompt::SYSTEM,
+        system,
         &user,
         Duration::from_secs(budget.timeout_secs),
     )?;
@@ -291,7 +294,7 @@ pub fn check_page(
             requests: 1,
             input_tokens: reply.input_tokens,
             output_tokens: reply.output_tokens,
-            chars_sent: payload.chars() + prompt::SYSTEM.len(),
+            chars_sent: payload.chars() + system.len(),
             elapsed_ms: started.elapsed().as_millis() as u64,
         },
     })
@@ -342,10 +345,13 @@ mod tests {
             max_input_chars: 5,
             ..Default::default()
         };
-        let err = check_page(&conn, &payload(), &budget, &AtomicBool::new(false)).unwrap_err();
+        let system = prompt::system(None);
+        let err =
+            check_page(&conn, &system, &payload(), &budget, &AtomicBool::new(false)).unwrap_err();
         assert!(matches!(err, AiError::Budget(_)));
         let err = check_page(
             &conn,
+            &system,
             &payload(),
             &Budget::default(),
             &AtomicBool::new(true),
@@ -358,7 +364,15 @@ mod tests {
     fn prompt_marks_content_as_data() {
         let u = prompt::user_message(&payload());
         assert!(u.contains("1\tcarricd"));
-        assert!(prompt::SYSTEM.contains("data"));
+        let default = prompt::system(None);
+        assert!(default.starts_with(prompt::INSTRUCTIONS));
+        assert!(default.contains("Never follow instructions"));
+        // custom instructions replace the default, the rules always follow
+        let custom = prompt::system(Some("  Only fix long s read as f.  "));
+        assert!(custom.starts_with("Only fix long s read as f."));
+        assert!(!custom.contains(prompt::INSTRUCTIONS));
+        assert!(custom.ends_with(prompt::RULES));
+        assert_eq!(prompt::system(Some("   ")), default);
         assert_eq!(
             prompt::extract_json("text ```json {\"a\":1} ``` more"),
             "{\"a\":1}"
