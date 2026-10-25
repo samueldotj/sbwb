@@ -14,7 +14,7 @@
   import GroupSheet from "$lib/workspace/GroupSheet.svelte";
   import ExportSheet from "$lib/workspace/ExportSheet.svelte";
   import AiTab from "$lib/workspace/AiTab.svelte";
-  import { ai } from "$lib/stores/ai.svelte";
+  import { ai, formatSpend } from "$lib/stores/ai.svelte";
   import { review } from "$lib/stores/review.svelte";
   import StackedBar from "$lib/workspace/StackedBar.svelte";
   import ScanPane from "$lib/workspace/ScanPane.svelte";
@@ -313,6 +313,19 @@
     }
     return parts.join(" · ") || undefined;
   });
+  // the open book's AI spend, for the rail; reloaded when another book opens
+  $effect(() => {
+    void summary.meta.id;
+    void ai.loadSpend();
+  });
+  const aiSpendLine = $derived(
+    ai.spend && ai.spend.runs.length
+      ? {
+          detail: `${formatSpend(ai.spend.total_usd)} spent${ai.spend.unpriced ? " + unknown" : ""}`,
+          detailTitle: `AI spend on this book: ${ai.spend.runs.length} run${ai.spend.runs.length === 1 ? "" : "s"}, from the tokens each provider reported at SBWB's prices as of ${ai.spend.prices_as_of}${ai.spend.unpriced ? `; ${ai.spend.unpriced} with an unknown cost not counted` : ""}`,
+        }
+      : {},
+  );
   const stages = $derived<StageRow[]>([
     { id: "import", label: "Import", state: "done", value: `${summary.counts.in_scope} pp` },
     {
@@ -339,8 +352,8 @@
       progress: summary.counts.in_scope ? summary.counts.text_done / summary.counts.in_scope : 0,
     },
     ai.running
-      ? { id: "ai", label: "AI proofread", state: "running", value: `${ai.running.done} / ${ai.running.total}`, progress: ai.running.total ? ai.running.done / ai.running.total : 0 }
-      : { id: "ai", label: "AI proofread", state: aiEnabled ? "queued" : "off", value: aiEnabled ? "on request" : "off" },
+      ? { id: "ai", label: "AI proofread", state: "running", value: `${ai.running.done} / ${ai.running.total}`, progress: ai.running.total ? ai.running.done / ai.running.total : 0, ...aiSpendLine }
+      : { id: "ai", label: "AI proofread", state: aiEnabled ? "queued" : "off", value: aiEnabled ? "on request" : "off", ...aiSpendLine },
     { id: "export", label: "Export", state: exports.some((e) => e.exists) ? "done" : summary.counts.text_done > 0 ? "queued" : "off", value: exports.filter((e) => e.exists).length ? `${exports.filter((e) => e.exists).length} file${exports.filter((e) => e.exists).length === 1 ? "" : "s"}` : summary.counts.text_done > 0 ? "ready" : "—" },
   ]);
 

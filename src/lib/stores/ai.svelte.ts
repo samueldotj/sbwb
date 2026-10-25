@@ -1,8 +1,9 @@
 // The AI proofreading run (AI-02), kept for the whole app so its progress
 // and finish notice carry on when the AI tab is closed. The run itself is
-// on a background thread in the app; this follows its events.
+// on a background thread in the app; this follows its events. Also the
+// book's AI spend, for the AI tab and the pipeline rail.
 
-import { api, type AiProgress, type AiRunRecord } from "$lib/api";
+import { api, type AiProgress, type AiRunRecord, type AiSpend } from "$lib/api";
 import { isTauri, listen } from "$lib/ipc";
 import { review } from "./review.svelte";
 import { ui } from "./ui.svelte";
@@ -20,7 +21,10 @@ class AiState {
   lastError = $state("");
   /** Counts runs that ended, so views can reload status and history. */
   ended = $state(0);
+  /** What runs on the open book cost; null before it loads or with no book. */
+  spend = $state<AiSpend | null>(null);
   #listening = false;
+  #spendRequest = 0;
 
   async init() {
     if (!isTauri || this.#listening) return;
@@ -32,6 +36,18 @@ class AiState {
       if (status.running && !this.running) this.running = status.running;
     } catch {
       // no status; the next progress event sets it
+    }
+  }
+
+  /** Reload the open book's spend (on opening a book and after a run). */
+  async loadSpend() {
+    if (!isTauri) return;
+    const request = ++this.#spendRequest;
+    try {
+      const s = await api.aiSpend();
+      if (request === this.#spendRequest) this.spend = s;
+    } catch {
+      if (request === this.#spendRequest) this.spend = null;
     }
   }
 
@@ -48,11 +64,13 @@ class AiState {
     } else if (e.type === "finished") {
       this.running = null;
       this.ended++;
+      void this.loadSpend();
       ui.toast(`AI check finished: ${e.run.suggestions} suggestions on ${e.run.pages.length} page(s)`, "ok", 6000);
       void review.reload();
     } else if (e.type === "failed") {
       this.running = null;
       this.ended++;
+      void this.loadSpend();
       this.lastError = e.error.message;
       ui.toast(`AI check stopped: ${this.lastError}`, "error", 8000);
       void review.reload();
@@ -61,3 +79,9 @@ class AiState {
 }
 
 export const ai = new AiState();
+
+/** A spend figure: "$1.38", "<$0.01" for a fraction of a cent. */
+export function formatSpend(usd: number): string {
+  if (usd === 0) return "$0.00";
+  return usd < 0.01 ? "<$0.01" : `$${usd.toFixed(2)}`;
+}

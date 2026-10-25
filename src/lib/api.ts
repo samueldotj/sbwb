@@ -384,6 +384,7 @@ export type AiRunRecord = {
   error: string | null;
   elapsed_ms: number | null;
 };
+export type AiSpend = { runs: { id: string; usd: number | null }[]; total_usd: number; unpriced: number; prices_as_of: string };
 export type AiProgress = { page: number; done: number; total: number };
 export type AiStatus = { providers: AiProviderStatus[]; open_suggestions: number; last_run: AiRunRecord | null; running: AiProgress | null };
 export type PromptPreview = { default_instructions: string; rules: string; max_instructions: number; system: string; user: string | null };
@@ -535,6 +536,7 @@ export const api = {
   aiRun: (req: { provider: string; model: string; pages: number[]; max_requests: number; max_input_chars: number; instructions: string; consent: boolean }) => invoke<string>("ai_run", { req }),
   aiCancel: () => invoke<void>("ai_cancel"),
   aiRuns: () => invoke<AiRunRecord[]>("ai_runs"),
+  aiSpend: () => invoke<AiSpend>("ai_spend"),
   queueList: () => invoke<QueueView>("queue_list"),
   queueAdd: (req: { sources: string[]; dest_dir: string | null; first_pages: number | null; settings: ProcessingSettings }) => invoke<QueueView>("queue_add", { req }),
   queueRemove: (id: string) => invoke<QueueView>("queue_remove", { id }),

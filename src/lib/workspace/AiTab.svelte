@@ -6,7 +6,7 @@
   // run with a link into the review. Nothing is sent without the consent box ticked on this card.
   import { api, errorMessage, parseRanges, type AiRunRecord, type AiStatus, type CostEstimate, type Estimate, type ModelInfo, type ProjectSummary, type PromptPreview } from "$lib/api";
   import { isTauri } from "$lib/ipc";
-  import { ai } from "$lib/stores/ai.svelte";
+  import { ai, formatSpend } from "$lib/stores/ai.svelte";
   import { review } from "$lib/stores/review.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { view } from "$lib/stores/view.svelte";
@@ -53,6 +53,11 @@
   let draft = $state("");
   let draftReady = false;
 
+  const runCost = $derived(new Map((ai.spend?.runs ?? []).map((r) => [r.id, r.usd])));
+  function costOf(id: string): string {
+    const usd = runCost.get(id);
+    return usd === undefined ? "" : usd === null ? "cost unknown" : formatSpend(usd);
+  }
   const providerStatus = $derived(status?.providers.find((p) => p.provider === prefs.provider) ?? null);
   const hasKey = $derived(!!providerStatus && (providerStatus.session_key || providerStatus.remembered));
 
@@ -61,6 +66,7 @@
     try {
       status = await api.aiStatus();
       runs = await api.aiRuns();
+      void ai.loadSpend();
     } catch (e) {
       ui.toast(errorMessage(e), "error");
     }
@@ -373,12 +379,24 @@
   {#if status && status.open_suggestions > 0}
     <button type="button" class="ctl primary wide" onclick={reviewSuggestions}>Review {status.open_suggestions} AI suggestions →</button>
   {/if}
+  {#if ai.spend && ai.spend.runs.length}
+    <div class="spend" aria-label="AI spend on this book">
+      <div class="spendhead"><span class="label">AI spend on this book</span><span class="total">{formatSpend(ai.spend.total_usd)}</span></div>
+      <p class="muted small">
+        {ai.spend.runs.length} run{ai.spend.runs.length === 1 ? "" : "s"}{ai.spend.unpriced ? `; ${ai.spend.unpriced} with an unknown cost ${ai.spend.unpriced === 1 ? "is" : "are"} not counted` : ""}. From the tokens each provider reported, at SBWB's prices as of {ai.spend.prices_as_of}; the provider's bill is the final figure.
+      </p>
+    </div>
+  {/if}
   <button type="button" class="link" onclick={() => (showRuns = !showRuns)}>{showRuns ? "Hide" : "Show"} run history ({runs.length})</button>
   {#if showRuns}
     <ul class="runs">
       {#each runs as r (r.id)}
-        <li><span>{when(r.ts)} · {r.provider}/{r.model} · pages {r.pages.map((p) => p + 1).join(", ")}</span><span class="muted">{r.status} · {r.requests} req · {r.suggestions} ok · {r.rejected} rejected{r.error ? ` · ${r.error}` : ""}</span></li>
+        <li>
+          <span class="runline"><span>{when(r.ts)} · {r.provider}/{r.model} · pages {r.pages.map((p) => p + 1).join(", ")}</span><span class="cost">{costOf(r.id)}</span></span>
+          <span class="muted">{r.status} · {r.requests} req · {r.suggestions} ok · {r.rejected} rejected{r.input_tokens !== null ? ` · ${r.input_tokens} in / ${r.output_tokens ?? 0} out tokens` : ""}{r.error ? ` · ${r.error}` : ""}</span>
+        </li>
       {/each}
+      {#if ai.spend && ai.spend.runs.length > runs.length}<li class="muted">Showing the latest {runs.length}; the total covers all {ai.spend.runs.length} runs.</li>{/if}
     </ul>
   {/if}
   <p class="muted small">Suggestions arrive as unscored candidates labelled with the provider and model. They are never applied automatically.</p>
@@ -649,6 +667,40 @@
     display: grid;
     gap: 4px;
     font-size: 11.5px;
+  }
+  .spend {
+    display: grid;
+    gap: 2px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--raised);
+  }
+  .spend p {
+    margin: 0;
+  }
+  .spendhead {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .spendhead .label {
+    margin-bottom: 0;
+  }
+  .total {
+    font-weight: 600;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+  .runline {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .cost {
+    flex: none;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
   .runs li {
     display: grid;

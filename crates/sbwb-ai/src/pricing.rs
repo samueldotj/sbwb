@@ -168,6 +168,24 @@ pub fn price(provider: Provider, model: &str, today: &str) -> Option<Price> {
     })
 }
 
+/// What a finished run cost at the table's prices on its date, from the
+/// tokens the provider reported. A run that sent no request cost
+/// nothing; `None` when the price or the token counts are unknown.
+pub fn run_cost(
+    provider: Provider,
+    model: &str,
+    date: &str,
+    requests: u32,
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+) -> Option<f64> {
+    if requests == 0 {
+        return Some(0.0);
+    }
+    let p = price(provider, model, date)?;
+    Some(p.cost(input_tokens? as usize, output_tokens? as usize))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,6 +254,53 @@ mod tests {
             price(Google, "gemini-3.8-flash", "2027-01-01"),
             Some(p(1.50, 7.50))
         );
+    }
+
+    #[test]
+    fn run_cost_needs_a_price_and_reported_tokens() {
+        let c = run_cost(
+            OpenAi,
+            "gpt-5.4-mini",
+            TODAY,
+            2,
+            Some(1_000_000),
+            Some(100_000),
+        )
+        .unwrap();
+        assert!((c - 1.20).abs() < 1e-9);
+        assert_eq!(
+            run_cost(OpenAi, "my-model", TODAY, 1, Some(10), Some(10)),
+            None
+        );
+        assert_eq!(
+            run_cost(OpenAi, "gpt-5.4-mini", TODAY, 1, None, Some(10)),
+            None
+        );
+        // failed before any request: nothing was billed
+        assert_eq!(
+            run_cost(OpenAi, "my-model", TODAY, 0, None, None),
+            Some(0.0)
+        );
+        // the price on the run's date applies
+        let before = run_cost(
+            Google,
+            "gemini-4-argon",
+            "2026-11-30",
+            1,
+            Some(1_000_000),
+            Some(0),
+        )
+        .unwrap();
+        let after = run_cost(
+            Google,
+            "gemini-4-argon",
+            "2026-12-01",
+            1,
+            Some(1_000_000),
+            Some(0),
+        )
+        .unwrap();
+        assert!((before - 2.0).abs() < 1e-9 && (after - 4.0).abs() < 1e-9);
     }
 
     #[test]

@@ -311,6 +311,65 @@ pub fn ai_cost(
     })
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct RunSpend {
+    pub id: String,
+    /// `None` when the model has no price or the provider reported no
+    /// token counts.
+    pub usd: Option<f64>,
+}
+
+/// What AI runs on this book cost, from the tokens each provider reported
+/// and the price table in `sbwb_ai::pricing`.
+#[derive(Debug, Clone, Serialize)]
+pub struct AiSpend {
+    /// Every run, newest first.
+    pub runs: Vec<RunSpend>,
+    /// The sum over the runs with a known cost.
+    pub total_usd: f64,
+    /// Runs left out of the total because their cost is unknown.
+    pub unpriced: u32,
+    pub prices_as_of: &'static str,
+}
+
+#[tauri::command]
+pub fn ai_spend(state: State<'_, AppState>) -> CmdResult<AiSpend> {
+    let usage = {
+        let guard = state
+            .project
+            .lock()
+            .map_err(|_| CommandError::new("other", "state poisoned"))?;
+        match guard.as_ref() {
+            Some(p) => p.store.ai_run_usage()?,
+            None => vec![],
+        }
+    };
+    let runs: Vec<RunSpend> = usage
+        .into_iter()
+        .map(|u| RunSpend {
+            usd: Provider::parse(&u.provider).and_then(|p| {
+                // run timestamps are RFC 3339; the date picks the price
+                let date = u.ts.get(..10).unwrap_or(&u.ts);
+                sbwb_ai::pricing::run_cost(
+                    p,
+                    &u.model,
+                    date,
+                    u.requests,
+                    u.input_tokens,
+                    u.output_tokens,
+                )
+            }),
+            id: u.id,
+        })
+        .collect();
+    Ok(AiSpend {
+        total_usd: runs.iter().filter_map(|r| r.usd).sum(),
+        unpriced: runs.iter().filter(|r| r.usd.is_none()).count() as u32,
+        runs,
+        prices_as_of: sbwb_ai::pricing::PRICES_AS_OF,
+    })
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AiRunRequest {
     pub provider: String,

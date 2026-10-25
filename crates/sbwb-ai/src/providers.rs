@@ -346,9 +346,14 @@ pub fn complete(
                 input_tokens: v
                     .pointer("/usageMetadata/promptTokenCount")
                     .and_then(|t| t.as_u64()),
-                output_tokens: v
-                    .pointer("/usageMetadata/candidatesTokenCount")
-                    .and_then(|t| t.as_u64()),
+                // thinking is billed as output but counted apart from the reply
+                output_tokens: ["candidatesTokenCount", "thoughtsTokenCount"]
+                    .iter()
+                    .filter_map(|k| {
+                        v.pointer(&format!("/usageMetadata/{k}"))
+                            .and_then(|t| t.as_u64())
+                    })
+                    .reduce(|a, b| a + b),
             })
         }
     }

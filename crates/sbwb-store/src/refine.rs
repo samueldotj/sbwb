@@ -300,6 +300,18 @@ impl Project {
     }
 }
 
+/// Token use of one AI run, for the book's spend total.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AiRunUsage {
+    pub id: String,
+    pub ts: String,
+    pub provider: String,
+    pub model: String,
+    pub requests: u32,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+}
+
 /// AI run record (AI-02 run history).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiRunRecord {
@@ -433,6 +445,29 @@ impl Project {
                     status: r.get(12)?,
                     error: r.get(13)?,
                     elapsed_ms: r.get::<_, Option<i64>>(14)?.map(|t| t as u64),
+                })
+            })
+            .map_err(db)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(db)
+    }
+
+    /// Token use of every AI run on the book, newest first; unlike
+    /// [`Project::ai_runs`] it is not limited to the latest 50.
+    pub fn ai_run_usage(&self) -> Result<Vec<AiRunUsage>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, ts, provider, model, requests, input_tokens, output_tokens FROM ai_runs ORDER BY ts DESC")
+            .map_err(db)?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(AiRunUsage {
+                    id: r.get(0)?,
+                    ts: r.get(1)?,
+                    provider: r.get(2)?,
+                    model: r.get(3)?,
+                    requests: r.get::<_, i64>(4)? as u32,
+                    input_tokens: r.get::<_, Option<i64>>(5)?.map(|t| t as u64),
+                    output_tokens: r.get::<_, Option<i64>>(6)?.map(|t| t as u64),
                 })
             })
             .map_err(db)?;
