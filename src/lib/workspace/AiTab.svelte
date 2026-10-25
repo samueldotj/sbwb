@@ -110,7 +110,7 @@
   const overBudget = $derived(!!estimate && estimate.pages.length > prefs.maxRequests);
   const sendBlocker = $derived.by((): string => {
     if (!estimate || estimate.pages.length === 0) return "Choose pages that have been through the text pass.";
-    if (!hasKey) return `Add a ${providerStatus?.label ?? prefs.provider} key to send.`;
+    if (!hasKey) return `Add an API key for ${providerStatus?.label ?? prefs.provider} to send.`;
     if (!prefs.model.trim()) return "Choose a model to send.";
     if (overBudget) return `Raise Max requests to ${estimate.pages.length} to send these pages.`;
     if (!consent) return "Tick the consent box to send.";
@@ -383,8 +383,14 @@
     <div class="spend" aria-label="AI spend on this book">
       <div class="spendhead"><span class="label">AI spend on this book</span><span class="total">{formatSpend(ai.spend.total_usd)}</span></div>
       <p class="muted small">
-        {ai.spend.runs.length} run{ai.spend.runs.length === 1 ? "" : "s"}{ai.spend.unpriced ? `; ${ai.spend.unpriced} with an unknown cost ${ai.spend.unpriced === 1 ? "is" : "are"} not counted` : ""}. From the tokens each provider reported, at SBWB's prices as of {ai.spend.prices_as_of}; the provider's bill is the final figure.
+        Computed by SBWB, not reported by the provider: the token counts each provider returned for {ai.spend.runs.length} run{ai.spend.runs.length === 1 ? "" : "s"}, at SBWB's list prices as of {ai.spend.prices_as_of}{ai.spend.unpriced ? `. ${ai.spend.unpriced} run${ai.spend.unpriced === 1 ? " has" : "s have"} an unknown cost and ${ai.spend.unpriced === 1 ? "is" : "are"} not counted` : ""}. Your actual charges are on the provider's billing page.
       </p>
+      <div class="billing">
+        {#each ai.spend.providers as id (id)}
+          {@const p = status?.providers.find((x) => x.provider === id)}
+          {#if p}<button type="button" class="link" title={p.billing_url} onclick={() => api.aiBillingOpen(id).catch((e) => ui.toast(errorMessage(e), "error"))}>{p.billing_label} ↗</button>{/if}
+        {/each}
+      </div>
     </div>
   {/if}
   <button type="button" class="link" onclick={() => (showRuns = !showRuns)}>{showRuns ? "Hide" : "Show"} run history ({runs.length})</button>
@@ -678,6 +684,11 @@
   }
   .spend p {
     margin: 0;
+  }
+  .billing {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
   }
   .spendhead {
     display: flex;

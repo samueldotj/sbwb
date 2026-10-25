@@ -322,7 +322,7 @@
     ai.spend && ai.spend.runs.length
       ? {
           detail: `${formatSpend(ai.spend.total_usd)} spent${ai.spend.unpriced ? " + unknown" : ""}`,
-          detailTitle: `AI spend on this book: ${ai.spend.runs.length} run${ai.spend.runs.length === 1 ? "" : "s"}, from the tokens each provider reported at SBWB's prices as of ${ai.spend.prices_as_of}${ai.spend.unpriced ? `; ${ai.spend.unpriced} with an unknown cost not counted` : ""}`,
+          detailTitle: `AI spend on this book (${ai.spend.runs.length} run${ai.spend.runs.length === 1 ? "" : "s"}), computed by SBWB from the tokens each provider reported at list prices as of ${ai.spend.prices_as_of}${ai.spend.unpriced ? `; ${ai.spend.unpriced} with an unknown cost not counted` : ""}. Actual charges are on the provider's billing page.`,
         }
       : {},
   );

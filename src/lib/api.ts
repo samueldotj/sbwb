@@ -366,7 +366,7 @@ export type RegionOcrResult = {
 
 // ----- AI proofreading (Phase 2) -----
 export type ModelInfo = { id: string; label: string };
-export type AiProviderStatus = { provider: string; label: string; key_help: string; session_key: boolean; remembered: boolean };
+export type AiProviderStatus = { provider: string; label: string; key_help: string; billing_label: string; billing_url: string; session_key: boolean; remembered: boolean };
 export type AiRunRecord = {
   id: string;
   ts: string;
@@ -384,7 +384,7 @@ export type AiRunRecord = {
   error: string | null;
   elapsed_ms: number | null;
 };
-export type AiSpend = { runs: { id: string; usd: number | null }[]; total_usd: number; unpriced: number; prices_as_of: string };
+export type AiSpend = { runs: { id: string; usd: number | null }[]; total_usd: number; unpriced: number; providers: string[]; prices_as_of: string };
 export type AiProgress = { page: number; done: number; total: number };
 export type AiStatus = { providers: AiProviderStatus[]; open_suggestions: number; last_run: AiRunRecord | null; running: AiProgress | null };
 export type PromptPreview = { default_instructions: string; rules: string; max_instructions: number; system: string; user: string | null };
@@ -537,6 +537,7 @@ export const api = {
   aiCancel: () => invoke<void>("ai_cancel"),
   aiRuns: () => invoke<AiRunRecord[]>("ai_runs"),
   aiSpend: () => invoke<AiSpend>("ai_spend"),
+  aiBillingOpen: (provider: string) => invoke<void>("ai_billing_open", { provider }),
   queueList: () => invoke<QueueView>("queue_list"),
   queueAdd: (req: { sources: string[]; dest_dir: string | null; first_pages: number | null; settings: ProcessingSettings }) => invoke<QueueView>("queue_add", { req }),
   queueRemove: (id: string) => invoke<QueueView>("queue_remove", { id }),

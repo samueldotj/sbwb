@@ -165,7 +165,10 @@ card offers the number needed). A run carries on in the background while
 you work: the pipeline rail shows how many pages have been sent, and a
 notice appears when it finishes or stops. The card estimates the cost for
 the chosen model from a dated price table; a model SBWB has no price for
-shows the cost as unknown.
+shows the cost as unknown. The AI tab and the pipeline rail show what AI runs on the
+book cost, computed by SBWB from the tokens each provider reported at its
+list prices; links beside the total open the provider's billing page, which
+has the actual charges.
 "View or edit" beside Prompt shows what is sent: the proofreading
 instructions, which you can change and save (Reset to default restores
 them), the fixed rules that are always added (the page text is data, not

@@ -37,6 +37,8 @@ pub struct ProviderStatus {
     pub provider: Provider,
     pub label: &'static str,
     pub key_help: &'static str,
+    pub billing_label: &'static str,
+    pub billing_url: &'static str,
     pub session_key: bool,
     pub remembered: bool,
 }
@@ -77,6 +79,8 @@ pub fn ai_status(app: AppHandle, state: State<'_, AppState>) -> CmdResult<AiStat
             provider: p,
             label: p.label(),
             key_help: p.key_help(),
+            billing_label: p.billing_label(),
+            billing_url: p.billing_url(),
             session_key: slot.keys.has_session(p),
             remembered: slot.keys.remembered(p),
         })
@@ -329,6 +333,9 @@ pub struct AiSpend {
     pub total_usd: f64,
     /// Runs left out of the total because their cost is unknown.
     pub unpriced: u32,
+    /// Providers the runs used, most recent first, for links to their
+    /// billing pages.
+    pub providers: Vec<Provider>,
     pub prices_as_of: &'static str,
 }
 
@@ -344,6 +351,12 @@ pub fn ai_spend(state: State<'_, AppState>) -> CmdResult<AiSpend> {
             None => vec![],
         }
     };
+    let mut providers = Vec::new();
+    for p in usage.iter().filter_map(|u| Provider::parse(&u.provider)) {
+        if !providers.contains(&p) {
+            providers.push(p);
+        }
+    }
     let runs: Vec<RunSpend> = usage
         .into_iter()
         .map(|u| RunSpend {
@@ -365,9 +378,25 @@ pub fn ai_spend(state: State<'_, AppState>) -> CmdResult<AiSpend> {
     Ok(AiSpend {
         total_usd: runs.iter().filter_map(|r| r.usd).sum(),
         unpriced: runs.iter().filter(|r| r.usd.is_none()).count() as u32,
+        providers,
         runs,
         prices_as_of: sbwb_ai::pricing::PRICES_AS_OF,
     })
+}
+
+/// Open the provider's billing page in the browser. Only the fixed page for
+/// a known provider, never a URL from the page.
+#[tauri::command]
+pub fn ai_billing_open(provider: String) -> CmdResult<()> {
+    let url = parse_provider(&provider)?.billing_url();
+    #[cfg(windows)]
+    std::process::Command::new("explorer")
+        .arg(url)
+        .spawn()
+        .map_err(|e| CommandError::new("other", format!("open browser: {e}")))?;
+    #[cfg(not(windows))]
+    let _ = url;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Deserialize)]

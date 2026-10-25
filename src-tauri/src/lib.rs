@@ -196,6 +196,7 @@ pub fn run() {
             commands::ai::ai_cancel,
             commands::ai::ai_runs,
             commands::ai::ai_spend,
+            commands::ai::ai_billing_open,
             commands::update::update_check,
             commands::update::update_install,
             commands::update::update_apply,

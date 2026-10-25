@@ -61,6 +61,22 @@ impl Provider {
             Provider::Google => "API key from aistudio.google.com (Gemini app subscriptions are separate from API access).",
         }
     }
+    /// The provider's own page of actual API charges; SBWB's spend figure is
+    /// computed from reported tokens and is not one.
+    pub fn billing_url(self) -> &'static str {
+        match self {
+            Provider::OpenAi => "https://platform.openai.com/usage",
+            Provider::Anthropic => "https://platform.claude.com/cost",
+            Provider::Google => "https://aistudio.google.com/spend",
+        }
+    }
+    pub fn billing_label(self) -> &'static str {
+        match self {
+            Provider::OpenAi => "OpenAI usage and costs",
+            Provider::Anthropic => "Claude Console cost page",
+            Provider::Google => "Google AI Studio spend",
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error, Clone, Serialize, Deserialize)]
