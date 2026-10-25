@@ -131,10 +131,22 @@ pub struct Estimate {
     pub words: usize,
     pub chars: usize,
     pub approx_tokens: usize,
+    /// Expected reply tokens, for the cost estimate.
+    pub approx_output_tokens: usize,
     pub requests: u32,
     /// What leaves this machine, for the consent card (AI-02).
     pub payload_kinds: Vec<&'static str>,
-    pub cost: &'static str,
+}
+
+/// The estimated bill for the chosen model; `usd` is `None` when SBWB has
+/// no price for it (an unknown or custom model id). Separate from the
+/// estimate so changing the model does not re-read the pages.
+#[derive(Debug, Clone, Serialize)]
+pub struct CostEstimate {
+    pub usd: Option<f64>,
+    pub input_per_mtok: Option<f64>,
+    pub output_per_mtok: Option<f64>,
+    pub prices_as_of: &'static str,
 }
 
 fn payload_for(
@@ -165,6 +177,7 @@ pub fn ai_estimate(state: State<'_, AppState>, pages: Vec<u32>) -> CmdResult<Est
     let mut words = 0;
     let mut chars = 0;
     let mut tokens = 0;
+    let mut output_tokens = 0;
     let mut included = Vec::new();
     for i in pages {
         let (payload, _) = payload_for(&p.store, PageIndex(i))?;
@@ -174,6 +187,7 @@ pub fn ai_estimate(state: State<'_, AppState>, pages: Vec<u32>) -> CmdResult<Est
         words += payload.words.len();
         chars += payload.chars();
         tokens += payload.approx_tokens();
+        output_tokens += payload.approx_output_tokens();
         included.push(i);
     }
     Ok(Estimate {
@@ -182,11 +196,31 @@ pub fn ai_estimate(state: State<'_, AppState>, pages: Vec<u32>) -> CmdResult<Est
         words,
         chars,
         approx_tokens: tokens,
+        approx_output_tokens: output_tokens,
         payload_kinds: vec![
             "saved words of the selected pages, one per line with an id",
             "the page number of each page",
         ],
-        cost: "unknown (the provider bills by token; SBWB has no price table)",
+    })
+}
+
+/// Price an estimate's tokens for one model, from the table in
+/// `sbwb_ai::pricing`.
+#[tauri::command]
+pub fn ai_cost(
+    provider: String,
+    model: String,
+    input_tokens: usize,
+    output_tokens: usize,
+) -> CmdResult<CostEstimate> {
+    let p = parse_provider(&provider)?;
+    let today = jiff::Zoned::now().date().to_string();
+    let price = sbwb_ai::pricing::price(p, &model, &today);
+    Ok(CostEstimate {
+        usd: price.map(|pr| pr.cost(input_tokens, output_tokens)),
+        input_per_mtok: price.map(|pr| pr.input),
+        output_per_mtok: price.map(|pr| pr.output),
+        prices_as_of: sbwb_ai::pricing::PRICES_AS_OF,
     })
 }
 

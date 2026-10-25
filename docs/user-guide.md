@@ -160,9 +160,10 @@ discovered list or type a model id. Choose the pages, read the "What leaves
 this machine" card (the saved words of those pages with ids and the page
 numbers; never the PDF, images, paths, or metadata), tick the consent box,
 and send. Each page is one request with no retries; a budget caps requests
-and page size; cost is shown as unknown. Suggestions arrive in the review
-inbox labelled with the provider and model, unscored, and are never applied
-automatically.
+and page size. The card estimates the cost for the chosen model from a
+dated price table; a model SBWB has no price for shows the cost as unknown.
+Suggestions arrive in the review inbox labelled with the provider and
+model, unscored, and are never applied automatically.
 
 ## 7. Book queue
 

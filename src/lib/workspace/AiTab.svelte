@@ -3,7 +3,7 @@
   // key status, page selection, the "what leaves this machine" consent
   // card, budgets, Send, cancel, and the last run with a link into the
   // review. Nothing is sent without the consent box ticked on this card.
-  import { api, errorMessage, parseRanges, type AiRunRecord, type AiStatus, type Estimate, type ModelInfo, type ProjectSummary } from "$lib/api";
+  import { api, errorMessage, parseRanges, type AiRunRecord, type AiStatus, type CostEstimate, type Estimate, type ModelInfo, type ProjectSummary } from "$lib/api";
   import { isTauri, listen } from "$lib/ipc";
   import { review } from "$lib/stores/review.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -41,6 +41,7 @@
   let scopeKind = $state<"page" | "scope" | "range">("page");
   let rangeText = $state("");
   let estimate = $state<Estimate | null>(null);
+  let cost = $state<CostEstimate | null>(null);
   let consent = $state(false);
   let running = $state<{ page: number; done: number; total: number } | null>(null);
   let lastError = $state("");
@@ -110,6 +111,26 @@
     };
   });
 
+  // priced again whenever the estimate, provider, or model changes; cleared
+  // first so a stale price never shows beside another model
+  $effect(() => {
+    const e = estimate;
+    const provider = prefs.provider;
+    const model = prefs.model.trim();
+    cost = null;
+    if (!isTauri || !e || !model) return;
+    let cancelled = false;
+    api
+      .aiCost(provider, model, e.approx_tokens, e.approx_output_tokens)
+      .then((c) => {
+        if (!cancelled) cost = c;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  });
+
   async function saveKey() {
     try {
       const stored = await api.aiKeySet(prefs.provider, keyInput, remember);
@@ -154,6 +175,12 @@
     await review.refreshCounts();
     // AI suggestions are unscored, so they match at every threshold
     await review.step(true);
+  }
+  function usd(v: number): string {
+    return v < 0.01 ? "less than $0.01" : `about $${v.toFixed(2)}`;
+  }
+  function perMillion(v: number): string {
+    return `$${v < 1 ? v.toFixed(3).replace(/0$/, "") : v.toFixed(2)}`;
   }
   function when(iso: string): string {
     const d = new Date(iso);
@@ -228,7 +255,18 @@
         {#each estimate.payload_kinds as k, i (i)}<li>{k}</li>{/each}
         <li>{estimate.pages.length} page{estimate.pages.length === 1 ? "" : "s"}, {estimate.words} words, about {estimate.approx_tokens} tokens in {estimate.requests} request{estimate.requests === 1 ? "" : "s"}</li>
         <li>Not sent: the PDF, scan images, file paths, project metadata, other pages</li>
-        <li>Cost: {estimate.cost}</li>
+        {#if !prefs.model.trim()}
+          <li>Cost: choose a model to see an estimate</li>
+        {:else if !cost}
+          <li>Cost: estimating…</li>
+        {:else if cost.usd !== null && cost.input_per_mtok !== null && cost.output_per_mtok !== null}
+          <li>
+            Cost: {usd(cost.usd)}
+            <span class="muted">({estimate.approx_tokens} in + about {estimate.approx_output_tokens} out tokens at {perMillion(cost.input_per_mtok)} / {perMillion(cost.output_per_mtok)} per million, prices as of {cost.prices_as_of}; thinking tokens, if the model uses them, cost extra)</span>
+          </li>
+        {:else}
+          <li>Cost: unknown. SBWB has no price for {prefs.model.trim()}; check {providerStatus?.label ?? prefs.provider}'s pricing page.</li>
+        {/if}
       </ul>
       <div class="grid">
         <label class="small">Max requests <input type="number" min="1" max="500" bind:value={prefs.maxRequests} /></label>

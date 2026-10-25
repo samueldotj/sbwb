@@ -14,6 +14,7 @@
 //!   and input size before anything is sent.
 
 pub mod keys;
+pub mod pricing;
 pub mod prompt;
 pub mod providers;
 
@@ -111,6 +112,12 @@ impl PagePayload {
     /// Rough token estimate (4 characters per token) for the consent card.
     pub fn approx_tokens(&self) -> usize {
         self.chars() / 4 + self.words.len() / 2 + prompt::SYSTEM.len() / 4
+    }
+    /// Rough reply size for the cost estimate: the JSON wrapper plus one
+    /// suggestion (about 30 tokens) for every 20 words. Thinking tokens,
+    /// when a model uses them, come on top and are not predictable.
+    pub fn approx_output_tokens(&self) -> usize {
+        20 + self.words.len() * 3 / 2
     }
 }
 

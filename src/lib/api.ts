@@ -385,7 +385,8 @@ export type AiRunRecord = {
   elapsed_ms: number | null;
 };
 export type AiStatus = { providers: AiProviderStatus[]; open_suggestions: number; last_run: AiRunRecord | null };
-export type Estimate = { pages: number[]; words: number; chars: number; approx_tokens: number; requests: number; payload_kinds: string[]; cost: string };
+export type CostEstimate = { usd: number | null; input_per_mtok: number | null; output_per_mtok: number | null; prices_as_of: string };
+export type Estimate = { pages: number[]; words: number; chars: number; approx_tokens: number; approx_output_tokens: number; requests: number; payload_kinds: string[] };
 
 // ----- book queue (PRJ-06) -----
 export type QueueItem = {
@@ -527,6 +528,7 @@ export const api = {
   aiKeyForget: (provider: string) => invoke<void>("ai_key_forget", { provider }),
   aiModels: (provider: string) => invoke<ModelInfo[]>("ai_models", { provider }),
   aiEstimate: (pages: number[]) => invoke<Estimate>("ai_estimate", { pages }),
+  aiCost: (provider: string, model: string, inputTokens: number, outputTokens: number) => invoke<CostEstimate>("ai_cost", { provider, model, inputTokens, outputTokens }),
   aiRun: (req: { provider: string; model: string; pages: number[]; max_requests: number; max_input_chars: number; consent: boolean }) => invoke<string>("ai_run", { req }),
   aiCancel: () => invoke<void>("ai_cancel"),
   aiRuns: () => invoke<AiRunRecord[]>("ai_runs"),
