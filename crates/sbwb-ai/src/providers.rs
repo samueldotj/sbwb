@@ -183,6 +183,78 @@ pub fn list_models(provider: Provider, api_key: &str, timeout: Duration) -> Resu
     Ok(out)
 }
 
+/// Whether a model takes `temperature: 0`. Newer models refuse sampling
+/// settings: Claude Opus 4.7 and later, Sonnet 5 and later, Haiku 5.5,
+/// Fable and Mythos return a 400 error, OpenAI's reasoning models (the o
+/// series, gpt-5 and later) accept only the default, and Google advises
+/// against lowering it on Gemini 3 and later. The older models that take
+/// it are a closed list, so every other id, known or not, gets the
+/// provider's default.
+pub fn takes_temperature(provider: Provider, model: &str) -> bool {
+    let m = model.trim();
+    let m = m.strip_prefix("models/").unwrap_or(m);
+    match provider {
+        Provider::OpenAi => m.starts_with("gpt-4") || m.starts_with("gpt-3.5"),
+        Provider::Google => m.starts_with("gemini-1.") || m.starts_with("gemini-2."),
+        Provider::Anthropic => {
+            // the minor version, or a snapshot date for 4.0, follows the family
+            let claude4 = |family: &str, minors: &[&str]| {
+                m.strip_prefix(family)
+                    .and_then(|r| r.strip_prefix('-'))
+                    .and_then(|r| r.split('-').next())
+                    .is_some_and(|v| {
+                        minors.contains(&v)
+                            || (v.len() == 8 && v.bytes().all(|b| b.is_ascii_digit()))
+                    })
+            };
+            m.starts_with("claude-3")
+                || claude4("claude-opus-4", &["0", "1", "5", "6"])
+                || claude4("claude-sonnet-4", &["0", "5", "6"])
+                || claude4("claude-haiku-4", &["5"])
+        }
+    }
+}
+
+fn openai_body(conn: &Connection, system: &str, user: &str) -> Value {
+    let mut body = json!({
+        "model": conn.model,
+        "response_format": { "type": "json_object" },
+        "messages": [ { "role": "system", "content": system }, { "role": "user", "content": user } ],
+    });
+    if takes_temperature(conn.provider, &conn.model) {
+        body["temperature"] = json!(0);
+    }
+    body
+}
+
+fn anthropic_body(conn: &Connection, system: &str, user: &str) -> Value {
+    let legacy = takes_temperature(conn.provider, &conn.model);
+    let mut body = json!({
+        "model": conn.model,
+        // newer models think by default and thinking counts toward this
+        // cap, so leave room for it; some older ones allow only 4096
+        "max_tokens": if legacy { 4096 } else { 16000 },
+        "system": system,
+        "messages": [ { "role": "user", "content": user } ],
+    });
+    if legacy {
+        body["temperature"] = json!(0);
+    }
+    body
+}
+
+fn google_body(conn: &Connection, system: &str, user: &str) -> Value {
+    let mut config = json!({ "responseMimeType": "application/json" });
+    if takes_temperature(conn.provider, &conn.model) {
+        config["temperature"] = json!(0);
+    }
+    json!({
+        "systemInstruction": { "parts": [ { "text": system } ] },
+        "contents": [ { "role": "user", "parts": [ { "text": user } ] } ],
+        "generationConfig": config,
+    })
+}
+
 /// One completion (AI-02: exactly one request, no retries).
 pub fn complete(
     conn: &Connection,
@@ -193,12 +265,7 @@ pub fn complete(
     let c = client(timeout)?;
     match conn.provider {
         Provider::OpenAi => {
-            let body = json!({
-                "model": conn.model,
-                "temperature": 0,
-                "response_format": { "type": "json_object" },
-                "messages": [ { "role": "system", "content": system }, { "role": "user", "content": user } ],
-            });
+            let body = openai_body(conn, system, user);
             let v = send(
                 c.post(format!("{}/chat/completions", base(Provider::OpenAi)))
                     .bearer_auth(&conn.api_key)
@@ -219,13 +286,7 @@ pub fn complete(
             })
         }
         Provider::Anthropic => {
-            let body = json!({
-                "model": conn.model,
-                "max_tokens": 4096,
-                "temperature": 0,
-                "system": system,
-                "messages": [ { "role": "user", "content": user } ],
-            });
+            let body = anthropic_body(conn, system, user);
             let v = send(
                 c.post(format!("{}/messages", base(Provider::Anthropic)))
                     .header("x-api-key", &conn.api_key)
@@ -233,6 +294,19 @@ pub fn complete(
                     .json(&body),
                 "Anthropic request",
             )?;
+            match v.get("stop_reason").and_then(|s| s.as_str()) {
+                Some("refusal") => {
+                    return Err(AiError::Validation(
+                        "the model declined to answer this page".into(),
+                    ))
+                }
+                Some("max_tokens") => {
+                    return Err(AiError::Validation(
+                        "the reply reached the output limit before it finished".into(),
+                    ))
+                }
+                _ => {}
+            }
             let text = v
                 .get("content")
                 .and_then(|c| c.as_array())
@@ -251,11 +325,7 @@ pub fn complete(
             })
         }
         Provider::Google => {
-            let body = json!({
-                "systemInstruction": { "parts": [ { "text": system } ] },
-                "contents": [ { "role": "user", "parts": [ { "text": user } ] } ],
-                "generationConfig": { "temperature": 0, "responseMimeType": "application/json" },
-            });
+            let body = google_body(conn, system, user);
             let v = send(
                 c.post(format!(
                     "{}/models/{}:generateContent",
@@ -281,5 +351,79 @@ pub fn complete(
                     .and_then(|t| t.as_u64()),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn conn(provider: Provider, model: &str) -> Connection {
+        Connection {
+            provider,
+            model: model.into(),
+            api_key: "k".into(),
+        }
+    }
+
+    #[test]
+    fn temperature_only_for_models_that_take_it() {
+        use Provider::*;
+        for m in [
+            "claude-3-5-haiku-20241022",
+            "claude-opus-4-20250514",
+            "claude-opus-4-1-20250805",
+            "claude-opus-4-6",
+            "claude-sonnet-4-5-20250929",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001",
+        ] {
+            assert!(takes_temperature(Anthropic, m), "{m}");
+        }
+        for m in [
+            "claude-sonnet-5",
+            "claude-sonnet-5-5",
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-opus-5",
+            "claude-haiku-5-5",
+            "claude-fable-5-1",
+            "claude-mythos-5",
+            "claude-something-new",
+        ] {
+            assert!(!takes_temperature(Anthropic, m), "{m}");
+        }
+        assert!(takes_temperature(OpenAi, "gpt-4o-mini"));
+        assert!(takes_temperature(OpenAi, "gpt-4.1"));
+        assert!(!takes_temperature(OpenAi, "gpt-5.4-mini"));
+        assert!(!takes_temperature(OpenAi, "gpt-6-astra"));
+        assert!(!takes_temperature(OpenAi, "o3"));
+        assert!(takes_temperature(Google, "gemini-2.5-flash"));
+        assert!(!takes_temperature(Google, "gemini-3.1-pro-preview"));
+        assert!(!takes_temperature(Google, "models/gemini-4-argon"));
+    }
+
+    #[test]
+    fn request_bodies_leave_out_temperature_for_newer_models() {
+        let b = anthropic_body(&conn(Provider::Anthropic, "claude-sonnet-5"), "s", "u");
+        assert!(b.get("temperature").is_none());
+        assert_eq!(b["max_tokens"], 16000);
+        let b = anthropic_body(&conn(Provider::Anthropic, "claude-sonnet-4-5"), "s", "u");
+        assert_eq!(b["temperature"], 0);
+        assert_eq!(b["max_tokens"], 4096);
+        let b = openai_body(&conn(Provider::OpenAi, "gpt-5.4-mini"), "s", "u");
+        assert!(b.get("temperature").is_none());
+        assert_eq!(
+            openai_body(&conn(Provider::OpenAi, "gpt-4o"), "s", "u")["temperature"],
+            0
+        );
+        let b = google_body(&conn(Provider::Google, "gemini-3-flash-preview"), "s", "u");
+        assert!(b["generationConfig"].get("temperature").is_none());
+        assert_eq!(
+            b["generationConfig"]["responseMimeType"],
+            "application/json"
+        );
+        let b = google_body(&conn(Provider::Google, "gemini-2.5-flash"), "s", "u");
+        assert_eq!(b["generationConfig"]["temperature"], 0);
     }
 }
