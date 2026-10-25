@@ -21,6 +21,15 @@ pub struct AiSlot {
     pub keys: sbwb_ai::keys::KeyStore,
     pub running: Mutex<bool>,
     pub cancel: Mutex<Option<Arc<AtomicBool>>>,
+    /// Where the current run is, for a view opened after it started.
+    pub progress: Mutex<Option<AiProgress>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct AiProgress {
+    pub page: u32,
+    pub done: u32,
+    pub total: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -37,6 +46,8 @@ pub struct AiStatus {
     pub providers: Vec<ProviderStatus>,
     pub open_suggestions: u32,
     pub last_run: Option<AiRunRecord>,
+    /// The run in progress, if any.
+    pub running: Option<AiProgress>,
 }
 
 fn ai_err(e: AiError) -> CommandError {
@@ -83,10 +94,15 @@ pub fn ai_status(app: AppHandle, state: State<'_, AppState>) -> CmdResult<AiStat
             None => (0, None),
         }
     };
+    let running = *slot
+        .progress
+        .lock()
+        .map_err(|_| CommandError::new("other", "ai mutex poisoned"))?;
     Ok(AiStatus {
         providers,
         open_suggestions,
         last_run,
+        running,
     })
 }
 
@@ -434,6 +450,10 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
             let total = pages.len() as u32;
             let mut failure: Option<AiError> = None;
             for (i, page) in pages.iter().enumerate() {
+                let progress = AiProgress { page: *page, done: i as u32, total };
+                if let Ok(mut p) = handle.state::<AiSlot>().progress.lock() {
+                    *p = Some(progress);
+                }
                 let _ = handle.emit(EVENT_AI, AiEvent::Progress { page: *page, done: i as u32, total });
                 // snapshot the page text and span refs under the lock, then release it for the network call
                 let payload = {
@@ -514,6 +534,9 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
             }
             let _ = handle.emit(crate::commands::project::EVENT_PROJECT_CHANGED, ());
             if let Some(slot) = handle.try_state::<AiSlot>() {
+                if let Ok(mut p) = slot.progress.lock() {
+                    *p = None;
+                }
                 if let Ok(mut r) = slot.running.lock() {
                     *r = false;
                 }

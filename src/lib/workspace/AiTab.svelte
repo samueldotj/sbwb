@@ -5,7 +5,8 @@
   // leaves this machine" consent card, budgets, Send, cancel, and the last
   // run with a link into the review. Nothing is sent without the consent box ticked on this card.
   import { api, errorMessage, parseRanges, type AiRunRecord, type AiStatus, type CostEstimate, type Estimate, type ModelInfo, type ProjectSummary, type PromptPreview } from "$lib/api";
-  import { isTauri, listen } from "$lib/ipc";
+  import { isTauri } from "$lib/ipc";
+  import { ai } from "$lib/stores/ai.svelte";
   import { review } from "$lib/stores/review.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { view } from "$lib/stores/view.svelte";
@@ -45,15 +46,12 @@
   let estimate = $state<Estimate | null>(null);
   let cost = $state<CostEstimate | null>(null);
   let consent = $state(false);
-  let running = $state<{ page: number; done: number; total: number } | null>(null);
-  let lastError = $state("");
   let runs = $state<AiRunRecord[]>([]);
   let showRuns = $state(false);
   let promptOpen = $state(false);
   let preview = $state<PromptPreview | null>(null);
   let draft = $state("");
   let draftReady = false;
-  let unlisten: (() => void) | null = null;
 
   const providerStatus = $derived(status?.providers.find((p) => p.provider === prefs.provider) ?? null);
   const hasKey = $derived(!!providerStatus && (providerStatus.session_key || providerStatus.remembered));
@@ -67,27 +65,11 @@
       ui.toast(errorMessage(e), "error");
     }
   }
+  // the run's progress and its finish notice live in the ai store, so they
+  // carry on while this tab is closed; reload status and history when a run ends
   $effect(() => {
+    if (ai.ended) consent = false;
     void refresh();
-    void listen<{ type: string; page?: number; done?: number; total?: number; run?: AiRunRecord; error?: { message: string }; suggestions?: number }>("ai:event", (e) => {
-      if (e.type === "progress") running = { page: e.page ?? 0, done: e.done ?? 0, total: e.total ?? 0 };
-      else if (e.type === "page_done") ui.announce(`Page ${(e.page ?? 0) + 1}: ${e.suggestions ?? 0} AI suggestions`);
-      else if (e.type === "finished") {
-        running = null;
-        consent = false;
-        ui.toast(`AI check finished: ${e.run?.suggestions ?? 0} suggestions on ${e.run?.pages.length ?? 0} page(s)`, "ok", 6000);
-        void refresh();
-        void review.reload();
-      } else if (e.type === "failed") {
-        running = null;
-        consent = false;
-        lastError = e.error?.message ?? "failed";
-        ui.toast(`AI check stopped: ${lastError}`, "error", 8000);
-        void refresh();
-        void review.reload();
-      }
-    }).then((u) => (unlisten = u));
-    return () => unlisten?.();
   });
 
   const pages = $derived.by((): number[] => {
@@ -220,13 +202,13 @@
   }
   async function send() {
     if (!estimate || !consent) return;
-    lastError = "";
+    ai.lastError = "";
     try {
       await api.aiRun({ provider: prefs.provider, model: prefs.model.trim(), pages: estimate.pages, max_requests: prefs.maxRequests, max_input_chars: prefs.maxChars, instructions: prefs.instructions, consent });
-      running = { page: estimate.pages[0] ?? 0, done: 0, total: estimate.pages.length };
+      ai.started(estimate.pages[0] ?? 0, estimate.pages.length);
     } catch (e) {
-      lastError = errorMessage(e);
-      ui.toast(lastError, "error", 7000);
+      ai.lastError = errorMessage(e);
+      ui.toast(ai.lastError, "error", 7000);
     }
   }
   async function reviewSuggestions() {
@@ -368,14 +350,14 @@
           <button type="button" class="link" onclick={() => estimate && (prefs.maxRequests = estimate.pages.length)}>Allow {estimate.pages.length} requests</button>
         </p>
       {/if}
-      <label class="check"><input type="checkbox" bind:checked={consent} disabled={running !== null} /> I understand what is sent to {providerStatus?.label ?? prefs.provider} ({prefs.model || "no model"})</label>
+      <label class="check"><input type="checkbox" bind:checked={consent} disabled={ai.running !== null} /> I understand what is sent to {providerStatus?.label ?? prefs.provider} ({prefs.model || "no model"})</label>
     {:else}
       <p class="muted small">No processed pages in the selection.</p>
     {/if}
   </div>
 
-  {#if running}
-    <div class="progress" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span> Page {running.page + 1} · {running.done} of {running.total} sent</div>
+  {#if ai.running}
+    <div class="progress" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span> Page {ai.running.page + 1} · {ai.running.done} of {ai.running.total} sent</div>
     <button type="button" class="ctl" onclick={() => api.aiCancel()}>Cancel after this page</button>
   {:else}
     <button type="button" class="ctl primary wide" onclick={send} disabled={!!sendBlocker} aria-describedby={sendBlocker ? "ai-send-why" : undefined}>
@@ -383,7 +365,7 @@
     </button>
     {#if sendBlocker}<p id="ai-send-why" class="muted small why">{sendBlocker}</p>{/if}
   {/if}
-  {#if lastError}<p class="note err">{lastError}. No request was retried.</p>{/if}
+  {#if ai.lastError}<p class="note err">{ai.lastError}. No request was retried.</p>{/if}
 
   {#if status?.last_run}
     <p class="muted small">Last run {when(status.last_run.ts)} · {status.last_run.provider}/{status.last_run.model} · {status.last_run.status} · {status.last_run.suggestions} suggestions{status.last_run.input_tokens !== null ? ` · ${status.last_run.input_tokens} in / ${status.last_run.output_tokens ?? 0} out tokens` : " · tokens unknown"}</p>

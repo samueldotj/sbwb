@@ -14,6 +14,7 @@
   import GroupSheet from "$lib/workspace/GroupSheet.svelte";
   import ExportSheet from "$lib/workspace/ExportSheet.svelte";
   import AiTab from "$lib/workspace/AiTab.svelte";
+  import { ai } from "$lib/stores/ai.svelte";
   import { review } from "$lib/stores/review.svelte";
   import StackedBar from "$lib/workspace/StackedBar.svelte";
   import ScanPane from "$lib/workspace/ScanPane.svelte";
@@ -337,7 +338,9 @@
       value: summary.counts.text_done > 0 ? `${summary.counts.text_done} / ${summary.counts.in_scope}` : "queued",
       progress: summary.counts.in_scope ? summary.counts.text_done / summary.counts.in_scope : 0,
     },
-    { id: "ai", label: "AI proofread", state: aiEnabled ? "queued" : "off", value: aiEnabled ? "on request" : "off" },
+    ai.running
+      ? { id: "ai", label: "AI proofread", state: "running", value: `${ai.running.done} / ${ai.running.total}`, progress: ai.running.total ? ai.running.done / ai.running.total : 0 }
+      : { id: "ai", label: "AI proofread", state: aiEnabled ? "queued" : "off", value: aiEnabled ? "on request" : "off" },
     { id: "export", label: "Export", state: exports.some((e) => e.exists) ? "done" : summary.counts.text_done > 0 ? "queued" : "off", value: exports.filter((e) => e.exists).length ? `${exports.filter((e) => e.exists).length} file${exports.filter((e) => e.exists).length === 1 ? "" : "s"}` : summary.counts.text_done > 0 ? "ready" : "—" },
   ]);
 

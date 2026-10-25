@@ -384,7 +384,8 @@ export type AiRunRecord = {
   error: string | null;
   elapsed_ms: number | null;
 };
-export type AiStatus = { providers: AiProviderStatus[]; open_suggestions: number; last_run: AiRunRecord | null };
+export type AiProgress = { page: number; done: number; total: number };
+export type AiStatus = { providers: AiProviderStatus[]; open_suggestions: number; last_run: AiRunRecord | null; running: AiProgress | null };
 export type PromptPreview = { default_instructions: string; rules: string; max_instructions: number; system: string; user: string | null };
 export type CostEstimate = { usd: number | null; input_per_mtok: number | null; output_per_mtok: number | null; prices_as_of: string };
 export type Estimate = { pages: number[]; words: number; chars: number; approx_tokens: number; approx_output_tokens: number; requests: number; payload_kinds: string[] };

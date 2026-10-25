@@ -8,6 +8,7 @@
   import WorkspacePage from "$lib/pages/WorkspacePage.svelte";
   import SettingsPage from "$lib/pages/SettingsPage.svelte";
   import { pipeline, formatEta } from "$lib/stores/pipeline.svelte";
+  import { ai } from "$lib/stores/ai.svelte";
   import { previews } from "$lib/stores/previews.svelte";
   import { textPass } from "$lib/stores/text.svelte";
   import { review } from "$lib/stores/review.svelte";
@@ -167,6 +168,7 @@
     void previews.init();
     void textPass.init();
     void review.init();
+    void ai.init();
     if (import.meta.env.DEV) {
       (window as unknown as { __sbwb: unknown }).__sbwb = {
         importPdf: (p: string) => project.importPdf(p),
