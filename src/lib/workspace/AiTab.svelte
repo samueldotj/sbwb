@@ -118,6 +118,17 @@
     };
   });
 
+  // why Send is off, shown under it; the request budget has its own note with a fix
+  const overBudget = $derived(!!estimate && estimate.pages.length > prefs.maxRequests);
+  const sendBlocker = $derived.by((): string => {
+    if (!estimate || estimate.pages.length === 0) return "Choose pages that have been through the text pass.";
+    if (!hasKey) return `Add a ${providerStatus?.label ?? prefs.provider} key to send.`;
+    if (!prefs.model.trim()) return "Choose a model to send.";
+    if (overBudget) return `Raise Max requests to ${estimate.pages.length} to send these pages.`;
+    if (!consent) return "Tick the consent box to send.";
+    return "";
+  });
+
   // priced again whenever the estimate, provider, or model changes; cleared
   // first so a stale price never shows beside another model
   $effect(() => {
@@ -348,9 +359,15 @@
         {/if}
       </ul>
       <div class="grid">
-        <label class="small">Max requests <input type="number" min="1" max="500" bind:value={prefs.maxRequests} /></label>
+        <label class="small">Max requests <input type="number" min="1" bind:value={prefs.maxRequests} /></label>
         <label class="small">Max characters per page <input type="number" min="1000" step="1000" bind:value={prefs.maxChars} /></label>
       </div>
+      {#if overBudget}
+        <p class="note warn">
+          {estimate.pages.length} pages need {estimate.pages.length} requests (one per page), more than Max requests ({prefs.maxRequests}).
+          <button type="button" class="link" onclick={() => estimate && (prefs.maxRequests = estimate.pages.length)}>Allow {estimate.pages.length} requests</button>
+        </p>
+      {/if}
       <label class="check"><input type="checkbox" bind:checked={consent} disabled={running !== null} /> I understand what is sent to {providerStatus?.label ?? prefs.provider} ({prefs.model || "no model"})</label>
     {:else}
       <p class="muted small">No processed pages in the selection.</p>
@@ -361,9 +378,10 @@
     <div class="progress" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span> Page {running.page + 1} · {running.done} of {running.total} sent</div>
     <button type="button" class="ctl" onclick={() => api.aiCancel()}>Cancel after this page</button>
   {:else}
-    <button type="button" class="ctl primary wide" onclick={send} disabled={!consent || !hasKey || !prefs.model.trim() || !estimate || estimate.pages.length === 0 || estimate.pages.length > prefs.maxRequests}>
+    <button type="button" class="ctl primary wide" onclick={send} disabled={!!sendBlocker} aria-describedby={sendBlocker ? "ai-send-why" : undefined}>
       Send {estimate?.pages.length ?? 0} page{(estimate?.pages.length ?? 0) === 1 ? "" : "s"}
     </button>
+    {#if sendBlocker}<p id="ai-send-why" class="muted small why">{sendBlocker}</p>{/if}
   {/if}
   {#if lastError}<p class="note err">{lastError}. No request was retried.</p>{/if}
 
@@ -613,6 +631,9 @@
   .note {
     margin: 0;
     font-size: 12px;
+  }
+  .why {
+    margin: -4px 0 0;
   }
   .note.warn {
     color: var(--accent-text);

@@ -160,8 +160,10 @@ discovered list or type a model id. Choose the pages, read the "What leaves
 this machine" card (the saved words of those pages with ids and the page
 numbers; never the PDF, images, paths, or metadata), tick the consent box,
 and send. Each page is one request with no retries; a budget caps requests
-and page size. The card estimates the cost for the chosen model from a
-dated price table; a model SBWB has no price for shows the cost as unknown.
+and page size (raise Max requests to send more pages than it allows; the
+card offers the number needed). The card estimates the cost for the chosen
+model from a dated price table; a model SBWB has no price for shows the
+cost as unknown.
 "View or edit" beside Prompt shows what is sent: the proofreading
 instructions, which you can change and save (Reset to default restores
 them), the fixed rules that are always added (the page text is data, not
