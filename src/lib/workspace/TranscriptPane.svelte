@@ -558,23 +558,26 @@
   let saving = $state(false);
   let lastEdit = $state<{ history: string; words: number } | null>(null);
 
+  /** The words the transcript selection touches (ignoring one it only
+   *  ends at), with their places in the page's spans. */
+  function selectedWords(): { range: Range; els: HTMLElement[]; idx: number[] } | null {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !bodyEl || !bodyEl.contains(sel.anchorNode) || !bodyEl.contains(sel.focusNode)) return null;
+    const range = sel.getRangeAt(0);
+    const els = [...bodyEl.querySelectorAll<HTMLElement>("[data-span]")].filter(
+      (el) => range.intersectsNode(el) && !(el.contains(range.endContainer) && !el.contains(range.startContainer) && charsBefore(el, range.endContainer, range.endOffset) === 0),
+    );
+    const idx = els.map((el) => review.spans.findIndex((s) => s.id === el.dataset.span)).filter((i) => i >= 0);
+    return idx.length ? { range, els, idx } : null;
+  }
   function onSelect() {
     if (editor) return;
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !bodyEl || !bodyEl.contains(sel.anchorNode) || !bodyEl.contains(sel.focusNode)) {
+    const got = selectedWords();
+    if (!got || !bodyEl) {
       picked = null;
       return;
     }
-    const range = sel.getRangeAt(0);
-    // Every word the selection touches, ignoring one it only ends at.
-    const touched = [...bodyEl.querySelectorAll<HTMLElement>("[data-span]")].filter(
-      (el) => range.intersectsNode(el) && !(range.endOffset === 0 && el.contains(range.endContainer) && !el.contains(range.startContainer)),
-    );
-    const idx = touched.map((el) => review.spans.findIndex((s) => s.id === el.dataset.span)).filter((i) => i >= 0);
-    if (idx.length === 0) {
-      picked = null;
-      return;
-    }
+    const { range, idx } = got;
     const a = Math.min(...idx);
     const b = Math.max(...idx);
     const rect = range.getBoundingClientRect();
@@ -641,6 +644,56 @@
       saving = false;
     }
   }
+  /** Characters of a word's text before a selection boundary. */
+  function charsBefore(el: HTMLElement, node: Node, offset: number): number {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    if (!el.contains(node)) return r.comparePoint(node, offset) < 0 ? 0 : (el.textContent ?? "").length;
+    r.setEnd(node, offset);
+    return r.toString().length;
+  }
+  /** Delete (or Backspace) on a selection: remove exactly the selected
+   *  words or characters, as one undoable text edit. */
+  async function deleteSelection() {
+    const got = selectedWords();
+    if (!got || saving) return;
+    const { range, els, idx } = got;
+    const a = Math.min(...idx);
+    const b = Math.max(...idx);
+    // Only what is on screen: text hidden or drawn elsewhere between the
+    // ends would go too.
+    if (new Set(idx).size !== b - a + 1) {
+      ui.toast("Select consecutive words to delete them", "error", 4000);
+      return;
+    }
+    const first = els[idx.indexOf(a)]!;
+    const last = els[idx.indexOf(b)]!;
+    const words = review.spans.slice(a, b + 1);
+    const keep = words[0]!.text.slice(0, charsBefore(first, range.startContainer, range.startOffset)) + words[words.length - 1]!.text.slice(charsBefore(last, range.endContainer, range.endOffset));
+    picked = null;
+    wordMenu = null;
+    window.getSelection()?.removeAllRanges();
+    saving = true;
+    try {
+      const out = await ui.save(() => api.textEdit(words.map((s) => ({ span: s.id, revision: s.revision })), keep));
+      if (out.history) {
+        lastEdit = { history: out.history, words: out.changed };
+        ui.announce(`Deleted ${keep ? "text" : `${b - a + 1} word${a === b ? "" : "s"}`}`);
+        await review.reload();
+      }
+    } catch (e) {
+      ui.toast(errorMessage(e), "error", 6000);
+    } finally {
+      saving = false;
+    }
+  }
+  function onWindowKey(e: KeyboardEvent) {
+    if ((e.key !== "Delete" && e.key !== "Backspace") || e.defaultPrevented || editor || e.ctrlKey || e.metaKey || e.altKey) return;
+    if ((e.target as HTMLElement | null)?.closest?.("input, textarea, select, [contenteditable]")) return;
+    if (!selectedWords()) return;
+    e.preventDefault();
+    void deleteSelection();
+  }
   // A page change drops the pick and any open editor.
   $effect(() => {
     void view.page;
@@ -688,7 +741,7 @@
 {#snippet spell(t: string)}{#if misspelt.has(t)}<span class="misspelt" title="Not in the {review.spelling === 'en_US' ? 'US' : 'UK'} English dictionary · right-click for suggestions">{@render chars(t)}</span>{:else}{@render chars(t)}{/if}{/snippet}
 {#snippet chars(t: string)}{#if hlOn}{#each charRuns(t, { numbers: review.highlightNumbers, punctuation: review.highlightPunctuation, special: review.highlightSpecial }) as r, ri (ri)}{#if r.kind}<span class="hl {r.kind}">{r.text}</span>{:else}{r.text}{/if}{/each}{:else}{t}{/if}{/snippet}
 
-<svelte:window onclick={onWindowClick} onpointermove={notePointerMove} onpointerup={notePointerUp} onpointercancel={notePointerUp} />
+<svelte:window onclick={onWindowClick} onkeydown={onWindowKey} onpointermove={notePointerMove} onpointerup={notePointerUp} onpointercancel={notePointerUp} />
 
 {#snippet noteSlots(s: Slots, pi: number, side: "left" | "right")}
   {#each NOTE_POSITIONS as pos (pos)}
