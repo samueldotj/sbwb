@@ -1174,12 +1174,11 @@ impl Project {
             .position(|s| s.id == span && !s.text.is_empty())
             .ok_or_else(|| SbwbError::NotFound("the word no longer exists".into()))?;
         let s = &spans[i];
-        let prev = spans[..i]
+        let prev_at = spans[..i]
             .iter()
-            .rev()
-            .find(|p| !p.text.is_empty())
-            .filter(|p| p.region == s.region);
-        let Some(prev) = prev else {
+            .rposition(|p| !p.text.is_empty())
+            .filter(|&k| spans[k].region == s.region);
+        let Some(prev_at) = prev_at else {
             return Err(SbwbError::InvalidInput(
                 if start {
                     "this word already starts its region"
@@ -1189,8 +1188,14 @@ impl Project {
                 .into(),
             ));
         };
-        let line_break = prev.trailing.contains('\n');
-        if s.paragraph_start == start && (start || !line_break) {
+        let prev = &spans[prev_at];
+        // Emptied words between the two (removed by an edit) can still hold
+        // the paragraph start or the line break; a join clears them too.
+        let between = &spans[prev_at + 1..i];
+        let line_break =
+            prev.trailing.contains('\n') || between.iter().any(|b| b.trailing.contains('\n'));
+        let starts = s.paragraph_start || between.iter().any(|b| b.paragraph_start);
+        if starts == start && (start || !line_break) {
             return Err(SbwbError::Conflict(
                 if start {
                     "a paragraph already starts here"
@@ -1214,6 +1219,9 @@ impl Project {
         let payload = serde_json::json!({
             "kind": "paragraph", "page": page.0, "span": span, "start": start, "was": s.paragraph_start,
             "prev": prev.id, "prev_trailing": prev.trailing,
+            "between": between.iter().map(|b| serde_json::json!({
+                "span": b.id, "start": b.paragraph_start, "trailing": b.trailing,
+            })).collect::<Vec<_>>(),
         });
         let tx = self.conn.transaction().map_err(db)?;
         tx.execute(
@@ -1221,12 +1229,8 @@ impl Project {
             params![span.to_string(), start as i64],
         )
         .map_err(db)?;
-        if !start && line_break {
-            tx.execute(
-                "UPDATE spans SET trailing = ' ' WHERE id = ?1",
-                params![prev.id.to_string()],
-            )
-            .map_err(db)?;
+        if !start {
+            join_gap(&tx, prev, between)?;
         }
         tx.execute(
             "UPDATE pages SET text_revision = text_revision + 1 WHERE page_index = ?1",
@@ -1296,20 +1300,16 @@ impl Project {
                     a.text == prev_word && b.text == word && a.region == b.region
                 })
                 .min_by_key(|w| (spans[w[1]].seq as i64 - seq).abs())
-                .map(|w| (spans[w[0]].id, spans[w[1]].id));
+                .map(|w| (w[0], w[1]));
             let tx = self.conn.transaction().map_err(db)?;
             if let Some((prev, span)) = found {
                 tx.execute(
                     "UPDATE spans SET paragraph_start = ?2 WHERE id = ?1",
-                    params![span.to_string(), start as i64],
+                    params![spans[span].id.to_string(), start as i64],
                 )
                 .map_err(db)?;
                 if !start {
-                    tx.execute(
-                        "UPDATE spans SET trailing = ' ' WHERE id = ?1 AND trailing LIKE '%' || char(10) || '%'",
-                        params![prev.to_string()],
-                    )
-                    .map_err(db)?;
+                    join_gap(&tx, &spans[prev], &spans[prev + 1..span])?;
                 }
             }
             tx.execute(
@@ -1597,6 +1597,17 @@ impl Project {
                     )
                     .map_err(db)?;
                 }
+                for b in v["between"].as_array().into_iter().flatten() {
+                    tx.execute(
+                        "UPDATE spans SET paragraph_start = ?2, trailing = ?3 WHERE id = ?1",
+                        params![
+                            b["span"].as_str().unwrap_or(""),
+                            b["start"].as_bool().unwrap_or(false) as i64,
+                            b["trailing"].as_str().unwrap_or("")
+                        ],
+                    )
+                    .map_err(db)?;
+                }
                 tx.execute(
                     "UPDATE pages SET text_revision = text_revision + 1 WHERE page_index = ?1",
                     params![v["page"].as_i64().unwrap_or(-1)],
@@ -1735,6 +1746,28 @@ fn clip(s: &str) -> String {
 
 /// Write a planned edit over `sel` inside a transaction: text, spacing,
 /// superseded issues and proposals. Returns the undo items.
+/// Join across the gap after `prev`: its line break becomes a space, and
+/// the emptied words in `between` lose any paragraph start or line break.
+fn join_gap(tx: &Transaction, prev: &sbwb_text::Span, between: &[sbwb_text::Span]) -> Result<()> {
+    if prev.trailing.contains('\n') {
+        tx.execute(
+            "UPDATE spans SET trailing = ' ' WHERE id = ?1",
+            params![prev.id.to_string()],
+        )
+        .map_err(db)?;
+    }
+    for b in between {
+        if b.paragraph_start || b.trailing.contains('\n') {
+            tx.execute(
+                "UPDATE spans SET paragraph_start = 0, trailing = '' WHERE id = ?1",
+                params![b.id.to_string()],
+            )
+            .map_err(db)?;
+        }
+    }
+    Ok(())
+}
+
 fn apply_text_edit(
     tx: &Transaction,
     sel: &[sbwb_text::Span],
@@ -2395,6 +2428,28 @@ mod tests {
         let s6 = p.page_spans(page).unwrap();
         p.set_paragraph_start(s6[2].id, false).unwrap();
         assert_eq!(gaps(&p)[1], " ");
+        // an emptied word between the two still holding the paragraph start:
+        // the join clears it, undo puts it back, a rerun replays it
+        let gapped = |region| -> Vec<Span> {
+            let mut w = words(region);
+            w[1].text = "delta.".into();
+            w[2].text = "".into();
+            w[2].trailing = "".into();
+            w[2].paragraph_start = true;
+            w[3].text = "Epsilon".into();
+            w
+        };
+        p.put_page_text(page, None, &gapped(sbwb_core::RegionId::new()), &[])
+            .unwrap();
+        let s7 = p.page_spans(page).unwrap();
+        let h = p.set_paragraph_start(s7[3].id, false).unwrap();
+        assert_eq!(starts(&p), [true, false, false, false]);
+        p.undo(h).unwrap();
+        assert_eq!(starts(&p), [true, false, true, false]);
+        p.set_paragraph_start(s7[3].id, false).unwrap();
+        p.put_page_text(page, None, &gapped(sbwb_core::RegionId::new()), &[])
+            .unwrap();
+        assert_eq!(starts(&p), [true, false, false, false]);
         // words in another region cannot be joined
         let mut two = words(sbwb_core::RegionId::new());
         two[2].region = Some(sbwb_core::RegionId::new());

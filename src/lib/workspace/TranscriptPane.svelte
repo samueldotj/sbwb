@@ -266,7 +266,7 @@
   /** What the word menu can do with paragraphs at this word: start one
    *  here, or (for a paragraph's first word, or a word after a line break
    *  an earlier join left) join it to the paragraph before when that is
-   *  in the same region. */
+   *  in the same region. Emptied words between the two count as the gap. */
   function paragraphAction(id: string): "split" | "join" | null {
     const i = review.spans.findIndex((s) => s.id === id);
     const s = review.spans[i];
@@ -275,7 +275,8 @@
     while (k >= 0 && !review.spans[k]!.text) k--;
     const prev = review.spans[k];
     if (!prev || prev.region !== s.region) return null;
-    return s.paragraph_start || prev.trailing.includes("\n") ? "join" : "split";
+    const gap = review.spans.slice(k, i + 1);
+    return gap.some((g, j) => (j > 0 && g.paragraph_start) || (j < gap.length - 1 && g.trailing.includes("\n"))) ? "join" : "split";
   }
   /** First words of footnote paragraphs that continue the note above. */
   const fnParts = $derived(new Set(review.footnotes.notes.flatMap((n) => n.parts ?? [])));
