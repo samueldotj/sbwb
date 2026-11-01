@@ -1,5 +1,48 @@
 # Release notes
 
+## 0.5.0 (2026-11-01)
+
+Opening a 0.4.0 project upgrades its file (schema 10 → 11) after saving a
+backup beside it (`.pre-v11.bak`); 0.4.0 cannot open an upgraded project.
+
+### AI proofreading
+
+- **Join words split across page breaks**: an option in the AI tab sends
+  every page break, with two sentences from each side and the break
+  removed, and asks whether the words either side are one word the OCR
+  split. Accepting a join puts the whole word on the earlier page, as one
+  undoable step, and both pages need fresh approval.
+- **AI suggestions only**: a checkbox in the Review rail shows only the AI
+  suggestions: their marks, their pages in the filmstrip and their count.
+  **Review N AI suggestions** in the AI tab turns it on.
+- The AI tab shows the book's AI spend, and each run shows its cost. The
+  total is worked out by SBWB from the tokens each provider reported, at
+  list prices; a link opens the provider's page of actual charges.
+- The cost of a run is estimated for the chosen model before you send.
+- View and edit the prompt in the AI tab.
+- The tab says why Send is off and offers to raise the request budget.
+- Run progress and the finish notice stay when the AI tab is closed.
+- Fixed: Claude Sonnet 5 and other newer models failed every request,
+  because SBWB sent a temperature setting they reject.
+
+### Review and transcript
+
+- The text pass's own joins across a page break now work. They were filed
+  under the later page, so they never reached the review. Existing ones
+  move to the earlier page when the project is upgraded.
+- **Unreviewed pages** filters the page grid and filmstrip to pages without
+  a current approval, and the page keys skip to the next such page.
+- Delete or Backspace removes the selected words or characters, as one
+  undoable edit.
+- Joining two paragraphs also works across a word that an edit emptied.
+
+### Layout
+
+- Leaving Edit layout saves your edits and re-runs the text pass on the
+  pages you changed.
+- Making a region a heading sets its Word structure to Heading 1, and
+  making it body sets Ordinary text.
+
 ## 0.4.0 (2026-10-24)
 
 ### Updates
