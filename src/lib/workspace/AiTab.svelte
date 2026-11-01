@@ -140,7 +140,6 @@
   const overBudget = $derived(!!estimate && estimate.requests > prefs.maxRequests);
   const sendBlocker = $derived.by((): string => {
     if (joinPages && join && join.breaks === 0) return "Choose at least two neighbouring pages with running text.";
-    if (joinPages && join && join.candidates === 0) return "No page break here could hide a split word, so there is nothing to send.";
     if (!estimate || estimate.pages.length === 0) return "Choose pages that have been through the text pass.";
     if (!hasKey) return `Add an API key for ${providerStatus?.label ?? prefs.provider} to send.`;
     if (!prefs.model.trim()) return "Choose a model to send.";
@@ -250,10 +249,10 @@
     }
   }
   async function reviewSuggestions() {
-    review.excludeKinds = [];
     review.deferredView = false;
+    review.aiOnly = true;
+    review.selectedId = null;
     await review.refreshCounts();
-    // AI suggestions are unscored, so they match at every threshold
     await review.step(true);
   }
   function usd(v: number): string {
@@ -380,7 +379,7 @@
         {#each estimate.payload_kinds as k, i (i)}<li>{k}</li>{/each}
         {#if join}
           <li>the fixed page-break prompt</li>
-          <li>{join.candidates} of {join.breaks} page break{join.breaks === 1 ? "" : "s"} (the rest end a sentence or start with a capital, so cannot split a word), {estimate.words} words, about {estimate.approx_tokens} tokens in {estimate.requests} request{estimate.requests === 1 ? "" : "s"}</li>
+          <li>{join.breaks} page break{join.breaks === 1 ? "" : "s"}, {estimate.words} words, about {estimate.approx_tokens} tokens in {estimate.requests} request{estimate.requests === 1 ? "" : "s"}</li>
           <li>Not sent: the PDF, scan images, file paths, project metadata, the rest of each page</li>
         {:else}
           <li>the prompt: {prefs.instructions ? "your edited instructions" : "the default instructions"} and the fixed rules</li>
@@ -421,7 +420,7 @@
     <button type="button" class="ctl" onclick={() => api.aiCancel()}>Cancel after this {joinPages ? "request" : "page"}</button>
   {:else}
     <button type="button" class="ctl primary wide" onclick={send} disabled={!!sendBlocker} aria-describedby={sendBlocker ? "ai-send-why" : undefined}>
-      {#if join}Send {join.candidates} page break{join.candidates === 1 ? "" : "s"}{:else}Send {estimate?.pages.length ?? 0} page{(estimate?.pages.length ?? 0) === 1 ? "" : "s"}{/if}
+      {#if join}Send {join.breaks} page break{join.breaks === 1 ? "" : "s"}{:else}Send {estimate?.pages.length ?? 0} page{(estimate?.pages.length ?? 0) === 1 ? "" : "s"}{/if}
     </button>
     {#if sendBlocker}<p id="ai-send-why" class="muted small why">{sendBlocker}</p>{/if}
   {/if}

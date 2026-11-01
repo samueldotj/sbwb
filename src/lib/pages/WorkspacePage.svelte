@@ -164,7 +164,13 @@
   const currentPage = $derived(summary.pages[view.page] ?? null);
   const unreviewedCount = $derived(summary.pages.filter(isUnreviewed).length);
   // The strip keeps the open page, so approving it does not pull it away.
-  const stripPages = $derived(filterPages(summary.pages, ui.unreviewedOnly, view.page));
+  const stripPages = $derived(
+    filterPages(summary.pages, ui.unreviewedOnly, view.page).filter((p) => {
+      if (!review.aiOnly || p.index === view.page) return true;
+      const c = review.pageCounts.get(p.index);
+      return c !== undefined && c.open + c.deferred > 0;
+    }),
+  );
   const gridPages = $derived(filterPages(summary.pages, ui.unreviewedOnly));
   let pageWords = $state<OcrWord[]>([]);
 
@@ -440,8 +446,12 @@
   <PipelineRail {stages} activeId={view.mode === "processing" ? (tab === "ocr" || tab === "layout" ? tab : "import") : ""} onselect={onrail}>
     <div class="review-block">
       <button type="button" class="label linkish" onclick={() => (view.mode = "review")}>Review</button>
-      <div class="row"><span>Unresolved</span><b>{review.counts.unresolved || "—"}</b></div>
-      <div class="row"><span>Below {review.threshold}%</span><b>{review.counts.matching}</b></div>
+      {#if review.aiOnly}
+        <div class="row"><span>AI suggestions</span><b>{review.counts.matching}</b></div>
+      {:else}
+        <div class="row"><span>Unresolved</span><b>{review.counts.unresolved || "—"}</b></div>
+        <div class="row"><span>Below {review.threshold}%</span><b>{review.counts.matching}</b></div>
+      {/if}
       {#if review.counts.deferred}<div class="row"><span>Deferred</span><b>{review.counts.deferred}</b></div>{/if}
       <div class="row"><span>Pages approved</span><b>{summary.counts.approved} / {summary.counts.in_scope}</b></div>
       <StackedBar approved={summary.counts.approved} issues={Math.max(0, summary.counts.text_done - summary.counts.approved)} unseen={Math.max(0, summary.counts.in_scope - summary.counts.text_done)} height="6px" />
@@ -449,6 +459,7 @@
         <div class="filters">
           <label title="List and step through only the pages not yet approved, including approvals that are outdated"><input type="checkbox" bind:checked={ui.unreviewedOnly} /> Unreviewed pages ({unreviewedCount})</label>
           <label><input type="checkbox" bind:checked={review.deferredView} onchange={() => { review.selectedId = null; void review.refreshCounts(); }} /> Deferred view</label>
+          <label title="Show and step through only the words with an AI suggestion, and only the pages that have one"><input type="checkbox" bind:checked={review.aiOnly} onchange={() => { review.selectedId = null; void review.refreshCounts(); }} /> AI suggestions only</label>
           <label><input type="checkbox" bind:checked={review.byPriority} onchange={() => review.savePrefs()} /> By priority</label>
           <label><input type="checkbox" bind:checked={review.hideCompleted} onchange={() => review.savePrefs()} /> Hide accepted</label>
           <label><input type="checkbox" bind:checked={review.hideAuto} onchange={() => review.savePrefs()} /> Hide auto-applied</label>

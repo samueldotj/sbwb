@@ -2,9 +2,8 @@
 //! one passage, with the break removed, and asks whether the last word of
 //! one page and the first word of the next are one word the OCR split.
 //!
-//! Only those two words can be joined, so only the words around each break
-//! are sent; the rest of a page cannot change the answer and would only add
-//! to the bill. A reply is accepted only when it is exactly the two words
+//! Every break is sent, whatever its words look like, with two sentences
+//! from each side so the model can judge the reading in context. A reply is accepted only when it is exactly the two words
 //! put together (AI-03): the model picks where to join, never what the
 //! letters are. Like every AI suggestion, a join is reviewed, never applied
 //! here.
@@ -17,8 +16,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{prompt, providers, AiError, Budget, Connection, Result, Usage};
 
-/// Words sent from each side of a page break.
-pub const CONTEXT_WORDS: usize = 30;
+/// Sentences sent from each side of a page break.
+pub const CONTEXT_SENTENCES: usize = 2;
+/// Most words sent from each side, for text with little punctuation.
+pub const MAX_CONTEXT_WORDS: usize = 120;
 /// Most page breaks in one request.
 pub const MAX_BREAKS_PER_REQUEST: usize = 20;
 
@@ -74,27 +75,40 @@ fn without_hyphen(word: &str) -> &str {
     word.trim_end_matches(is_hyphen)
 }
 
-/// Whether two words could be one split word at all, so a request is not
-/// spent on a break that follows a full stop or precedes a capital. A
-/// heading in capitals can continue in capitals.
-pub fn could_be_split(last: &str, first: &str) -> bool {
-    let Some(end) = last.chars().last() else {
-        return false;
-    };
-    let Some(start) = first.chars().next() else {
-        return false;
-    };
-    if !end.is_alphabetic() && !is_hyphen(end) {
-        return false;
+fn ends_sentence(word: &str) -> bool {
+    word.trim_end_matches(['"', '\'', '”', '’', ')', ']'])
+        .ends_with(['.', '!', '?'])
+}
+
+/// Where the last [`CONTEXT_SENTENCES`] sentences of a page's words begin.
+/// Text left unfinished at the end of the page counts as a sentence.
+pub fn context_start(words: &[&str]) -> usize {
+    let mut found = 0;
+    let earliest = words.len().saturating_sub(MAX_CONTEXT_WORDS);
+    for i in (earliest + 1..words.len()).rev() {
+        if ends_sentence(words[i - 1]) {
+            found += 1;
+            if found == CONTEXT_SENTENCES {
+                return i;
+            }
+        }
     }
-    let core = without_hyphen(last);
-    if !core.chars().any(char::is_alphabetic) {
-        return false;
+    earliest
+}
+
+/// Where the first [`CONTEXT_SENTENCES`] sentences of a page's words end.
+pub fn context_end(words: &[&str]) -> usize {
+    let mut found = 0;
+    let latest = words.len().min(MAX_CONTEXT_WORDS);
+    for (i, w) in words[..latest].iter().enumerate() {
+        if ends_sentence(w) {
+            found += 1;
+            if found == CONTEXT_SENTENCES {
+                return i + 1;
+            }
+        }
     }
-    start.is_lowercase()
-        || (start.is_uppercase()
-            && !core.chars().any(char::is_lowercase)
-            && core.chars().count() > 1)
+    latest
 }
 
 /// Split breaks into requests, keeping each under the per-request limits.
@@ -246,16 +260,29 @@ mod tests {
     }
 
     #[test]
-    fn only_possible_splits_are_sent() {
-        assert!(could_be_split("communica-", "tion,"));
-        assert!(could_be_split("commu", "nication"));
-        assert!(could_be_split("HOW-", "EVER"));
-        assert!(!could_be_split("end.", "the"));
-        assert!(!could_be_split("said,", "and"));
-        assert!(!could_be_split("the", "Phoenicians"));
-        assert!(!could_be_split("12", "the"));
-        assert!(!could_be_split("", "the"));
-        assert!(!could_be_split("-", "the"));
+    fn context_is_two_sentences_from_each_side() {
+        let page = ["One.", "Two", "two.", "Three", "three.", "Four", "commu-"];
+        // the unfinished text counts as one sentence
+        assert_eq!(
+            &page[context_start(&page)..],
+            ["Three", "three.", "Four", "commu-"]
+        );
+        let end = ["Two", "two.", "Three", "three.", "Four", "four."];
+        assert_eq!(
+            &end[context_start(&end)..],
+            ["Three", "three.", "Four", "four."]
+        );
+        let next = ["nication", "here.", "“Then", "this!”", "Three", "three."];
+        assert_eq!(
+            &next[..context_end(&next)],
+            ["nication", "here.", "“Then", "this!”"]
+        );
+        // short pages are sent whole, and text with no full stops is capped
+        assert_eq!(context_start(&["only", "words"]), 0);
+        assert_eq!(context_end(&["only", "words"]), 2);
+        let long = vec!["word"; MAX_CONTEXT_WORDS + 50];
+        assert_eq!(context_start(&long), 50);
+        assert_eq!(context_end(&long), MAX_CONTEXT_WORDS);
     }
 
     #[test]

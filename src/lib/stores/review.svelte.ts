@@ -44,6 +44,8 @@ class ReviewState {
   threshold = $state(70);
   excludeKinds = $state<IssueKind[]>([]);
   deferredView = $state(false);
+  /** Review only issues with an AI suggestion; not kept between sessions. */
+  aiOnly = $state(false);
   byPriority = $state(false);
   hideCompleted = $state(false);
   hideAuto = $state(false);
@@ -92,13 +94,19 @@ class ReviewState {
   #prefsLoaded = false;
 
   get filter(): IssueFilter {
-    return { threshold: this.threshold, exclude_kinds: this.excludeKinds, deferred_view: this.deferredView, by_priority: this.byPriority };
+    return { threshold: this.threshold, exclude_kinds: this.excludeKinds, deferred_view: this.deferredView, by_priority: this.byPriority, ai_only: this.aiOnly };
+  }
+
+  /** Whether the filters show an issue on the current page. */
+  #shown(i: Issue): boolean {
+    if (this.aiOnly) return i.candidates.some((c) => c.source.startsWith("AI "));
+    return !this.excludeKinds.includes(i.kind) && (i.score === null || i.score < this.threshold);
   }
 
   /** Issues on the current page in the working set, reading order. */
   get matching(): Issue[] {
     const want = this.deferredView ? "deferred" : "open";
-    return this.issues.filter((i) => i.status === want && !this.excludeKinds.includes(i.kind) && (i.score === null || i.score < this.threshold));
+    return this.issues.filter((i) => i.status === want && this.#shown(i));
   }
   get selected(): Issue | null {
     return this.issues.find((i) => i.id === this.selectedId) ?? null;
@@ -149,11 +157,12 @@ class ReviewState {
   markFor(span: Span): { kind: MarkKind; issue: Issue | null } {
     const issue = this.issues.find((i) => i.span === span.id && (i.status === "open" || i.status === "deferred"));
     if (issue) {
-      const shown = !this.excludeKinds.includes(issue.kind) && (issue.score === null || issue.score < this.threshold);
+      const shown = this.#shown(issue);
       if (issue.status === "deferred") return { kind: this.deferredView && shown ? "deferred" : "none", issue };
       if (shown && !this.deferredView) return { kind: "issue", issue };
       return { kind: "none", issue };
     }
+    if (this.aiOnly) return { kind: "none", issue: null };
     if (span.origin === "accepted" || span.origin === "manual") return { kind: this.hideCompleted && !this.trackChanges ? "none" : "accepted", issue: null };
     if (span.origin === "auto_applied") return { kind: this.hideAuto && !this.trackChanges ? "none" : "auto", issue: null };
     return { kind: "none", issue: null };
@@ -303,7 +312,7 @@ class ReviewState {
     try {
       const r = await api.nextIssue(this.selectedId, this.selectedId ? null : view.page, forward, this.filter);
       if (!r.issue) {
-        const what = this.deferredView ? "deferred items" : "issues";
+        const what = this.aiOnly ? "AI suggestions" : this.deferredView ? "deferred items" : "issues";
         ui.toast(this.counts.matching === 0 && !this.deferredView ? `No ${what} match the current threshold and filters` : `No more ${what}`, "info");
         ui.announce("No more issues");
         return;

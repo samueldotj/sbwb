@@ -241,7 +241,7 @@ export type Issue = {
   bbox: { x: number; y: number; w: number; h: number } | null;
   region: string | null;
 };
-export type IssueFilter = { threshold: number; exclude_kinds: IssueKind[]; deferred_view: boolean; by_priority: boolean };
+export type IssueFilter = { threshold: number; exclude_kinds: IssueKind[]; deferred_view: boolean; by_priority: boolean; ai_only?: boolean };
 export type IssueCounts = {
   unresolved: number;
   matching: number;
@@ -390,7 +390,7 @@ export type AiStatus = { providers: AiProviderStatus[]; open_suggestions: number
 export type PromptPreview = { default_instructions: string; rules: string; max_instructions: number; system: string; user: string | null };
 export type CostEstimate = { usd: number | null; input_per_mtok: number | null; output_per_mtok: number | null; prices_as_of: string };
 export type Estimate = { pages: number[]; words: number; chars: number; approx_tokens: number; approx_output_tokens: number; requests: number; payload_kinds: string[] };
-export type JoinEstimate = { estimate: Estimate; breaks: number; candidates: number; system: string; sample: string | null };
+export type JoinEstimate = { estimate: Estimate; breaks: number; system: string; sample: string | null };
 
 // ----- book queue (PRJ-06) -----
 export type QueueItem = {

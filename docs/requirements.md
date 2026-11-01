@@ -299,7 +299,7 @@ AI returns anchored spelling/grammar suggestions with before/after text and reas
 
 AI suggestions enter the same review inbox and history as local suggestions, clearly labeled by provider/model. They are **never automatically applied**, irrespective of any score or offline threshold. Local processing, manual review, and export remain usable with no AI connection.
 
-An option in the AI tab reads the selected pages with their page breaks removed and looks for a word the OCR split across a break. Only the words around each break are sent, and a reply must be exactly the two words put together. A join is an AI suggestion like any other, reviewed on the earlier page. Accepting it puts the whole word on the earlier page, with the scan links of both parts, and empties the fragment on the later page; it is undoable as one step, survives a rerun of either page, and requires fresh approval of both pages.
+An option in the AI tab reads the selected pages with their page breaks removed and looks for a word the OCR split across a break. Every break is sent, with two sentences from each side, and a reply must be exactly the two words put together. A join is an AI suggestion like any other, reviewed on the earlier page. Accepting it puts the whole word on the earlier page, with the scan links of both parts, and empties the fragment on the later page; it is undoable as one step, survives a rerun of either page, and requires fresh approval of both pages.
 
 ## 9. Word export and content accountability
 

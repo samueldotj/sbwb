@@ -178,19 +178,21 @@
 {#if !issue}
   <div class="empty">
     {#if review.page === view.page && review.matching.length}
-      <p>{review.matching.length} {review.deferredView ? "deferred" : "unresolved"} on this page.</p>
+      <p>{review.matching.length} {review.aiOnly ? `AI suggestion${review.matching.length === 1 ? "" : "s"}` : review.deferredView ? "deferred" : "unresolved"} on this page.</p>
       <button type="button" class="ctl primary" onclick={() => review.select(review.matching[0]!.id)}>Open the first</button>
     {:else if review.counts.matching}
-      <p>No issues match on this page. <b>{review.counts.matching}</b> in the book.</p>
-      <button type="button" class="ctl primary" onclick={() => review.step(true)}>Next issue <kbd>J</kbd></button>
+      <p>No {review.aiOnly ? "AI suggestions" : "issues match"} on this page. <b>{review.counts.matching}</b> in the book.</p>
+      <button type="button" class="ctl primary" onclick={() => review.step(true)}>{review.aiOnly ? "Next suggestion" : "Next issue"} <kbd>J</kbd></button>
+    {:else if review.aiOnly}
+      <p class="muted">No AI suggestions to review.</p>
     {:else}
       <p class="muted">Nothing to review at this threshold{review.counts.above_threshold ? ` · ${review.counts.above_threshold} scored above ${review.threshold}%` : ""}{review.counts.deferred ? ` · ${review.counts.deferred} deferred` : ""}.</p>
     {/if}
-    <p class="muted small">Unresolved {review.counts.unresolved} · matching {review.counts.matching} · deferred {review.counts.deferred} · resolved {review.counts.resolved}{review.counts.stale ? ` · stale ${review.counts.stale}` : ""}{review.counts.unprocessed_pages ? ` · ${review.counts.unprocessed_pages} pages not yet indexed` : ""}</p>
+    {#if !review.aiOnly}<p class="muted small">Unresolved {review.counts.unresolved} · matching {review.counts.matching} · deferred {review.counts.deferred} · resolved {review.counts.resolved}{review.counts.stale ? ` · stale ${review.counts.stale}` : ""}{review.counts.unprocessed_pages ? ` · ${review.counts.unprocessed_pages} pages not yet indexed` : ""}</p>{/if}
   </div>
 {:else}
   <div class="head">
-    <div class="strong">Issue {position >= 0 ? position + 1 : "–"} of {review.matching.length} on page {issue.page + 1}</div>
+    <div class="strong">{review.aiOnly ? "AI suggestion" : "Issue"} {position >= 0 ? position + 1 : "–"} of {review.matching.length} on page {issue.page + 1}</div>
     <div class="muted small">{review.counts.matching} in book · {ISSUE_KIND_LABEL[issue.kind]}</div>
   </div>
 

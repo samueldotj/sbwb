@@ -301,9 +301,8 @@ pub fn ai_estimate(
 #[derive(Debug, Clone, Serialize)]
 pub struct JoinEstimate {
     pub estimate: Estimate,
-    /// Page breaks in the selection, and those worth asking about.
+    /// Page breaks in the selection; all of them are sent.
     pub breaks: u32,
-    pub candidates: u32,
     pub system: String,
     pub sample: Option<String>,
 }
@@ -319,21 +318,16 @@ struct BreakItem {
 /// The page breaks in `pages`, read as one continuous text: a break joins a
 /// page to the next with running text, past blank pages and plates, but not
 /// across a page left out of the selection or not yet through the text
-/// pass. Returns how many breaks there were and those that could hide a
-/// split word.
-fn page_breaks(
-    store: &sbwb_store::Project,
-    pages: &[u32],
-) -> sbwb_core::Result<(u32, Vec<BreakItem>)> {
+/// pass.
+fn page_breaks(store: &sbwb_store::Project, pages: &[u32]) -> sbwb_core::Result<Vec<BreakItem>> {
     let rows = store.pages()?;
     let mut sorted = pages.to_vec();
     sorted.sort_unstable();
     sorted.dedup();
     let (Some(&from), Some(&to)) = (sorted.first(), sorted.last()) else {
-        return Ok((0, vec![]));
+        return Ok(vec![]);
     };
     let mut prev: Option<(u32, Vec<sbwb_text::Span>)> = None;
-    let mut total = 0;
     let mut out = Vec::new();
     for i in from..=to {
         let page = PageIndex(i);
@@ -351,26 +345,28 @@ fn page_breaks(
             continue;
         }
         if let Some((prev_page, before)) = prev.take() {
-            total += 1;
-            let text_of = |s: &[sbwb_text::Span]| s.iter().map(|w| w.text.clone()).collect();
-            let at = before.len().saturating_sub(sbwb_ai::joins::CONTEXT_WORDS);
-            let text = PageBreak {
-                before: text_of(&before[at..]),
-                after: text_of(&words[..words.len().min(sbwb_ai::joins::CONTEXT_WORDS)]),
+            let strs = |s: &[sbwb_text::Span]| -> Vec<String> {
+                s.iter().map(|w| w.text.clone()).collect()
             };
-            if sbwb_ai::joins::could_be_split(text.last(), text.first()) {
-                let (a, b) = (&before[before.len() - 1], &words[0]);
-                out.push(BreakItem {
-                    text,
-                    last: (a.id, a.revision),
-                    first: (b.id, b.revision),
-                    pages: (prev_page, i),
-                });
-            }
+            let (before_text, after_text) = (strs(&before), strs(&words));
+            let before_refs: Vec<&str> = before_text.iter().map(String::as_str).collect();
+            let after_refs: Vec<&str> = after_text.iter().map(String::as_str).collect();
+            let at = sbwb_ai::joins::context_start(&before_refs);
+            let to = sbwb_ai::joins::context_end(&after_refs);
+            let (a, b) = (&before[before.len() - 1], &words[0]);
+            out.push(BreakItem {
+                text: PageBreak {
+                    before: before_text[at..].to_vec(),
+                    after: after_text[..to].to_vec(),
+                },
+                last: (a.id, a.revision),
+                first: (b.id, b.revision),
+                pages: (prev_page, i),
+            });
         }
         prev = Some((i, words));
     }
-    Ok((total, out))
+    Ok(out)
 }
 
 /// Estimate the page-break check for the consent card.
@@ -388,7 +384,7 @@ pub fn ai_join_estimate(
     let p = guard
         .as_ref()
         .ok_or_else(|| CommandError::new("not_found", "no open book"))?;
-    let (breaks, items) = page_breaks(&p.store, &pages)?;
+    let items = page_breaks(&p.store, &pages)?;
     let texts: Vec<PageBreak> = items.iter().map(|i| i.text.clone()).collect();
     let batches = sbwb_ai::joins::batches(&texts, max_input_chars).map_err(ai_err)?;
     let words: usize = texts.iter().map(PageBreak::words).sum();
@@ -405,10 +401,11 @@ pub fn ai_join_estimate(
             // the JSON wrapper per request, and room for a join on one break in four
             approx_output_tokens: batches.len() * 20 + texts.len() * 10,
             requests: batches.len() as u32,
-            payload_kinds: vec!["the words either side of each page break, with the break removed"],
+            payload_kinds: vec![
+                "two sentences from each side of every page break, with the break removed",
+            ],
         },
-        breaks,
-        candidates: texts.len() as u32,
+        breaks: texts.len() as u32,
         sample: batches
             .first()
             .map(|r| sbwb_ai::prompt::join_user_message(&texts[r.clone()])),
@@ -590,7 +587,7 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
         let p = guard
             .as_ref()
             .ok_or_else(|| CommandError::new("not_found", "no open book"))?;
-        let (_, items) = page_breaks(&p.store, &req.pages)?;
+        let items = page_breaks(&p.store, &req.pages)?;
         let texts: Vec<PageBreak> = items.iter().map(|i| i.text.clone()).collect();
         let batches = sbwb_ai::joins::batches(&texts, req.max_input_chars).map_err(ai_err)?;
         Some((items, batches))
@@ -642,7 +639,7 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
         provider: provider.id().into(),
         model: req.model.clone(),
         pages: pages.clone(),
-        consent: serde_json::json!({ "payload": if req.join_pages { serde_json::json!(["words either side of each page break"]) } else { serde_json::json!(["saved words with ids", "page numbers"]) }, "max_requests": req.max_requests, "max_input_chars": req.max_input_chars, "custom_prompt": custom_prompt, "join_pages": req.join_pages, "confirmed": true }),
+        consent: serde_json::json!({ "payload": if req.join_pages { serde_json::json!(["two sentences from each side of every page break"]) } else { serde_json::json!(["saved words with ids", "page numbers"]) }, "max_requests": req.max_requests, "max_input_chars": req.max_input_chars, "custom_prompt": custom_prompt, "join_pages": req.join_pages, "confirmed": true }),
         requests: 0,
         chars_sent: 0,
         input_tokens: None,

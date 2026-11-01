@@ -402,6 +402,10 @@ pub struct IssueFilter {
     /// Priority order instead of reading order.
     #[serde(default)]
     pub by_priority: bool,
+    /// Only issues with an AI suggestion among their candidates, whatever
+    /// the threshold.
+    #[serde(default)]
+    pub ai_only: bool,
 }
 
 impl Default for IssueFilter {
@@ -411,6 +415,7 @@ impl Default for IssueFilter {
             exclude_kinds: vec![],
             deferred_view: false,
             by_priority: false,
+            ai_only: false,
         }
     }
 }

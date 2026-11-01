@@ -207,13 +207,21 @@ pub(crate) fn span_page(tx: &Connection, span: SpanId) -> Result<PageIndex> {
     .map_err(db)
 }
 
+/// Matches an issue with an AI suggestion among its candidates.
+const AI_SUGGESTION: &str = r#"candidates LIKE '%"source":"AI %'"#;
+
 fn filter_sql(filter: &IssueFilter) -> String {
     let status = if filter.deferred_view {
         "deferred"
     } else {
         "open"
     };
-    let mut sql = format!("status = '{status}' AND (score IS NULL OR score < {}) AND page_index IN (SELECT page_index FROM pages WHERE status NOT IN ('unprocessed', 'excluded'))", filter.threshold);
+    let shown = if filter.ai_only {
+        AI_SUGGESTION.to_string()
+    } else {
+        format!("(score IS NULL OR score < {})", filter.threshold)
+    };
+    let mut sql = format!("status = '{status}' AND {shown} AND page_index IN (SELECT page_index FROM pages WHERE status NOT IN ('unprocessed', 'excluded'))");
     if !filter.exclude_kinds.is_empty() {
         let kinds: Vec<String> = filter
             .exclude_kinds
@@ -451,11 +459,18 @@ impl Project {
 
     /// Per-page open/matching/deferred counts for the filmstrip and rail.
     pub fn page_issue_counts(&self, filter: &IssueFilter) -> Result<Vec<PageIssueCounts>> {
+        let (only, shown) = if filter.ai_only {
+            (AI_SUGGESTION.to_string(), "1".to_string())
+        } else {
+            (
+                "1".to_string(),
+                format!("(score IS NULL OR score < {})", filter.threshold),
+            )
+        };
         let mut stmt = self
             .conn
             .prepare(&format!(
-                "SELECT page_index, sum(status = 'open'), sum(status = 'open' AND (score IS NULL OR score < {})), sum(status = 'deferred') FROM issues GROUP BY page_index ORDER BY page_index",
-                filter.threshold
+                "SELECT page_index, sum(status = 'open'), sum(status = 'open' AND {shown}), sum(status = 'deferred') FROM issues WHERE {only} GROUP BY page_index ORDER BY page_index"
             ))
             .map_err(db)?;
         let rows = stmt
@@ -2858,7 +2873,7 @@ mod tests {
 
     fn propose_join(p: &mut Project, a: &Span, first: &Span) -> u32 {
         p.merge_ai_joins(
-            "openai/test",
+            "AI · openai/test",
             &[crate::refine::AiJoin {
                 last: a.id,
                 last_revision: 1,
@@ -3125,6 +3140,36 @@ mod tests {
             .unwrap()
             .iter()
             .all(|i| i.kind != IssueKind::QuestionableJoin));
+    }
+
+    #[test]
+    fn ai_only_filter_finds_just_the_ai_suggestions() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path(), 2);
+        let (_, first, issue) = split_book(&mut p);
+        let all = IssueFilter::default();
+        let ai = IssueFilter {
+            ai_only: true,
+            threshold: 0,
+            ..Default::default()
+        };
+        // the fragment's low-confidence issue is not an AI suggestion
+        assert!(p.issue_counts(&all).unwrap().matching > 1);
+        assert_eq!(p.issue_counts(&ai).unwrap().matching, 1);
+        // the page counts behind the filmstrip see only the suggestion too
+        let pages = p.page_issue_counts(&ai).unwrap();
+        assert_eq!(pages.len(), 1);
+        assert_eq!((pages[0].page, pages[0].matching), (issue.page.0, 1));
+        // from the page after it, the search still lands on the suggestion
+        let next = p
+            .next_issue(None, Some(PageIndex(1)), true, &ai)
+            .unwrap()
+            .issue
+            .unwrap();
+        assert_eq!(next.id, issue.id);
+        assert_ne!(next.span, first.id);
+        accept_join(&mut p, &issue);
+        assert_eq!(p.issue_counts(&ai).unwrap().matching, 0);
     }
 
     #[test]

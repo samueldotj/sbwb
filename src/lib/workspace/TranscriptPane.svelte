@@ -194,7 +194,8 @@
   // counts cover the text drawn on the page.
   let hlOpen = $state(false);
   let hlRoot = $state<HTMLElement | null>(null);
-  const hlOn = $derived(review.highlightNumbers || review.highlightPunctuation || review.highlightSpecial);
+  // "AI suggestions only" hides the character, spelling and grammar marks too
+  const hlOn = $derived(!review.aiOnly && (review.highlightNumbers || review.highlightPunctuation || review.highlightSpecial));
   const kindCounts = $derived(countKinds([headLine, ...[...shownBody, ...foot].flatMap((p) => p.words.map((w) => w.span.text))]));
   function onWindowClick(e: MouseEvent) {
     if (hlOpen && hlRoot && !hlRoot.contains(e.target as Node)) hlOpen = false;
@@ -209,7 +210,7 @@
   let spellToken = 0;
   const pageTexts = $derived(review.page === view.page ? [...new Set(review.spans.map((s) => s.text).filter(Boolean))] : []);
   $effect(() => {
-    const dialect = review.spelling;
+    const dialect = review.aiOnly ? "off" : review.spelling;
     const words = pageTexts;
     void vocabTick;
     const t = ++spellToken;
@@ -229,7 +230,7 @@
       });
   });
   // Grammar: simple spacing, punctuation and capital checks, worked out here.
-  const grammarFlags = $derived<Map<string, GrammarFlag[]>>(review.grammar && review.page === view.page ? checkGrammar(review.spans) : new Map());
+  const grammarFlags = $derived<Map<string, GrammarFlag[]>>(review.grammar && !review.aiOnly && review.page === view.page ? checkGrammar(review.spans) : new Map());
   const grammarCount = $derived([...shownBody, ...foot].reduce((n, p) => n + p.words.reduce((k, w) => k + (grammarFlags.get(w.span.id)?.length ?? 0), 0), 0));
   const misspeltCount = $derived([...shownBody, ...foot].reduce((n, p) => n + p.words.filter((w) => misspelt.has(w.span.text)).length, 0));
   /** The word without surrounding punctuation or quotes. */
