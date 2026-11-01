@@ -15,6 +15,7 @@ const THEME_KEY = "sbwb.theme";
 const SIZE_KEY = "sbwb.textsize";
 const TRANSCRIPT_ZOOM_KEY = "sbwb.transcriptzoom";
 const PAGE_TILE_KEY = "sbwb.pagetile";
+const UNREVIEWED_ONLY_KEY = "sbwb.unreviewedonly";
 /** Width range of a page thumbnail in the Pages view, CSS px. */
 export const PAGE_TILE_MIN = 60;
 export const PAGE_TILE_MAX = 360;
@@ -60,6 +61,14 @@ function readStoredPageTile(): number {
   return 110;
 }
 
+function readStoredUnreviewedOnly(): boolean {
+  try {
+    return localStorage.getItem(UNREVIEWED_ONLY_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
 class UiState {
   theme = $state<Theme>(readStoredTheme());
   /** Enlarged text for the whole interface (UX-05). */
@@ -68,6 +77,8 @@ class UiState {
   transcriptZoom = $state<number>(readStoredTranscriptZoom());
   /** Thumbnail width in the Pages view, CSS px. */
   pageTile = $state<number>(readStoredPageTile());
+  /** List and step through only the pages not yet approved. */
+  unreviewedOnly = $state<boolean>(readStoredUnreviewedOnly());
   /** Polite live-region text for screen readers (UX-05). */
   announcement = $state("");
   /** Durable-write state shown in the status bar (PRJ-04). */
@@ -108,6 +119,13 @@ class UiState {
       $effect(() => {
         try {
           localStorage.setItem(PAGE_TILE_KEY, String(this.pageTile));
+        } catch {
+          /* ignore */
+        }
+      });
+      $effect(() => {
+        try {
+          localStorage.setItem(UNREVIEWED_ONLY_KEY, String(this.unreviewedOnly));
         } catch {
           /* ignore */
         }

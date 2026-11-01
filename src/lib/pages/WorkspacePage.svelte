@@ -38,6 +38,7 @@
   import { formatEta, pipeline } from "$lib/stores/pipeline.svelte";
   import { api, errorMessage, type ExportEntry, type ProcessingSettings } from "$lib/api";
   import { isTauri } from "$lib/ipc";
+  import { filterPages, isUnreviewed } from "$lib/pagefilter";
 
   type Props = { summary: ProjectSummary };
   let { summary }: Props = $props();
@@ -161,6 +162,10 @@
   });
 
   const currentPage = $derived(summary.pages[view.page] ?? null);
+  const unreviewedCount = $derived(summary.pages.filter(isUnreviewed).length);
+  // The strip keeps the open page, so approving it does not pull it away.
+  const stripPages = $derived(filterPages(summary.pages, ui.unreviewedOnly, view.page));
+  const gridPages = $derived(filterPages(summary.pages, ui.unreviewedOnly));
   let pageWords = $state<OcrWord[]>([]);
 
   // Regions for the current page follow the page and its layout revision.
@@ -442,6 +447,7 @@
       <StackedBar approved={summary.counts.approved} issues={Math.max(0, summary.counts.text_done - summary.counts.approved)} unseen={Math.max(0, summary.counts.in_scope - summary.counts.text_done)} height="6px" />
       {#if view.mode === "review"}
         <div class="filters">
+          <label title="List and step through only the pages not yet approved, including approvals that are outdated"><input type="checkbox" bind:checked={ui.unreviewedOnly} /> Unreviewed pages ({unreviewedCount})</label>
           <label><input type="checkbox" bind:checked={review.deferredView} onchange={() => { review.selectedId = null; void review.refreshCounts(); }} /> Deferred view</label>
           <label><input type="checkbox" bind:checked={review.byPriority} onchange={() => review.savePrefs()} /> By priority</label>
           <label><input type="checkbox" bind:checked={review.hideCompleted} onchange={() => review.savePrefs()} /> Hide accepted</label>
@@ -470,7 +476,7 @@
     {/if}
     {#if ui.theme === "bench" && view.mode === "review"}
       <div class="label mini-label">pages</div>
-      <PageMiniGrid pages={summary.pages} />
+      <PageMiniGrid pages={stripPages} />
     {/if}
     {#snippet footer()}
       {#if view.mode === "processing"}
@@ -527,7 +533,7 @@
 
   {#if view.mode === "review"}
     {#if ui.theme !== "bench"}
-      <Filmstrip pages={summary.pages} />
+      <Filmstrip pages={stripPages} />
     {/if}
     <ScanPane pages={summary.pages}>
       {#snippet overlay({ page, zoom })}
@@ -567,6 +573,7 @@
         <span class="muted">Processing {summary.counts.in_scope} · {summary.counts.unprocessed} untouched in the source</span>
         <span class="grow"></span>
         <span class="muted small hint">Click a page to open it while OCR continues</span>
+        <label class="only small" title="Show only the pages not yet approved, including approvals that are outdated"><input type="checkbox" bind:checked={ui.unreviewedOnly} /> Unreviewed ({unreviewedCount})</label>
         <span class="previews" aria-live="polite">
           {#if previews.total && previews.done >= previews.total}
             <span class="muted small">Previews ready</span>
@@ -585,14 +592,18 @@
           <button type="button" class="zbtn" onclick={() => ui.zoomPageTiles(1)} disabled={ui.pageTile >= PAGE_TILE_MAX} aria-label="Larger thumbnails">+</button>
         </label>
       </div>
-      <PageGrid
-        pages={summary.pages}
-        current={view.page}
-        onopen={(i) => view.open(i)}
-        tile={ui.pageTile}
-        onzoom={(d) => ui.zoomPageTiles(d)}
-        thumbUrl={(i) => (summary.pages[i]?.status === "unprocessed" ? null : renderUrl(i, thumbScale(i)))}
-      />
+      {#if gridPages.length}
+        <PageGrid
+          pages={gridPages}
+          current={view.page}
+          onopen={(i) => view.open(i)}
+          tile={ui.pageTile}
+          onzoom={(d) => ui.zoomPageTiles(d)}
+          thumbUrl={(i) => (summary.pages[i]?.status === "unprocessed" ? null : renderUrl(i, thumbScale(i)))}
+        />
+      {:else}
+        <p class="muted none-left">No unreviewed pages.</p>
+      {/if}
     </section>
   {/if}
 
@@ -719,6 +730,18 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .only {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    color: var(--text-2);
+  }
+  .none-left {
+    padding: 18px;
+    margin: 0;
   }
   .previews {
     display: flex;

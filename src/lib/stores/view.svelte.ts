@@ -1,6 +1,10 @@
 // Workspace view state: mode, current page, zoom (UX-03). Shared so the
 // keyboard handler, filmstrip, grid, and scan pane agree.
 
+import { nearestUnreviewed } from "$lib/pagefilter";
+import { project } from "./project.svelte";
+import { ui } from "./ui.svelte";
+
 export type Mode = "processing" | "review" | "layout";
 export type ZoomMode = "fit" | "width" | "custom";
 
@@ -30,10 +34,21 @@ class ViewState {
     this.page = Math.min(this.pageCount - 1, Math.max(0, index));
   }
   next() {
-    this.goTo(this.page + 1);
+    this.#step(1);
   }
   prev() {
-    this.goTo(this.page - 1);
+    this.#step(-1);
+  }
+  /** One page on; with the unreviewed filter on, the next page the filter lists.
+   *  Layout mode lists no pages, so there every page is a step. */
+  #step(dir: -1 | 1) {
+    if (!ui.unreviewedOnly || this.mode === "layout" || !project.summary) {
+      this.goTo(this.page + dir);
+      return;
+    }
+    const to = nearestUnreviewed(project.summary.pages, this.page, dir);
+    if (to === null) ui.toast(`No unreviewed pages ${dir > 0 ? "after" : "before"} page ${this.page + 1}`, "info");
+    else this.goTo(to);
   }
   open(index: number) {
     this.goTo(index);

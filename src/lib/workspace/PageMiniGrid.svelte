@@ -8,7 +8,7 @@
   let { pages }: Props = $props();
 
   function cls(p: PageRow): string {
-    if (p.approved_revision !== null) return "approved";
+    if (p.approval === "current") return "approved";
     if (p.status === "failed") return "failed";
     if (p.status === "done") return "issues";
     if (p.status === "unprocessed" || p.status === "excluded") return "out";
