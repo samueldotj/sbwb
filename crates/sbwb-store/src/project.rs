@@ -385,11 +385,28 @@ impl Project {
                 }
             }
         }
-        Ok(Self {
+        let mut project = Self {
             conn,
             path: path.to_path_buf(),
             mode,
-        })
+        };
+        // v11 moved cross-page proposals to their earlier page; give them
+        // the issues they never had.
+        if version < 11 && project.mode == OpenMode::ReadWrite {
+            let pages: Vec<i64> = {
+                let mut stmt = project
+                    .conn
+                    .prepare("SELECT DISTINCT page_index FROM proposals WHERE cross_page = 1 AND status = 'open'")
+                    .map_err(db)?;
+                let rows = stmt.query_map([], |r| r.get(0)).map_err(db)?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(db)?
+            };
+            for page in pages {
+                project.rebuild_issues(PageIndex(page as u32))?;
+            }
+        }
+        Ok(project)
     }
 
     /// Lock state as another process would see it (for read-only fallback).
@@ -1091,6 +1108,23 @@ impl Project {
         self.require_write()?;
         let now = Timestamp::now().to_string();
         let tx = self.conn.transaction().map_err(db)?;
+        // Open joins from the page before that take a word about to be
+        // replaced: the rerun proposes them afresh.
+        let mut earlier: Vec<i64> = {
+            let mut stmt = tx
+                .prepare("SELECT DISTINCT page_index FROM proposals WHERE cross_page = 1 AND status = 'open' AND page_index != ?1 AND merged_span IN (SELECT id FROM spans WHERE page_index = ?1)")
+                .map_err(db)?;
+            let rows = stmt
+                .query_map(params![page.0 as i64], |r| r.get(0))
+                .map_err(db)?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(db)?
+        };
+        tx.execute(
+            "DELETE FROM proposals WHERE cross_page = 1 AND status = 'open' AND merged_span IN (SELECT id FROM spans WHERE page_index = ?1)",
+            params![page.0 as i64],
+        )
+        .map_err(db)?;
         tx.execute(
             "DELETE FROM spans WHERE page_index = ?1",
             params![page.0 as i64],
@@ -1156,9 +1190,25 @@ impl Project {
                 )
                 .map_err(db)?;
             for p in proposals {
+                // a cross-page join is filed with the word it changes
+                let filed: i64 = if p.cross_page {
+                    tx.query_row(
+                        "SELECT page_index FROM spans WHERE id = ?1",
+                        params![p.span.to_string()],
+                        |r| r.get(0),
+                    )
+                    .optional()
+                    .map_err(db)?
+                    .unwrap_or(page.0 as i64)
+                } else {
+                    page.0 as i64
+                };
+                if filed != page.0 as i64 && !earlier.contains(&filed) {
+                    earlier.push(filed);
+                }
                 insp.execute(params![
                     p.id.to_string(),
-                    page.0 as i64,
+                    filed,
                     p.span.to_string(),
                     p.span_revision as i64,
                     serde_json::to_value(p.kind)?
@@ -1189,6 +1239,9 @@ impl Project {
         )
         .map_err(db)?;
         tx.commit().map_err(db)?;
+        for other in earlier {
+            self.rebuild_issues(PageIndex(other as u32))?;
+        }
         self.rebuild_issues(page)
     }
 
@@ -1271,72 +1324,6 @@ impl Project {
             .map_err(db)?;
         rows.collect::<std::result::Result<std::collections::BTreeMap<_, _>, _>>()
             .map_err(db)
-    }
-
-    /// Apply a cross-page join: the whole word belongs to the earlier page,
-    /// the continuation span on the later page is consumed (EXP-02).
-    pub fn apply_cross_page_join(
-        &mut self,
-        proposal: &StoredProposal,
-        later_page: PageIndex,
-    ) -> Result<bool> {
-        self.require_write()?;
-        let Some(b_id) = proposal.merged_span else {
-            return Ok(false);
-        };
-        let a_page = proposal.page;
-        let mut a = self
-            .page_spans(a_page)?
-            .into_iter()
-            .find(|s| s.id == proposal.span);
-        let mut later = self.page_spans(later_page)?;
-        let b_pos = later.iter().position(|s| s.id == b_id);
-        let (Some(a), Some(bi)) = (a.as_mut(), b_pos) else {
-            return Ok(false);
-        };
-        if a.revision != proposal.span_revision || a.protected || later[bi].protected {
-            return Ok(false);
-        }
-        let b = later.remove(bi);
-        a.text = proposal.replacement.clone();
-        a.anchors.extend(b.anchors.clone());
-        a.trailing = b.trailing.clone();
-        a.origin = sbwb_text::SpanOrigin::AutoApplied;
-        a.confidence = None;
-        a.revision += 1;
-        for (i, s) in later.iter_mut().enumerate() {
-            s.seq = i as u32;
-        }
-        let now = Timestamp::now().to_string();
-        let tx = self.conn.transaction().map_err(db)?;
-        tx.execute(
-            "UPDATE spans SET text = ?2, anchors = ?3, trailing = ?4, origin = 'auto_applied', confidence = NULL, revision = ?5 WHERE id = ?1",
-            params![a.id.to_string(), a.text, serde_json::to_string(&a.anchors)?, a.trailing, a.revision as i64],
-        )
-        .map_err(db)?;
-        tx.execute("DELETE FROM spans WHERE id = ?1", params![b.id.to_string()])
-            .map_err(db)?;
-        {
-            let mut upd = tx
-                .prepare("UPDATE spans SET seq = ?2 WHERE id = ?1")
-                .map_err(db)?;
-            for s in &later {
-                upd.execute(params![s.id.to_string(), s.seq as i64])
-                    .map_err(db)?;
-            }
-        }
-        tx.execute(
-            "UPDATE proposals SET status = 'applied_auto', decided_at = ?2 WHERE id = ?1",
-            params![proposal.id.to_string(), now],
-        )
-        .map_err(db)?;
-        tx.execute(
-            "UPDATE pages SET text_revision = text_revision + 1 WHERE page_index IN (?1, ?2)",
-            params![a_page.0 as i64, later_page.0 as i64],
-        )
-        .map_err(db)?;
-        tx.commit().map_err(db)?;
-        Ok(true)
     }
 
     pub fn vocab(&self) -> Result<Vec<(String, String)>> {

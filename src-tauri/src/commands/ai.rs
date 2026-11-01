@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use sbwb_ai::joins::PageBreak;
 use sbwb_ai::{AiError, Budget, Connection, ModelInfo, PagePayload, Provider};
 use sbwb_core::PageIndex;
 use sbwb_store::AiRunRecord;
@@ -295,6 +296,126 @@ pub fn ai_estimate(
     })
 }
 
+/// The page-break check's estimate, with the prompt it sends: the first
+/// request's data message, exactly as it would go.
+#[derive(Debug, Clone, Serialize)]
+pub struct JoinEstimate {
+    pub estimate: Estimate,
+    /// Page breaks in the selection, and those worth asking about.
+    pub breaks: u32,
+    pub candidates: u32,
+    pub system: String,
+    pub sample: Option<String>,
+}
+
+/// One page break to send, and the two words a join would change.
+struct BreakItem {
+    text: PageBreak,
+    last: (sbwb_core::SpanId, u64),
+    first: (sbwb_core::SpanId, u64),
+    pages: (u32, u32),
+}
+
+/// The page breaks in `pages`, read as one continuous text: a break joins a
+/// page to the next with running text, past blank pages and plates, but not
+/// across a page left out of the selection or not yet through the text
+/// pass. Returns how many breaks there were and those that could hide a
+/// split word.
+fn page_breaks(
+    store: &sbwb_store::Project,
+    pages: &[u32],
+) -> sbwb_core::Result<(u32, Vec<BreakItem>)> {
+    let rows = store.pages()?;
+    let mut sorted = pages.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let (Some(&from), Some(&to)) = (sorted.first(), sorted.last()) else {
+        return Ok((0, vec![]));
+    };
+    let mut prev: Option<(u32, Vec<sbwb_text::Span>)> = None;
+    let mut total = 0;
+    let mut out = Vec::new();
+    for i in from..=to {
+        let page = PageIndex(i);
+        let selected = sorted.binary_search(&i).is_ok();
+        let done = rows.iter().any(|r| r.index == page && r.text_done);
+        if !selected || !done {
+            // the text cannot be read across this page, unless it has none
+            if !done || !store.page_spans(page)?.is_empty() {
+                prev = None;
+            }
+            continue;
+        }
+        let words = store.body_words(page)?;
+        if words.is_empty() {
+            continue;
+        }
+        if let Some((prev_page, before)) = prev.take() {
+            total += 1;
+            let text_of = |s: &[sbwb_text::Span]| s.iter().map(|w| w.text.clone()).collect();
+            let at = before.len().saturating_sub(sbwb_ai::joins::CONTEXT_WORDS);
+            let text = PageBreak {
+                before: text_of(&before[at..]),
+                after: text_of(&words[..words.len().min(sbwb_ai::joins::CONTEXT_WORDS)]),
+            };
+            if sbwb_ai::joins::could_be_split(text.last(), text.first()) {
+                let (a, b) = (&before[before.len() - 1], &words[0]);
+                out.push(BreakItem {
+                    text,
+                    last: (a.id, a.revision),
+                    first: (b.id, b.revision),
+                    pages: (prev_page, i),
+                });
+            }
+        }
+        prev = Some((i, words));
+    }
+    Ok((total, out))
+}
+
+/// Estimate the page-break check for the consent card.
+#[tauri::command]
+pub fn ai_join_estimate(
+    state: State<'_, AppState>,
+    pages: Vec<u32>,
+    max_input_chars: usize,
+) -> CmdResult<JoinEstimate> {
+    let system = sbwb_ai::prompt::join_system();
+    let guard = state
+        .project
+        .lock()
+        .map_err(|_| CommandError::new("other", "state poisoned"))?;
+    let p = guard
+        .as_ref()
+        .ok_or_else(|| CommandError::new("not_found", "no open book"))?;
+    let (breaks, items) = page_breaks(&p.store, &pages)?;
+    let texts: Vec<PageBreak> = items.iter().map(|i| i.text.clone()).collect();
+    let batches = sbwb_ai::joins::batches(&texts, max_input_chars).map_err(ai_err)?;
+    let words: usize = texts.iter().map(PageBreak::words).sum();
+    let chars: usize = texts.iter().map(PageBreak::chars).sum();
+    let mut included: Vec<u32> = items.iter().flat_map(|i| [i.pages.0, i.pages.1]).collect();
+    included.sort_unstable();
+    included.dedup();
+    Ok(JoinEstimate {
+        estimate: Estimate {
+            pages: included,
+            words,
+            chars,
+            approx_tokens: chars / 4 + words / 2 + batches.len() * system.len() / 4,
+            // the JSON wrapper per request, and room for a join on one break in four
+            approx_output_tokens: batches.len() * 20 + texts.len() * 10,
+            requests: batches.len() as u32,
+            payload_kinds: vec!["the words either side of each page break, with the break removed"],
+        },
+        breaks,
+        candidates: texts.len() as u32,
+        sample: batches
+            .first()
+            .map(|r| sbwb_ai::prompt::join_user_message(&texts[r.clone()])),
+        system,
+    })
+}
+
 /// Price an estimate's tokens for one model, from the table in
 /// `sbwb_ai::pricing`.
 #[tauri::command]
@@ -410,6 +531,9 @@ pub struct AiRunRequest {
     /// the default. The fixed rules are always added.
     #[serde(default)]
     pub instructions: Option<String>,
+    /// Run the page-break check instead of proofreading each page.
+    #[serde(default)]
+    pub join_pages: bool,
     /// The user ticked the consent box on the card that listed the payload.
     pub consent: bool,
 }
@@ -452,7 +576,27 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
     }
     let instructions = custom_instructions(req.instructions.as_deref())?;
     let custom_prompt = instructions.is_some();
-    let system = sbwb_ai::prompt::system(instructions);
+    let system = if req.join_pages {
+        sbwb_ai::prompt::join_system()
+    } else {
+        sbwb_ai::prompt::system(instructions)
+    };
+    // the page-break check's requests, from the words as they are now
+    let joins = if req.join_pages {
+        let guard = state
+            .project
+            .lock()
+            .map_err(|_| CommandError::new("other", "state poisoned"))?;
+        let p = guard
+            .as_ref()
+            .ok_or_else(|| CommandError::new("not_found", "no open book"))?;
+        let (_, items) = page_breaks(&p.store, &req.pages)?;
+        let texts: Vec<PageBreak> = items.iter().map(|i| i.text.clone()).collect();
+        let batches = sbwb_ai::joins::batches(&texts, req.max_input_chars).map_err(ai_err)?;
+        Some((items, batches))
+    } else {
+        None
+    };
     let slot = app.state::<AiSlot>();
     {
         let mut running = slot
@@ -481,13 +625,13 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
         .map_err(|_| CommandError::new("other", "ai mutex poisoned"))? = Some(cancel.clone());
     let run_id = sbwb_core::RunId::new().to_string();
     let pages: Vec<u32> = req.pages.clone();
-    if pages.len() as u32 > req.max_requests {
+    let requests = joins.as_ref().map_or(pages.len(), |(_, b)| b.len()) as u32;
+    if requests > req.max_requests {
         *slot.running.lock().unwrap() = false;
         return Err(CommandError::new(
             "ai_budget",
             format!(
-                "{} pages selected but the request budget is {}",
-                pages.len(),
+                "{requests} requests needed but the request budget is {}",
                 req.max_requests
             ),
         ));
@@ -498,7 +642,7 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
         provider: provider.id().into(),
         model: req.model.clone(),
         pages: pages.clone(),
-        consent: serde_json::json!({ "payload": ["saved words with ids", "page numbers"], "max_requests": req.max_requests, "max_input_chars": req.max_input_chars, "custom_prompt": custom_prompt, "confirmed": true }),
+        consent: serde_json::json!({ "payload": if req.join_pages { serde_json::json!(["words either side of each page break"]) } else { serde_json::json!(["saved words with ids", "page numbers"]) }, "max_requests": req.max_requests, "max_input_chars": req.max_input_chars, "custom_prompt": custom_prompt, "join_pages": req.join_pages, "confirmed": true }),
         requests: 0,
         chars_sent: 0,
         input_tokens: None,
@@ -531,13 +675,18 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
     };
     let handle = app.clone();
     let label = format!("AI · {}/{}", provider.id(), req.model);
+    let join_pages = req.join_pages;
     std::thread::Builder::new()
         .name("sbwb-ai".into())
         .spawn(move || {
             let started = std::time::Instant::now();
             let total = pages.len() as u32;
             let mut failure: Option<AiError> = None;
-            for (i, page) in pages.iter().enumerate() {
+            if let Some((items, batches)) = &joins {
+                failure = run_join_requests(&handle, &conn, &system, items, batches, &budget, &cancel, &label, &mut record);
+            }
+            let proofread: &[u32] = if joins.is_some() { &[] } else { &pages };
+            for (i, page) in proofread.iter().enumerate() {
                 let progress = AiProgress { page: *page, done: i as u32, total };
                 if let Ok(mut p) = handle.state::<AiSlot>().progress.lock() {
                     *p = Some(progress);
@@ -606,8 +755,8 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
                         let _ = p.store.record_ai_run(&record);
                         let _ = p.store.add_history(
                             "ai",
-                            &format!("AI check · {} · {} page{} · {} suggestions", label, record.pages.len(), if record.pages.len() == 1 { "" } else { "s" }, record.suggestions),
-                            &serde_json::json!({ "run": record.id, "provider": record.provider, "model": record.model, "pages": record.pages, "status": record.status, "custom_prompt": custom_prompt }),
+                            &format!("{} · {} · {} page{} · {} suggestions", if join_pages { "AI page-break check" } else { "AI check" }, label, record.pages.len(), if record.pages.len() == 1 { "" } else { "s" }, record.suggestions),
+                            &serde_json::json!({ "run": record.id, "provider": record.provider, "model": record.model, "pages": record.pages, "status": record.status, "custom_prompt": custom_prompt, "join_pages": join_pages }),
                         );
                     }
                 }
@@ -632,6 +781,85 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
         })
         .map_err(|e| CommandError::new("other", format!("ai thread: {e}")))?;
     Ok(run_id)
+}
+
+/// Send the page-break check's requests in order, stopping at the first
+/// error (AI-02). Tokens go on the run record like any other run's, so the
+/// spend figures include them.
+#[allow(clippy::too_many_arguments)]
+fn run_join_requests(
+    handle: &AppHandle,
+    conn: &Connection,
+    system: &str,
+    items: &[BreakItem],
+    batches: &[std::ops::Range<usize>],
+    budget: &Budget,
+    cancel: &AtomicBool,
+    label: &str,
+    record: &mut AiRunRecord,
+) -> Option<AiError> {
+    let total = batches.len() as u32;
+    for (i, range) in batches.iter().enumerate() {
+        let group = &items[range.clone()];
+        let page = group[0].pages.0;
+        let done = i as u32;
+        if let Ok(mut p) = handle.state::<AiSlot>().progress.lock() {
+            *p = Some(AiProgress { page, done, total });
+        }
+        let _ = handle.emit(EVENT_AI, AiEvent::Progress { page, done, total });
+        let texts: Vec<PageBreak> = group.iter().map(|g| g.text.clone()).collect();
+        let out = match sbwb_ai::joins::check_breaks(conn, system, &texts, budget, cancel) {
+            Ok(out) => out,
+            Err(e) => return Some(e),
+        };
+        record.requests += out.usage.requests;
+        record.chars_sent += out.usage.chars_sent as u64;
+        if let Some(t) = out.usage.input_tokens {
+            record.input_tokens = Some(record.input_tokens.unwrap_or(0) + t);
+        }
+        if let Some(t) = out.usage.output_tokens {
+            record.output_tokens = Some(record.output_tokens.unwrap_or(0) + t);
+        }
+        record.rejected += out.rejected.len() as u32;
+        let joins: Vec<sbwb_store::AiJoin> = out
+            .joins
+            .iter()
+            .map(|j| {
+                let item = &group[j.passage];
+                sbwb_store::AiJoin {
+                    last: item.last.0,
+                    last_revision: item.last.1,
+                    first: item.first.0,
+                    first_revision: item.first.1,
+                    joined: j.joined.clone(),
+                    reason: j.reason.clone(),
+                }
+            })
+            .collect();
+        let added = {
+            let st = handle.state::<AppState>();
+            let mut guard = st.project.lock();
+            match guard
+                .as_mut()
+                .ok()
+                .and_then(|g| g.as_mut().map(|p| p.store.merge_ai_joins(label, &joins)))
+            {
+                Some(Ok(n)) => n,
+                _ => 0,
+            }
+        };
+        record.suggestions += added;
+        let _ = handle.emit(
+            EVENT_AI,
+            AiEvent::PageDone {
+                page,
+                suggestions: added,
+                rejected: out.rejected.len() as u32,
+            },
+        );
+        let _ = handle.emit(crate::commands::project::EVENT_PROJECT_CHANGED, ());
+    }
+    None
 }
 
 #[tauri::command]

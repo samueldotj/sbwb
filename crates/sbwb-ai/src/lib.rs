@@ -13,6 +13,7 @@
 //! * One attempt per page; no automatic retries; a budget caps requests
 //!   and input size before anything is sent.
 
+pub mod joins;
 pub mod keys;
 pub mod pricing;
 pub mod prompt;

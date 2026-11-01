@@ -4,7 +4,7 @@
 use rusqlite_migration::{Migrations, M};
 
 /// Current project schema version. Bumped by every migration.
-pub const SCHEMA_VERSION: u32 = 10;
+pub const SCHEMA_VERSION: u32 = 11;
 
 pub fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
@@ -18,6 +18,7 @@ pub fn migrations() -> Migrations<'static> {
         M::up(V8),
         M::up(V9),
         M::up(V10),
+        M::up(V11),
     ])
 }
 
@@ -310,4 +311,15 @@ CREATE TABLE footnote_parts (
   created_at TEXT NOT NULL
 );
 CREATE INDEX footnote_parts_page ON footnote_parts(page_index);
+"#;
+
+/// v11: a word joined across a page break keeps the scan link of the part
+/// it took from the next page; a rerun puts the join back with that link.
+/// A cross-page proposal belongs to the page of the word it changes; earlier
+/// versions filed it under the later page, where nothing could act on it.
+const V11: &str = r#"
+ALTER TABLE text_edits ADD COLUMN anchors TEXT;
+UPDATE proposals
+SET page_index = COALESCE((SELECT page_index FROM spans WHERE spans.id = proposals.span_id), page_index)
+WHERE cross_page = 1;
 "#;

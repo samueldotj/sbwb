@@ -205,7 +205,7 @@ pub fn build_issues(page: PageIndex, spans: &[Span], proposals: &[Proposal]) -> 
     for s in spans.iter().filter(|s| s.region.is_some()) {
         let open: Vec<&Proposal> = proposals
             .iter()
-            .filter(|p| p.span == s.id && !p.auto_applied && !p.cross_page)
+            .filter(|p| p.span == s.id && !p.auto_applied)
             .collect();
         let raw = Candidate {
             text: s.text.clone(),

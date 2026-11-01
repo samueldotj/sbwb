@@ -597,6 +597,10 @@ impl Project {
                 "this word changed since the issue was loaded; reload the page".into(),
             ));
         }
+        let join = match decision {
+            Decision::Accept { text } => self.page_join_for(&issue, text.trim(), page)?,
+            _ => None,
+        };
         let tx = self.conn.transaction().map_err(db)?;
         let (label, decision_str, new_status, new_revision, new_text) = match decision {
             Decision::Accept { text } | Decision::Edit { text } => {
@@ -704,6 +708,20 @@ impl Project {
             params![id.to_string(), new_status.as_str(), decision_str, now(), new_revision as i64, history.to_string()],
         )
         .map_err(db)?;
+        let (join_undo, label) = match &join {
+            Some((a, b)) => (
+                Some(apply_page_join(
+                    &tx,
+                    a,
+                    b,
+                    &new_text,
+                    history,
+                    SpanOrigin::Accepted,
+                )?),
+                format!("{label}, taking “{}” from page {}", b.text, b.page.number()),
+            ),
+            None => (None, label),
+        };
         let payload = serde_json::json!({
             "kind": "decision",
             "issue": id,
@@ -719,6 +737,7 @@ impl Project {
             "proposal": issue.proposal,
             "candidates": issue.candidates.iter().filter_map(|c| c.proposal).collect::<Vec<_>>(),
             "superseded": superseded,
+            "join": join_undo,
         });
         tx.execute(
             "INSERT INTO history(id, ts, kind, label, payload) VALUES (?1, ?2, 'decision', ?3, ?4)",
@@ -745,6 +764,166 @@ impl Project {
             span_text: new_text,
             span_revision: new_revision,
         })
+    }
+
+    /// The words of a page-break join, when accepting `text` takes one. The
+    /// next page's word must still be the one the proposal was made from.
+    fn page_join_for(
+        &self,
+        issue: &Issue,
+        text: &str,
+        page: PageIndex,
+    ) -> Result<Option<(sbwb_text::Span, sbwb_text::Span)>> {
+        let Some(proposal) = issue
+            .candidates
+            .iter()
+            .find(|c| c.text == text)
+            .and_then(|c| c.proposal)
+        else {
+            return Ok(None);
+        };
+        let row: Option<(Option<String>, String)> = self
+            .conn
+            .query_row(
+                "SELECT merged_span, original FROM proposals WHERE id = ?1 AND cross_page = 1",
+                params![proposal.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(db)?;
+        let Some((merged, original)) = row else {
+            return Ok(None);
+        };
+        let stale = || {
+            SbwbError::Conflict(
+                "the word on the next page changed since this was suggested; keep or edit this word instead".into(),
+            )
+        };
+        let first = merged.and_then(|m| SpanId::parse(&m)).ok_or_else(stale)?;
+        let later = span_page(&self.conn, first).map_err(|_| stale())?;
+        let b = self
+            .page_spans(later)?
+            .into_iter()
+            .find(|s| s.id == first)
+            .ok_or_else(stale)?;
+        let a = self
+            .page_spans(page)?
+            .into_iter()
+            .find(|s| s.id == issue.span)
+            .ok_or_else(stale)?;
+        if original != format!("{} / {}", a.text, b.text) {
+            return Err(stale());
+        }
+        Ok(Some((a, b)))
+    }
+
+    /// Apply a text-pass join across a page break (D-24 rule a): the whole
+    /// word goes to the earlier page and the fragment is emptied, undoable
+    /// from the history. Returns false, leaving the proposal for review,
+    /// unless TXT-03's conditions hold: both words unchanged, unprotected,
+    /// with scan links, no decision or approval to override, and no other
+    /// reading proposed for the word.
+    pub fn apply_cross_page_join(
+        &mut self,
+        proposal: &crate::project::StoredProposal,
+        later_page: PageIndex,
+    ) -> Result<bool> {
+        self.require_write()?;
+        let Some(first) = proposal.merged_span else {
+            return Ok(false);
+        };
+        let find = |p: &Self, page: PageIndex, id: SpanId| -> Result<Option<sbwb_text::Span>> {
+            Ok(p.page_spans(page)?.into_iter().find(|s| s.id == id))
+        };
+        let (Some(a), Some(b)) = (
+            find(self, proposal.page, proposal.span)?,
+            find(self, later_page, first)?,
+        ) else {
+            return Ok(false);
+        };
+        let untouched = |s: &sbwb_text::Span| {
+            !s.protected
+                && !s.anchors.is_empty()
+                && matches!(s.origin, SpanOrigin::Ocr | SpanOrigin::AutoApplied)
+        };
+        let approved = self
+            .pages()?
+            .iter()
+            .any(|r| (r.index == a.page || r.index == b.page) && r.approved_revision.is_some());
+        let competing: i64 = self
+            .conn
+            .query_row(
+                "SELECT count(*) FROM proposals WHERE span_id = ?1 AND id != ?2 AND status IN ('open', 'deferred')",
+                params![a.id.to_string(), proposal.id.to_string()],
+                |r| r.get(0),
+            )
+            .map_err(db)?;
+        if a.revision != proposal.span_revision
+            || proposal.original != format!("{} / {}", a.text, b.text)
+            || !untouched(&a)
+            || !untouched(&b)
+            || approved
+            || competing > 0
+        {
+            return Ok(false);
+        }
+        let history = HistoryId::new();
+        let tx = self.conn.transaction().map_err(db)?;
+        let new_revision = update_span_text(
+            &tx,
+            a.id,
+            &proposal.replacement,
+            SpanOrigin::AutoApplied,
+            a.revision,
+        )?;
+        let join = apply_page_join(
+            &tx,
+            &a,
+            &b,
+            &proposal.replacement,
+            history,
+            SpanOrigin::AutoApplied,
+        )?;
+        tx.execute(
+            "UPDATE proposals SET status = 'applied_auto', decided_at = ?2 WHERE id = ?1",
+            params![proposal.id.to_string(), now()],
+        )
+        .map_err(db)?;
+        let payload = serde_json::json!({
+            "kind": "decision",
+            "span": a.id,
+            "page": a.page.0,
+            "old_text": a.text,
+            "new_text": proposal.replacement,
+            "old_origin": a.origin,
+            "old_confidence": a.confidence,
+            "old_revision": a.revision,
+            "new_revision": new_revision,
+            "join": join,
+            "auto_proposal": proposal.id,
+        });
+        let label = format!(
+            "Text pass joined “{}” → “{}” · page {}, taking “{}” from page {}",
+            a.text,
+            proposal.replacement,
+            a.page.number(),
+            b.text,
+            b.page.number()
+        );
+        tx.execute(
+            "INSERT INTO history(id, ts, kind, label, payload) VALUES (?1, ?2, 'decision', ?3, ?4)",
+            params![
+                history.to_string(),
+                now(),
+                label,
+                serde_json::to_string(&payload)?
+            ],
+        )
+        .map_err(db)?;
+        tx.commit().map_err(db)?;
+        self.rebuild_issues(a.page)?;
+        self.rebuild_issues(b.page)?;
+        Ok(true)
     }
 
     /// Structural issues (missing text, clipping, order) have no reading to
@@ -1326,20 +1505,20 @@ impl Project {
     /// their original words are found again, nearest to where they were.
     /// An edit whose words are gone is dropped.
     fn reapply_text_edits(&mut self, page: PageIndex) -> Result<()> {
-        let pending: Vec<(String, i64, String, String)> = {
+        let pending: Vec<(String, i64, String, String, Option<String>)> = {
             let mut stmt = self
                 .conn
-                .prepare("SELECT id, seq, original, replacement FROM text_edits WHERE page_index = ?1 AND active = 1 AND applied = 0 ORDER BY created_at, rowid")
+                .prepare("SELECT id, seq, original, replacement, anchors FROM text_edits WHERE page_index = ?1 AND active = 1 AND applied = 0 ORDER BY created_at, rowid")
                 .map_err(db)?;
             let rows = stmt
                 .query_map(params![page.0 as i64], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
                 })
                 .map_err(db)?;
             rows.collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(db)?
         };
-        for (id, seq, original, replacement) in pending {
+        for (id, seq, original, replacement, joined_anchors) in pending {
             let spans = self.page_spans(page)?;
             let want: Vec<String> = serde_json::from_str(&original).unwrap_or_default();
             let words: Vec<usize> = (0..spans.len())
@@ -1358,6 +1537,17 @@ impl Project {
             if let Some((a, b)) = found {
                 let tokens: Vec<&str> = replacement.split_whitespace().collect();
                 apply_text_edit(&tx, &spans[a..=b], &tokens)?;
+                // a page-break join keeps the scan link of what it took
+                if let Some(extra) = joined_anchors.as_deref() {
+                    let extra: Vec<sbwb_text::Anchor> = serde_json::from_str(extra)?;
+                    let mut anchors = spans[a].anchors.clone();
+                    anchors.extend(extra);
+                    tx.execute(
+                        "UPDATE spans SET anchors = ?2 WHERE id = ?1",
+                        params![spans[a].id.to_string(), serde_json::to_string(&anchors)?],
+                    )
+                    .map_err(db)?;
+                }
             }
             tx.execute(
                 "UPDATE text_edits SET applied = 1 WHERE id = ?1",
@@ -1472,6 +1662,17 @@ impl Project {
                 }
                 if let Some(p) = item["proposal"].as_str() {
                     tx.execute("UPDATE proposals SET status = 'open', decided_at = NULL WHERE id = ?1 AND status IN ('accepted', 'rejected', 'deferred')", params![p]).map_err(db)?;
+                }
+                if item["join"].is_object() {
+                    undo_page_join(&tx, item, &item["join"], id)?;
+                }
+                // an undone automatic join goes back to being a suggestion
+                if let Some(p) = item["auto_proposal"].as_str() {
+                    tx.execute(
+                        "UPDATE proposals SET status = 'open', decided_at = NULL WHERE id = ?1",
+                        params![p],
+                    )
+                    .map_err(db)?;
                 }
             }
             "group" => {
@@ -1647,7 +1848,11 @@ impl Project {
             ],
         )
         .map_err(db)?;
-        tx.commit().map_err(db)
+        tx.commit().map_err(db)?;
+        if v["auto_proposal"].is_string() {
+            self.rebuild_issues(PageIndex(v["page"].as_u64().unwrap_or(0) as u32))?;
+        }
+        Ok(())
     }
 
     // ----- drafts (PRJ-04) -----
@@ -1729,6 +1934,170 @@ fn undo_span_item(tx: &Transaction, item: &serde_json::Value) -> Result<()> {
     tx.execute(
         "UPDATE pages SET text_revision = text_revision + 1 WHERE page_index = ?1",
         params![item["page"].as_i64().unwrap_or(-1)],
+    )
+    .map_err(db)?;
+    Ok(())
+}
+
+/// Finish an accepted page-break join inside its decision's transaction:
+/// the earlier word (already holding the full text) also takes the scan
+/// link of the part it joined, and the later word is emptied in place,
+/// which is how an edit removes a word. Both pages' approvals go stale with
+/// their text revisions (REV-06). Returns the undo item.
+fn apply_page_join(
+    tx: &Transaction,
+    a: &sbwb_text::Span,
+    b: &sbwb_text::Span,
+    joined: &str,
+    history: HistoryId,
+    origin: SpanOrigin,
+) -> Result<serde_json::Value> {
+    let mut anchors = a.anchors.clone();
+    anchors.extend(b.anchors.iter().cloned());
+    let trailing = if b.trailing.contains('\n') {
+        &b.trailing
+    } else {
+        &a.trailing
+    };
+    tx.execute(
+        "UPDATE spans SET anchors = ?2, trailing = ?3 WHERE id = ?1",
+        params![a.id.to_string(), serde_json::to_string(&anchors)?, trailing],
+    )
+    .map_err(db)?;
+    let b_id = b.id.to_string();
+    let new_revision = update_span_text(tx, b.id, "", origin, b.revision)?;
+    tx.execute(
+        "UPDATE spans SET trailing = '' WHERE id = ?1",
+        params![b_id],
+    )
+    .map_err(db)?;
+    let open_rows = |sql: &str| -> Result<Vec<(String, String)>> {
+        let mut stmt = tx.prepare(sql).map_err(db)?;
+        let rows = stmt
+            .query_map(params![b_id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })
+            .map_err(db)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(db)
+    };
+    let issues = open_rows(
+        "SELECT id, status FROM issues WHERE span_id = ?1 AND status IN ('open', 'deferred')",
+    )?;
+    let proposals = open_rows(
+        "SELECT id, status FROM proposals WHERE span_id = ?1 AND status IN ('open', 'deferred')",
+    )?;
+    for (iid, _) in &issues {
+        tx.execute("UPDATE issues SET status = 'resolved', decision = 'superseded', decided_at = ?2, span_revision = ?3 WHERE id = ?1", params![iid, now(), new_revision as i64]).map_err(db)?;
+    }
+    for (pid, _) in &proposals {
+        tx.execute(
+            "UPDATE proposals SET status = 'rejected', decided_at = ?2 WHERE id = ?1",
+            params![pid, now()],
+        )
+        .map_err(db)?;
+    }
+    tx.execute("DELETE FROM drafts WHERE span_id = ?1", params![b_id])
+        .map_err(db)?;
+    // A rerun brings both words back; these put the join back (each page's
+    // rerun replays its own side).
+    let mut edit = tx
+        .prepare("INSERT INTO text_edits(id, page_index, seq, original, replacement, created_at, anchors) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+        .map_err(db)?;
+    edit.execute(params![
+        history.to_string(),
+        a.page.0 as i64,
+        a.seq as i64,
+        serde_json::to_string(&[&a.text])?,
+        joined,
+        now(),
+        serde_json::to_string(&b.anchors)?,
+    ])
+    .map_err(db)?;
+    edit.execute(params![
+        format!("{history}:next"),
+        b.page.0 as i64,
+        b.seq as i64,
+        serde_json::to_string(&[&b.text])?,
+        "",
+        now(),
+        Option::<String>::None,
+    ])
+    .map_err(db)?;
+    Ok(serde_json::json!({
+        "span": b.id, "page": b.page.0,
+        "old_text": b.text, "old_trailing": b.trailing,
+        "old_origin": serde_json::to_value(b.origin)?,
+        "old_confidence": b.confidence,
+        "new_revision": new_revision,
+        "issues": issues, "proposals": proposals,
+        "a_anchors": a.anchors, "a_trailing": a.trailing,
+    }))
+}
+
+/// Reverse [`apply_page_join`]: guarded like the earlier word, so a later
+/// edit of the emptied word blocks the whole undo.
+fn undo_page_join(
+    tx: &Transaction,
+    item: &serde_json::Value,
+    join: &serde_json::Value,
+    history: HistoryId,
+) -> Result<()> {
+    let span = join["span"].as_str().unwrap_or("");
+    let want = join["new_revision"].as_i64().unwrap_or(-1);
+    let cur: Option<i64> = tx
+        .query_row(
+            "SELECT revision FROM spans WHERE id = ?1",
+            params![span],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(db)?;
+    if cur != Some(want) {
+        return Err(SbwbError::Conflict(
+            "the word on the next page changed again since then; undo blocked".into(),
+        ));
+    }
+    tx.execute(
+        "UPDATE spans SET text = ?2, trailing = ?3, origin = ?4, confidence = ?5, revision = ?6 WHERE id = ?1",
+        params![
+            span,
+            join["old_text"].as_str().unwrap_or(""),
+            join["old_trailing"].as_str().unwrap_or(" "),
+            join["old_origin"].as_str().unwrap_or("ocr"),
+            join["old_confidence"].as_f64(),
+            want + 1
+        ],
+    )
+    .map_err(db)?;
+    tx.execute(
+        "UPDATE pages SET text_revision = text_revision + 1 WHERE page_index = ?1",
+        params![join["page"].as_i64().unwrap_or(-1)],
+    )
+    .map_err(db)?;
+    tx.execute(
+        "UPDATE spans SET anchors = ?2, trailing = ?3 WHERE id = ?1",
+        params![
+            item["span"].as_str().unwrap_or(""),
+            serde_json::to_string(&join["a_anchors"])?,
+            join["a_trailing"].as_str().unwrap_or(" ")
+        ],
+    )
+    .map_err(db)?;
+    for i in join["issues"].as_array().into_iter().flatten() {
+        let (iid, st) = (i[0].as_str().unwrap_or(""), i[1].as_str().unwrap_or("open"));
+        tx.execute("UPDATE issues SET status = ?2, decision = NULL, decided_at = NULL, span_revision = ?3 WHERE id = ?1", params![iid, st, want + 1]).map_err(db)?;
+    }
+    for p in join["proposals"].as_array().into_iter().flatten() {
+        let (pid, st) = (p[0].as_str().unwrap_or(""), p[1].as_str().unwrap_or("open"));
+        tx.execute(
+            "UPDATE proposals SET status = ?2, decided_at = NULL WHERE id = ?1",
+            params![pid, st],
+        )
+        .map_err(db)?;
+    }
+    tx.execute(
+        "UPDATE text_edits SET active = 0 WHERE id IN (?1, ?2)",
+        params![history.to_string(), format!("{history}:next")],
     )
     .map_err(db)?;
     Ok(())
@@ -2457,6 +2826,382 @@ mod tests {
         p.put_page_text(page, None, &two, &[]).unwrap();
         let s3 = p.page_spans(page).unwrap();
         assert!(p.set_paragraph_start(s3[2].id, false).is_err());
+    }
+
+    /// Two pages whose body text splits "communica- / tion," at the break,
+    /// with a scan anchor on the fragment and an AI join proposed.
+    fn split_book(p: &mut Project) -> (Span, Span, Issue) {
+        let a = span(0, 1, "communica-", 95.0);
+        let mut first = span(1, 0, "tion,", 60.0);
+        first.anchors = vec![sbwb_text::Anchor {
+            page: PageIndex(1),
+            region: None,
+            words: vec![],
+            bbox: sbwb_core::Rect::new(1.0, 2.0, 3.0, 4.0),
+            approximate: false,
+        }];
+        let before = span(0, 0, "of", 95.0);
+        let after = span(1, 1, "which", 95.0);
+        p.put_page_text(PageIndex(0), None, &[before, a.clone()], &[])
+            .unwrap();
+        p.put_page_text(PageIndex(1), None, &[first.clone(), after], &[])
+            .unwrap();
+        assert_eq!(propose_join(p, &a, &first), 1);
+        let issue = p
+            .issues_for_page(PageIndex(0))
+            .unwrap()
+            .into_iter()
+            .find(|i| i.span == a.id)
+            .unwrap();
+        (a, first, issue)
+    }
+
+    fn propose_join(p: &mut Project, a: &Span, first: &Span) -> u32 {
+        p.merge_ai_joins(
+            "openai/test",
+            &[crate::refine::AiJoin {
+                last: a.id,
+                last_revision: 1,
+                first: first.id,
+                first_revision: 1,
+                joined: "communication,".into(),
+                reason: "split word".into(),
+            }],
+        )
+        .unwrap()
+    }
+
+    fn page_text(p: &Project, page: u32) -> Vec<String> {
+        p.page_spans(PageIndex(page))
+            .unwrap()
+            .into_iter()
+            .map(|s| s.text)
+            .collect()
+    }
+
+    fn accept_join(p: &mut Project, issue: &Issue) -> DecisionOutcome {
+        p.decide_issue(
+            issue.id,
+            &Decision::Accept {
+                text: "communication,".into(),
+            },
+            issue.span_revision,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn page_join_is_reviewed_moves_the_word_and_undoes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path(), 2);
+        let (_, first, issue) = split_book(&mut p);
+        // a suggestion only: labelled, unscored, nothing changed yet
+        assert_eq!(issue.kind, IssueKind::QuestionableJoin);
+        assert_eq!(issue.score, None);
+        assert!(issue.reason.contains("joins “tion,” from page 2"));
+        assert_eq!(page_text(&p, 0), ["of", "communica-"]);
+        assert_eq!(page_text(&p, 1), ["tion,", "which"]);
+        // the fragment's own low-confidence issue
+        let frag_issue = p
+            .issues_for_page(PageIndex(1))
+            .unwrap()
+            .into_iter()
+            .find(|i| i.span == first.id)
+            .unwrap();
+
+        let revisions = |p: &Project| {
+            let r = p.pages().unwrap();
+            (r[0].text_revision, r[1].text_revision)
+        };
+        let before = revisions(&p);
+        let out = accept_join(&mut p, &issue);
+        assert_eq!(out.span_text, "communication,");
+        assert_eq!(page_text(&p, 0), ["of", "communication,"]);
+        assert_eq!(page_text(&p, 1), ["", "which"]);
+        let after = revisions(&p);
+        assert!(after.0 > before.0 && after.1 > before.1);
+        // the joined word keeps the scan link of the part it took
+        let joined = p.page_spans(PageIndex(0)).unwrap().remove(1);
+        assert_eq!(joined.anchors.len(), 1);
+        assert_eq!(joined.anchors[0].page, PageIndex(1));
+        assert_eq!(joined.origin, SpanOrigin::Accepted);
+        assert_eq!(
+            p.issue(frag_issue.id).unwrap().unwrap().decision.as_deref(),
+            Some("superseded")
+        );
+
+        p.undo(out.history).unwrap();
+        assert_eq!(page_text(&p, 0), ["of", "communica-"]);
+        assert_eq!(page_text(&p, 1), ["tion,", "which"]);
+        let spans = p.page_spans(PageIndex(1)).unwrap();
+        assert_eq!(spans[0].trailing, " ");
+        assert_eq!(spans[0].confidence, Some(60.0));
+        assert_eq!(spans[0].anchors.len(), 1);
+        assert!(p.page_spans(PageIndex(0)).unwrap()[1].anchors.is_empty());
+        assert_eq!(
+            p.issue(issue.id).unwrap().unwrap().status,
+            IssueStatus::Open
+        );
+        assert_eq!(
+            p.issue(frag_issue.id).unwrap().unwrap().status,
+            IssueStatus::Open
+        );
+
+        // and it can be accepted again after the undo
+        let issue = p.issue(issue.id).unwrap().unwrap();
+        accept_join(&mut p, &issue);
+        assert_eq!(page_text(&p, 0), ["of", "communication,"]);
+    }
+
+    #[test]
+    fn page_join_undo_blocked_by_a_later_edit_of_either_word() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path(), 2);
+        let (_, _, issue) = split_book(&mut p);
+        let out = accept_join(&mut p, &issue);
+        let spans = p.page_spans(PageIndex(1)).unwrap();
+        p.edit_text(&[(spans[0].id, spans[0].revision)], "x")
+            .unwrap();
+        assert!(matches!(p.undo(out.history), Err(SbwbError::Conflict(_))));
+        // nothing was half undone
+        assert_eq!(page_text(&p, 0), ["of", "communication,"]);
+        assert_eq!(page_text(&p, 1), ["x", "which"]);
+    }
+
+    #[test]
+    fn page_join_refused_when_the_next_page_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path(), 2);
+        let (_, first, issue) = split_book(&mut p);
+        p.edit_text(&[(first.id, 1)], "nation,").unwrap();
+        let err = p
+            .decide_issue(
+                issue.id,
+                &Decision::Accept {
+                    text: "communication,".into(),
+                },
+                issue.span_revision,
+            )
+            .unwrap_err();
+        assert!(matches!(err, SbwbError::Conflict(_)));
+        assert_eq!(page_text(&p, 0), ["of", "communica-"]);
+    }
+
+    #[test]
+    fn page_join_skip_keeps_both_and_is_not_proposed_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path(), 2);
+        let (a, first, issue) = split_book(&mut p);
+        p.decide_issue(issue.id, &Decision::Skip, issue.span_revision)
+            .unwrap();
+        assert_eq!(page_text(&p, 0), ["of", "communica-"]);
+        assert_eq!(page_text(&p, 1), ["tion,", "which"]);
+        assert_eq!(propose_join(&mut p, &a, &first), 0);
+    }
+
+    /// A text-pass join proposal for the split, filed the
+    /// way a rerun of the later page files it.
+    fn text_pass_join(p: &mut Project, score: u8) -> (Span, Span) {
+        let anchor = |page| sbwb_text::Anchor {
+            page: PageIndex(page),
+            region: None,
+            words: vec![],
+            bbox: sbwb_core::Rect::new(1.0, 2.0, 3.0, 4.0),
+            approximate: false,
+        };
+        let mut a = span(0, 0, "communica-", 95.0);
+        a.anchors = vec![anchor(0)];
+        let mut first = span(1, 0, "tion,", 95.0);
+        first.anchors = vec![anchor(1)];
+        p.put_page_text(PageIndex(0), None, std::slice::from_ref(&a), &[])
+            .unwrap();
+        let join = Proposal {
+            kind: ProposalKind::HyphenJoin,
+            original: "communica- / tion,".into(),
+            merged_span: Some(first.id),
+            cross_page: true,
+            ..proposal(&a, "communication,", score)
+        };
+        p.put_page_text(PageIndex(1), None, std::slice::from_ref(&first), &[join])
+            .unwrap();
+        (a, first)
+    }
+
+    fn stored_join(p: &Project) -> crate::project::StoredProposal {
+        p.page_proposals(PageIndex(0))
+            .unwrap()
+            .into_iter()
+            .find(|q| q.cross_page)
+            .unwrap()
+    }
+
+    #[test]
+    fn text_pass_join_is_filed_on_the_earlier_page_and_reviewable() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path(), 2);
+        let (a, first) = text_pass_join(&mut p, 70);
+        assert!(p
+            .page_proposals(PageIndex(1))
+            .unwrap()
+            .iter()
+            .all(|q| !q.cross_page));
+        let issue = p
+            .issues_for_page(PageIndex(0))
+            .unwrap()
+            .into_iter()
+            .find(|i| i.kind == IssueKind::QuestionableJoin)
+            .unwrap();
+        assert_eq!(issue.score, Some(70));
+        // the AI suggesting the same join adds nothing
+        assert_eq!(propose_join(&mut p, &a, &first), 0);
+        accept_join(&mut p, &issue);
+        assert_eq!(page_text(&p, 0), ["communication,"]);
+        assert_eq!(page_text(&p, 1), [""]);
+    }
+
+    #[test]
+    fn text_pass_join_applies_and_undoes_to_a_suggestion() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path(), 2);
+        text_pass_join(&mut p, 96);
+        assert!(p
+            .apply_cross_page_join(&stored_join(&p), PageIndex(1))
+            .unwrap());
+        assert_eq!(page_text(&p, 0), ["communication,"]);
+        assert_eq!(page_text(&p, 1), [""]);
+        let spans = p.page_spans(PageIndex(0)).unwrap();
+        assert_eq!(spans[0].origin, SpanOrigin::AutoApplied);
+        assert_eq!(spans[0].anchors.len(), 2);
+        assert_eq!(stored_join(&p).status, "applied_auto");
+
+        let entry = p.history(5).unwrap().remove(0);
+        assert!(entry.undoable);
+        p.undo(entry.id).unwrap();
+        assert_eq!(page_text(&p, 0), ["communica-"]);
+        assert_eq!(page_text(&p, 1), ["tion,"]);
+        assert_eq!(stored_join(&p).status, "open");
+        assert!(p
+            .issues_for_page(PageIndex(0))
+            .unwrap()
+            .iter()
+            .any(|i| i.kind == IssueKind::QuestionableJoin && i.status == IssueStatus::Open));
+    }
+
+    #[test]
+    fn text_pass_join_leaves_approved_and_edited_pages_for_review() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path(), 2);
+        text_pass_join(&mut p, 96);
+        p.approve_page(PageIndex(0), 9).unwrap();
+        assert!(!p
+            .apply_cross_page_join(&stored_join(&p), PageIndex(1))
+            .unwrap());
+        assert_eq!(page_text(&p, 0), ["communica-"]);
+        p.unapprove_page(PageIndex(0)).unwrap();
+        let word = p.page_spans(PageIndex(0)).unwrap().remove(0);
+        p.edit_text(&[(word.id, word.revision)], "communi-")
+            .unwrap();
+        assert!(!p
+            .apply_cross_page_join(&stored_join(&p), PageIndex(1))
+            .unwrap());
+        assert_eq!(page_text(&p, 0), ["communi-"]);
+    }
+
+    #[test]
+    fn rerun_of_the_later_page_replaces_an_open_join() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path(), 2);
+        text_pass_join(&mut p, 70);
+        // no join this time: the proposal and its issue on page 1 are gone
+        p.put_page_text(PageIndex(1), None, &[span(1, 0, "tion,", 95.0)], &[])
+            .unwrap();
+        assert!(p
+            .page_proposals(PageIndex(0))
+            .unwrap()
+            .iter()
+            .all(|q| !q.cross_page));
+        assert!(p
+            .issues_for_page(PageIndex(0))
+            .unwrap()
+            .iter()
+            .all(|i| i.kind != IssueKind::QuestionableJoin));
+    }
+
+    #[test]
+    fn page_join_makes_approved_pages_need_fresh_approval() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path(), 2);
+        let (_, _, issue) = split_book(&mut p);
+        p.approve_page(PageIndex(0), 9).unwrap();
+        p.approve_page(PageIndex(1), 9).unwrap();
+        accept_join(&mut p, &issue);
+        for r in p.pages().unwrap() {
+            assert_ne!(r.approved_revision, Some(r.text_revision));
+        }
+    }
+
+    #[test]
+    fn page_join_survives_a_rerun_of_either_page() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path(), 2);
+        let (_, _, issue) = split_book(&mut p);
+        accept_join(&mut p, &issue);
+        // rerun the later page: the fragment does not come back
+        let fresh = vec![span(1, 0, "tion,", 60.0), span(1, 1, "which", 95.0)];
+        p.put_page_text(PageIndex(1), None, &fresh, &[]).unwrap();
+        assert_eq!(page_text(&p, 1), ["", "which"]);
+        // rerun the earlier page: the join is back, scan link included
+        let fresh = vec![span(0, 0, "of", 95.0), span(0, 1, "communica-", 95.0)];
+        p.put_page_text(PageIndex(0), None, &fresh, &[]).unwrap();
+        assert_eq!(page_text(&p, 0), ["of", "communication,"]);
+        let joined = p.page_spans(PageIndex(0)).unwrap().remove(1);
+        assert_eq!(joined.anchors.len(), 1);
+    }
+
+    #[test]
+    fn body_words_leave_out_catchwords_and_emptied_words() {
+        use sbwb_layout::{Region, RegionKind};
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = create(dir.path(), 1);
+        let body = Region::new(
+            RegionKind::Body,
+            sbwb_core::Rect::new(0.0, 0.0, 9.0, 9.0),
+            0,
+        );
+        let catchword = Region::new(
+            RegionKind::Catchword,
+            sbwb_core::Rect::new(0.0, 9.0, 9.0, 1.0),
+            1,
+        );
+        let regions = serde_json::to_value(vec![body.clone(), catchword.clone()]).unwrap();
+        p.put_page_layout(
+            PageIndex(0),
+            None,
+            &regions,
+            &serde_json::json!({}),
+            None,
+            true,
+            true,
+        )
+        .unwrap();
+        let mut words = vec![
+            span(0, 0, "the", 95.0),
+            span(0, 1, "end-", 95.0),
+            span(0, 2, "", 95.0),
+            span(0, 3, "ing", 95.0),
+        ];
+        for w in &mut words[..3] {
+            w.region = Some(body.id);
+        }
+        words[3].region = Some(catchword.id);
+        p.put_page_text(PageIndex(0), None, &words, &[]).unwrap();
+        let found: Vec<String> = p
+            .body_words(PageIndex(0))
+            .unwrap()
+            .into_iter()
+            .map(|s| s.text)
+            .collect();
+        assert_eq!(found, ["the", "end-"]);
     }
 
     #[test]

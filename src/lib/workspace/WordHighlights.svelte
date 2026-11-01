@@ -18,6 +18,8 @@
       const hovered = review.hoverSpan === s.id;
       if (m.kind === "none" && !focused && !hovered) continue;
       for (const a of s.anchors) {
+        // a word joined across a page break also links to the next page's scan
+        if (a.page !== undefined && a.page !== s.page) continue;
         out.push({
           id: s.id,
           x: a.bbox.x,

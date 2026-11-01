@@ -170,7 +170,7 @@ export type PageLayout = {
 };
 
 export type SpanOrigin = "ocr" | "auto_applied" | "accepted" | "manual" | "inserted";
-export type Anchor = { run: string; index: number; bbox: { x: number; y: number; w: number; h: number }; confidence: number; text: string };
+export type Anchor = { page?: number; run: string; index: number; bbox: { x: number; y: number; w: number; h: number }; confidence: number; text: string };
 export type Span = {
   id: string;
   page: number;
@@ -390,6 +390,7 @@ export type AiStatus = { providers: AiProviderStatus[]; open_suggestions: number
 export type PromptPreview = { default_instructions: string; rules: string; max_instructions: number; system: string; user: string | null };
 export type CostEstimate = { usd: number | null; input_per_mtok: number | null; output_per_mtok: number | null; prices_as_of: string };
 export type Estimate = { pages: number[]; words: number; chars: number; approx_tokens: number; approx_output_tokens: number; requests: number; payload_kinds: string[] };
+export type JoinEstimate = { estimate: Estimate; breaks: number; candidates: number; system: string; sample: string | null };
 
 // ----- book queue (PRJ-06) -----
 export type QueueItem = {
@@ -533,7 +534,8 @@ export const api = {
   aiEstimate: (pages: number[], instructions: string) => invoke<Estimate>("ai_estimate", { pages, instructions }),
   aiPrompt: (page: number | null, instructions: string) => invoke<PromptPreview>("ai_prompt", { page, instructions }),
   aiCost: (provider: string, model: string, inputTokens: number, outputTokens: number) => invoke<CostEstimate>("ai_cost", { provider, model, inputTokens, outputTokens }),
-  aiRun: (req: { provider: string; model: string; pages: number[]; max_requests: number; max_input_chars: number; instructions: string; consent: boolean }) => invoke<string>("ai_run", { req }),
+  aiJoinEstimate: (pages: number[], maxInputChars: number) => invoke<JoinEstimate>("ai_join_estimate", { pages, maxInputChars }),
+  aiRun: (req: { provider: string; model: string; pages: number[]; max_requests: number; max_input_chars: number; instructions: string; join_pages: boolean; consent: boolean }) => invoke<string>("ai_run", { req }),
   aiCancel: () => invoke<void>("ai_cancel"),
   aiRuns: () => invoke<AiRunRecord[]>("ai_runs"),
   aiSpend: () => invoke<AiSpend>("ai_spend"),

@@ -332,6 +332,18 @@ pub struct AiRunRecord {
     pub elapsed_ms: Option<u64>,
 }
 
+/// A validated page-break join: the last word of one page and the first of
+/// the next, at the revisions that were sent.
+#[derive(Debug, Clone)]
+pub struct AiJoin {
+    pub last: SpanId,
+    pub last_revision: u64,
+    pub first: SpanId,
+    pub first_revision: u64,
+    pub joined: String,
+    pub reason: String,
+}
+
 impl Project {
     /// Add validated AI suggestions as open proposals labelled by provider
     /// and model (AI-03). Never applied; stale spans are skipped.
@@ -386,6 +398,90 @@ impl Project {
         }
         tx.commit().map_err(db)?;
         if added > 0 {
+            self.rebuild_issues(page)?;
+        }
+        Ok(added)
+    }
+
+    /// The page's running text in reading order: non-empty words in body
+    /// regions, so a page number, running head, catchword, or footnote is
+    /// never taken for the end of the page.
+    pub fn body_words(&self, page: PageIndex) -> Result<Vec<Span>> {
+        let Some(layout) = self.page_layout(page)? else {
+            return Ok(vec![]);
+        };
+        let regions: Vec<sbwb_layout::Region> =
+            serde_json::from_value(layout.regions).unwrap_or_default();
+        let body: Vec<RegionId> = regions
+            .iter()
+            .filter(|r| r.kind == sbwb_layout::RegionKind::Body)
+            .map(|r| r.id)
+            .collect();
+        Ok(self
+            .page_spans(page)?
+            .into_iter()
+            .filter(|s| !s.text.is_empty() && s.region.is_some_and(|r| body.contains(&r)))
+            .collect())
+    }
+
+    /// Add validated page-break joins as open proposals on the earlier
+    /// word, labelled by provider and model (AI-03). Never applied; a join
+    /// whose words changed since they were sent, or one already skipped, is
+    /// left out.
+    pub fn merge_ai_joins(&mut self, label: &str, items: &[AiJoin]) -> Result<u32> {
+        self.require_write()?;
+        let now = Timestamp::now().to_string();
+        let mut pages = Vec::new();
+        let tx = self.conn.transaction().map_err(db)?;
+        for j in items {
+            let read = |id: SpanId| -> Result<Option<(String, i64, i64)>> {
+                tx.query_row(
+                    "SELECT text, revision, page_index FROM spans WHERE id = ?1",
+                    params![id.to_string()],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .optional()
+                .map_err(db)
+            };
+            let (Some(last), Some(first)) = (read(j.last)?, read(j.first)?) else {
+                continue;
+            };
+            if last.1 as u64 != j.last_revision || first.1 as u64 != j.first_revision {
+                continue;
+            }
+            let original = format!("{} / {}", last.0, first.0);
+            let dup: i64 = tx
+                .query_row(
+                    "SELECT count(*) FROM proposals WHERE span_id = ?1 AND original = ?2 AND replacement = ?3 AND status IN ('open', 'deferred', 'rejected')",
+                    params![j.last.to_string(), original, j.joined],
+                    |r| r.get(0),
+                )
+                .map_err(db)?;
+            if dup > 0 {
+                continue;
+            }
+            let reason = format!(
+                "[{label}] joins “{}” from page {} · {}",
+                first.0,
+                first.2 + 1,
+                j.reason
+            );
+            tx.execute(
+                "INSERT INTO proposals(id, page_index, span_id, span_revision, kind, original, replacement, score, reason, source, status, merged_span, cross_page, created_at, run_id)
+                 VALUES (?1, ?2, ?3, ?4, 'hyphen_join', ?5, ?6, 0, ?7, ?8, 'open', ?9, 1, ?10, NULL)",
+                params![ProposalId::new().to_string(), last.2, j.last.to_string(), j.last_revision as i64, original, j.joined, reason, format!("ai:{label}"), j.first.to_string(), now],
+            )
+            .map_err(db)?;
+            tx.execute(
+                "UPDATE pages SET text_revision = text_revision + 1 WHERE page_index = ?1",
+                params![last.2],
+            )
+            .map_err(db)?;
+            pages.push(PageIndex(last.2 as u32));
+        }
+        tx.commit().map_err(db)?;
+        let added = pages.len() as u32;
+        for page in pages {
             self.rebuild_issues(page)?;
         }
         Ok(added)

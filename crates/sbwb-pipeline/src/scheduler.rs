@@ -699,10 +699,9 @@ fn run_text_pass(
     let previous_tail = if page.0 > 0 && scope.contains(PageIndex(page.0 - 1)) {
         let prev = PageIndex(page.0 - 1);
         project
-            .page_spans(prev)?
+            .body_words(prev)?
             .into_iter()
-            .rev()
-            .find(|s| s.region.is_some())
+            .next_back()
             .filter(|s| s.text.ends_with('-') && s.text.chars().count() >= 3)
             .map(|s| sbwb_text::reconstruct::PendingHyphen {
                 span: s.id,
@@ -725,9 +724,19 @@ fn run_text_pass(
     let out = sbwb_text::reconstruct(&input, lexicon, policy);
     project.put_page_text(page, Some(run), &out.spans, &out.proposals)?;
     // cross-page join: apply now when it qualifies (D-24 rule a)
-    for p in project.page_proposals(page)? {
-        if p.cross_page && p.status == "open" && p.score >= policy.threshold {
-            project.apply_cross_page_join(&p, page)?;
+    if page.0 > 0
+        && policy
+            .eligible
+            .contains(&sbwb_text::ProposalKind::HyphenJoin)
+    {
+        for p in project.page_proposals(PageIndex(page.0 - 1))? {
+            if p.cross_page
+                && p.status == "open"
+                && p.source == "text_pass"
+                && p.score >= policy.threshold
+            {
+                project.apply_cross_page_join(&p, page)?;
+            }
         }
     }
     let applied = out.stats.auto_applied;

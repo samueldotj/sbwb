@@ -3,8 +3,9 @@
   // key status, page selection, the prompt (view and edit the
   // instructions; the data and reply-format rules stay fixed), the "what
   // leaves this machine" consent card, budgets, Send, cancel, and the last
-  // run with a link into the review. Nothing is sent without the consent box ticked on this card.
-  import { api, errorMessage, parseRanges, type AiRunRecord, type AiStatus, type CostEstimate, type Estimate, type ModelInfo, type ProjectSummary, type PromptPreview } from "$lib/api";
+  // run with a link into the review. An option looks for words split across
+  // page breaks instead of proofreading each page. Nothing is sent without the consent box ticked on this card.
+  import { api, errorMessage, parseRanges, type AiRunRecord, type AiStatus, type CostEstimate, type Estimate, type JoinEstimate, type ModelInfo, type ProjectSummary, type PromptPreview } from "$lib/api";
   import { isTauri } from "$lib/ipc";
   import { ai, formatSpend } from "$lib/stores/ai.svelte";
   import { review } from "$lib/stores/review.svelte";
@@ -44,6 +45,9 @@
   let scopeKind = $state<"page" | "scope" | "range">("page");
   let rangeText = $state("");
   let estimate = $state<Estimate | null>(null);
+  // the option to look for words split across page breaks
+  let joinPages = $state(false);
+  let join = $state<JoinEstimate | null>(null);
   let cost = $state<CostEstimate | null>(null);
   let consent = $state(false);
   let runs = $state<AiRunRecord[]>([]);
@@ -79,7 +83,12 @@
   });
 
   const pages = $derived.by((): number[] => {
-    if (scopeKind === "page") return [view.page];
+    if (scopeKind === "page") {
+      if (!joinPages) return [view.page];
+      // one page's check is the break after it
+      const next = summary.pages.find((p) => p.index > view.page && p.text_done);
+      return next ? [view.page, next.index] : [view.page];
+    }
     if (scopeKind === "scope") return summary.pages.filter((p) => p.text_done).map((p) => p.index);
     const ranges = parseRanges(rangeText) ?? [];
     const out: number[] = [];
@@ -93,8 +102,29 @@
       return;
     }
     const instructions = prefs.instructions;
+    const joining = joinPages;
+    const maxChars = prefs.maxChars;
     consent = false;
     let cancelled = false;
+    if (joining) {
+      api
+        .aiJoinEstimate(ps, maxChars)
+        .then((j) => {
+          if (cancelled) return;
+          join = j;
+          estimate = j.estimate;
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          join = null;
+          estimate = null;
+          ui.toast(errorMessage(e), "error");
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+    join = null;
     api
       .aiEstimate(ps, instructions)
       .then((e) => {
@@ -107,12 +137,14 @@
   });
 
   // why Send is off, shown under it; the request budget has its own note with a fix
-  const overBudget = $derived(!!estimate && estimate.pages.length > prefs.maxRequests);
+  const overBudget = $derived(!!estimate && estimate.requests > prefs.maxRequests);
   const sendBlocker = $derived.by((): string => {
+    if (joinPages && join && join.breaks === 0) return "Choose at least two neighbouring pages with running text.";
+    if (joinPages && join && join.candidates === 0) return "No page break here could hide a split word, so there is nothing to send.";
     if (!estimate || estimate.pages.length === 0) return "Choose pages that have been through the text pass.";
     if (!hasKey) return `Add an API key for ${providerStatus?.label ?? prefs.provider} to send.`;
     if (!prefs.model.trim()) return "Choose a model to send.";
-    if (overBudget) return `Raise Max requests to ${estimate.pages.length} to send these pages.`;
+    if (overBudget) return `Raise Max requests to ${estimate.requests} to send these ${joinPages ? "page breaks" : "pages"}.`;
     if (!consent) return "Tick the consent box to send.";
     return "";
   });
@@ -210,8 +242,8 @@
     if (!estimate || !consent) return;
     ai.lastError = "";
     try {
-      await api.aiRun({ provider: prefs.provider, model: prefs.model.trim(), pages: estimate.pages, max_requests: prefs.maxRequests, max_input_chars: prefs.maxChars, instructions: prefs.instructions, consent });
-      ai.started(estimate.pages[0] ?? 0, estimate.pages.length);
+      await api.aiRun({ provider: prefs.provider, model: prefs.model.trim(), pages: estimate.pages, max_requests: prefs.maxRequests, max_input_chars: prefs.maxChars, instructions: prefs.instructions, join_pages: joinPages, consent });
+      ai.started(estimate.pages[0] ?? 0, estimate.requests);
     } catch (e) {
       ai.lastError = errorMessage(e);
       ui.toast(ai.lastError, "error", 7000);
@@ -294,8 +326,23 @@
       <button type="button" role="radio" aria-checked={scopeKind === "range"} class:on={scopeKind === "range"} onclick={() => (scopeKind = "range")}>Range…</button>
     </div>
     {#if scopeKind === "range"}<input type="text" class="range" bind:value={rangeText} placeholder="e.g. 10-20, 35" aria-label="Page range" />{/if}
+    <label class="check joinopt"><input type="checkbox" bind:checked={joinPages} disabled={ai.running !== null} /> <span>Join words split across page breaks <span class="muted small">Reads the pages as continuous text and looks for a word cut at the bottom of one page and finished on the next. An accepted join moves the whole word to the earlier page.</span></span></label>
   </div>
 
+  {#if joinPages}
+  <div class="prompt">
+    <div class="prompthead">
+      <span class="label">Prompt</span>
+      <span class="tag">Fixed</span>
+      <button type="button" class="link" onclick={togglePrompt} aria-expanded={promptOpen}>{promptOpen ? "Hide" : "View"}</button>
+    </div>
+    {#if promptOpen && join}
+      <pre class="fixed">{join.system}</pre>
+      <div class="small promptlabel">Sent with it, the first request</div>
+      {#if join.sample}<pre class="fixed">{join.sample}</pre>{:else}<p class="muted small">Nothing to send for these pages.</p>{/if}
+    {/if}
+  </div>
+  {:else}
   <div class="prompt">
     <div class="prompthead">
       <span class="label">Prompt</span>
@@ -324,15 +371,22 @@
       {/if}
     {/if}
   </div>
+  {/if}
 
   <div class="card" aria-label="What leaves this machine">
     <div class="label">What leaves this machine</div>
     {#if estimate && estimate.pages.length}
       <ul class="small">
         {#each estimate.payload_kinds as k, i (i)}<li>{k}</li>{/each}
-        <li>the prompt: {prefs.instructions ? "your edited instructions" : "the default instructions"} and the fixed rules</li>
-        <li>{estimate.pages.length} page{estimate.pages.length === 1 ? "" : "s"}, {estimate.words} words, about {estimate.approx_tokens} tokens in {estimate.requests} request{estimate.requests === 1 ? "" : "s"}</li>
-        <li>Not sent: the PDF, scan images, file paths, project metadata, other pages</li>
+        {#if join}
+          <li>the fixed page-break prompt</li>
+          <li>{join.candidates} of {join.breaks} page break{join.breaks === 1 ? "" : "s"} (the rest end a sentence or start with a capital, so cannot split a word), {estimate.words} words, about {estimate.approx_tokens} tokens in {estimate.requests} request{estimate.requests === 1 ? "" : "s"}</li>
+          <li>Not sent: the PDF, scan images, file paths, project metadata, the rest of each page</li>
+        {:else}
+          <li>the prompt: {prefs.instructions ? "your edited instructions" : "the default instructions"} and the fixed rules</li>
+          <li>{estimate.pages.length} page{estimate.pages.length === 1 ? "" : "s"}, {estimate.words} words, about {estimate.approx_tokens} tokens in {estimate.requests} request{estimate.requests === 1 ? "" : "s"}</li>
+          <li>Not sent: the PDF, scan images, file paths, project metadata, other pages</li>
+        {/if}
         {#if !prefs.model.trim()}
           <li>Cost: choose a model to see an estimate</li>
         {:else if !cost}
@@ -348,12 +402,12 @@
       </ul>
       <div class="grid">
         <label class="small">Max requests <input type="number" min="1" bind:value={prefs.maxRequests} /></label>
-        <label class="small">Max characters per page <input type="number" min="1000" step="1000" bind:value={prefs.maxChars} /></label>
+        <label class="small">{joinPages ? "Max characters per request" : "Max characters per page"} <input type="number" min="1000" step="1000" bind:value={prefs.maxChars} /></label>
       </div>
       {#if overBudget}
         <p class="note warn">
-          {estimate.pages.length} pages need {estimate.pages.length} requests (one per page), more than Max requests ({prefs.maxRequests}).
-          <button type="button" class="link" onclick={() => estimate && (prefs.maxRequests = estimate.pages.length)}>Allow {estimate.pages.length} requests</button>
+          {joinPages ? `These page breaks need ${estimate.requests} requests` : `${estimate.pages.length} pages need ${estimate.requests} requests (one per page)`}, more than Max requests ({prefs.maxRequests}).
+          <button type="button" class="link" onclick={() => estimate && (prefs.maxRequests = estimate.requests)}>Allow {estimate.requests} requests</button>
         </p>
       {/if}
       <label class="check"><input type="checkbox" bind:checked={consent} disabled={ai.running !== null} /> I understand what is sent to {providerStatus?.label ?? prefs.provider} ({prefs.model || "no model"})</label>
@@ -364,10 +418,10 @@
 
   {#if ai.running}
     <div class="progress" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span> Page {ai.running.page + 1} · {ai.running.done} of {ai.running.total} sent</div>
-    <button type="button" class="ctl" onclick={() => api.aiCancel()}>Cancel after this page</button>
+    <button type="button" class="ctl" onclick={() => api.aiCancel()}>Cancel after this {joinPages ? "request" : "page"}</button>
   {:else}
     <button type="button" class="ctl primary wide" onclick={send} disabled={!!sendBlocker} aria-describedby={sendBlocker ? "ai-send-why" : undefined}>
-      Send {estimate?.pages.length ?? 0} page{(estimate?.pages.length ?? 0) === 1 ? "" : "s"}
+      {#if join}Send {join.candidates} page break{join.candidates === 1 ? "" : "s"}{:else}Send {estimate?.pages.length ?? 0} page{(estimate?.pages.length ?? 0) === 1 ? "" : "s"}{/if}
     </button>
     {#if sendBlocker}<p id="ai-send-why" class="muted small why">{sendBlocker}</p>{/if}
   {/if}
@@ -579,6 +633,12 @@
   .card ul {
     margin: 0;
     padding-left: 18px;
+  }
+  .joinopt {
+    margin-top: 8px;
+  }
+  .joinopt .muted {
+    display: block;
   }
   .check {
     display: flex;
