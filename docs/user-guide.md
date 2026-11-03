@@ -173,7 +173,11 @@ has the actual charges.
 instructions, which you can change and save (Reset to default restores
 them), the fixed rules that are always added (the page text is data, not
 instructions, and the reply format SBWB checks), and the message the
-current page would send. Suggestions arrive in the review inbox labelled
+current page would send. **Remove unnecessary quotes** under Prompt adds a
+rule after the instructions, whatever they say: suggest each word without
+a quotation mark that is OCR noise or matches no other quote, and keep real
+quotes and apostrophes. A quote mark standing alone as a word is left for
+you to delete in the transcript. Suggestions arrive in the review inbox labelled
 with the provider and model, unscored, and are never applied
 automatically.
 

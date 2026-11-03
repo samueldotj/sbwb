@@ -387,7 +387,7 @@ export type AiRunRecord = {
 export type AiSpend = { runs: { id: string; usd: number | null }[]; total_usd: number; unpriced: number; providers: string[]; prices_as_of: string };
 export type AiProgress = { page: number; done: number; total: number };
 export type AiStatus = { providers: AiProviderStatus[]; open_suggestions: number; last_run: AiRunRecord | null; running: AiProgress | null };
-export type PromptPreview = { default_instructions: string; rules: string; max_instructions: number; system: string; user: string | null };
+export type PromptPreview = { default_instructions: string; remove_quotes: string; rules: string; max_instructions: number; system: string; user: string | null };
 export type CostEstimate = { usd: number | null; input_per_mtok: number | null; output_per_mtok: number | null; prices_as_of: string };
 export type Estimate = { pages: number[]; words: number; chars: number; approx_tokens: number; approx_output_tokens: number; requests: number; payload_kinds: string[] };
 export type JoinEstimate = { estimate: Estimate; breaks: number; system: string; sample: string | null };
@@ -531,11 +531,11 @@ export const api = {
   aiKeySet: (provider: string, key: string, remember: boolean) => invoke<boolean>("ai_key_set", { provider, key, remember }),
   aiKeyForget: (provider: string) => invoke<void>("ai_key_forget", { provider }),
   aiModels: (provider: string) => invoke<ModelInfo[]>("ai_models", { provider }),
-  aiEstimate: (pages: number[], instructions: string) => invoke<Estimate>("ai_estimate", { pages, instructions }),
-  aiPrompt: (page: number | null, instructions: string) => invoke<PromptPreview>("ai_prompt", { page, instructions }),
+  aiEstimate: (pages: number[], instructions: string, removeQuotes = false) => invoke<Estimate>("ai_estimate", { pages, instructions, removeQuotes }),
+  aiPrompt: (page: number | null, instructions: string, removeQuotes = false) => invoke<PromptPreview>("ai_prompt", { page, instructions, removeQuotes }),
   aiCost: (provider: string, model: string, inputTokens: number, outputTokens: number) => invoke<CostEstimate>("ai_cost", { provider, model, inputTokens, outputTokens }),
   aiJoinEstimate: (pages: number[], maxInputChars: number) => invoke<JoinEstimate>("ai_join_estimate", { pages, maxInputChars }),
-  aiRun: (req: { provider: string; model: string; pages: number[]; max_requests: number; max_input_chars: number; instructions: string; join_pages: boolean; consent: boolean }) => invoke<string>("ai_run", { req }),
+  aiRun: (req: { provider: string; model: string; pages: number[]; max_requests: number; max_input_chars: number; instructions: string; join_pages: boolean; remove_quotes: boolean; consent: boolean }) => invoke<string>("ai_run", { req }),
   aiCancel: () => invoke<void>("ai_cancel"),
   aiRuns: () => invoke<AiRunRecord[]>("ai_runs"),
   aiSpend: () => invoke<AiSpend>("ai_spend"),

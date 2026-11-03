@@ -17,15 +17,16 @@
 
   const PREF_KEY = "sbwb.ai.prefs";
   // instructions: the user's edited prompt instructions; "" means the default
-  type Prefs = { enabled: boolean; provider: string; model: string; maxRequests: number; maxChars: number; instructions: string };
+  // removeQuotes: add the rule to remove unnecessary quotation marks
+  type Prefs = { enabled: boolean; provider: string; model: string; maxRequests: number; maxChars: number; instructions: string; removeQuotes: boolean };
   function loadPrefs(): Prefs {
     try {
       const v = JSON.parse(localStorage.getItem(PREF_KEY) ?? "");
-      if (v && typeof v === "object") return { enabled: !!v.enabled, provider: v.provider ?? "openai", model: v.model ?? "", maxRequests: v.maxRequests ?? 10, maxChars: v.maxChars ?? 200000, instructions: typeof v.instructions === "string" ? v.instructions : "" };
+      if (v && typeof v === "object") return { enabled: !!v.enabled, provider: v.provider ?? "openai", model: v.model ?? "", maxRequests: v.maxRequests ?? 10, maxChars: v.maxChars ?? 200000, instructions: typeof v.instructions === "string" ? v.instructions : "", removeQuotes: !!v.removeQuotes };
     } catch {
       /* defaults */
     }
-    return { enabled: false, provider: "openai", model: "", maxRequests: 10, maxChars: 200000, instructions: "" };
+    return { enabled: false, provider: "openai", model: "", maxRequests: 10, maxChars: 200000, instructions: "", removeQuotes: false };
   }
   let prefs = $state<Prefs>(loadPrefs());
   $effect(() => {
@@ -102,6 +103,7 @@
       return;
     }
     const instructions = prefs.instructions;
+    const removeQuotes = prefs.removeQuotes;
     const joining = joinPages;
     const maxChars = prefs.maxChars;
     consent = false;
@@ -126,7 +128,7 @@
     }
     join = null;
     api
-      .aiEstimate(ps, instructions)
+      .aiEstimate(ps, instructions, removeQuotes)
       .then((e) => {
         if (!cancelled) estimate = e;
       })
@@ -172,10 +174,11 @@
   $effect(() => {
     const page = view.page;
     const instructions = prefs.instructions;
+    const removeQuotes = prefs.removeQuotes;
     if (!isTauri || !promptOpen) return;
     let cancelled = false;
     api
-      .aiPrompt(page, instructions)
+      .aiPrompt(page, instructions, removeQuotes)
       .then((p) => {
         if (cancelled) return;
         preview = p;
@@ -241,7 +244,7 @@
     if (!estimate || !consent) return;
     ai.lastError = "";
     try {
-      await api.aiRun({ provider: prefs.provider, model: prefs.model.trim(), pages: estimate.pages, max_requests: prefs.maxRequests, max_input_chars: prefs.maxChars, instructions: prefs.instructions, join_pages: joinPages, consent });
+      await api.aiRun({ provider: prefs.provider, model: prefs.model.trim(), pages: estimate.pages, max_requests: prefs.maxRequests, max_input_chars: prefs.maxChars, instructions: prefs.instructions, join_pages: joinPages, remove_quotes: prefs.removeQuotes, consent });
       ai.started(estimate.pages[0] ?? 0, estimate.requests);
     } catch (e) {
       ai.lastError = errorMessage(e);
@@ -348,6 +351,7 @@
       <span class="tag" class:edited={!!prefs.instructions}>{prefs.instructions ? "Edited" : "Default"}</span>
       <button type="button" class="link" onclick={togglePrompt} aria-expanded={promptOpen}>{promptOpen ? "Hide" : "View or edit"}</button>
     </div>
+    <label class="check joinopt"><input type="checkbox" bind:checked={prefs.removeQuotes} disabled={ai.running !== null} /> <span>Remove unnecessary quotes <span class="muted small">Asks the AI to suggest words without stray or unmatched quotation marks, keeping real quotes and apostrophes. A quote mark standing alone as a word is not removed; delete it in the transcript.</span></span></label>
     {#if promptOpen}
       {#if preview}
         <label class="small promptlabel" for="ai-instructions">Instructions <span class="muted">(you can change these)</span></label>
@@ -357,6 +361,10 @@
           <button type="button" class="ctl" onclick={resetPrompt} disabled={draft.trim() === preview.default_instructions}>Reset to default</button>
           <button type="button" class="ctl primary" onclick={savePrompt} disabled={!promptDirty || !draft.trim()}>Save</button>
         </div>
+        {#if prefs.removeQuotes}
+          <div class="small promptlabel">Added for Remove unnecessary quotes</div>
+          <pre class="fixed">{preview.remove_quotes}</pre>
+        {/if}
         <div class="small promptlabel">Always added <span class="muted">(keeps the page text as data and the reply in the format SBWB checks)</span></div>
         <pre class="fixed">{preview.rules}</pre>
         <div class="small promptlabel">Sent with it, one message per page (page {view.page + 1})</div>
@@ -382,7 +390,7 @@
           <li>{join.breaks} page break{join.breaks === 1 ? "" : "s"}, {estimate.words} words, about {estimate.approx_tokens} tokens in {estimate.requests} request{estimate.requests === 1 ? "" : "s"}</li>
           <li>Not sent: the PDF, scan images, file paths, project metadata, the rest of each page</li>
         {:else}
-          <li>the prompt: {prefs.instructions ? "your edited instructions" : "the default instructions"} and the fixed rules</li>
+          <li>the prompt: {prefs.instructions ? "your edited instructions" : "the default instructions"}{prefs.removeQuotes ? ", the remove-quotes rule" : ""} and the fixed rules</li>
           <li>{estimate.pages.length} page{estimate.pages.length === 1 ? "" : "s"}, {estimate.words} words, about {estimate.approx_tokens} tokens in {estimate.requests} request{estimate.requests === 1 ? "" : "s"}</li>
           <li>Not sent: the PDF, scan images, file paths, project metadata, other pages</li>
         {/if}

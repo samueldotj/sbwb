@@ -207,6 +207,8 @@ fn custom_instructions(instructions: Option<&str>) -> CmdResult<Option<&str>> {
 #[derive(Debug, Clone, Serialize)]
 pub struct PromptPreview {
     pub default_instructions: &'static str,
+    /// Added after the instructions when "Remove unnecessary quotes" is on.
+    pub remove_quotes: &'static str,
     /// Always sent after the instructions; not editable (AI-03).
     pub rules: &'static str,
     pub max_instructions: usize,
@@ -224,8 +226,12 @@ pub fn ai_prompt(
     state: State<'_, AppState>,
     page: Option<u32>,
     instructions: Option<String>,
+    remove_quotes: Option<bool>,
 ) -> CmdResult<PromptPreview> {
-    let system = sbwb_ai::prompt::system(custom_instructions(instructions.as_deref())?);
+    let system = sbwb_ai::prompt::system_with(
+        custom_instructions(instructions.as_deref())?,
+        remove_quotes.unwrap_or(false),
+    );
     let user = match page {
         Some(i) => {
             let guard = state
@@ -244,6 +250,7 @@ pub fn ai_prompt(
     };
     Ok(PromptPreview {
         default_instructions: sbwb_ai::prompt::INSTRUCTIONS,
+        remove_quotes: sbwb_ai::prompt::REMOVE_QUOTES,
         rules: sbwb_ai::prompt::RULES,
         max_instructions: sbwb_ai::prompt::MAX_INSTRUCTIONS,
         system,
@@ -256,9 +263,11 @@ pub fn ai_estimate(
     state: State<'_, AppState>,
     pages: Vec<u32>,
     instructions: Option<String>,
+    remove_quotes: Option<bool>,
 ) -> CmdResult<Estimate> {
     // an over-long prompt is refused at send time; estimate it as written
-    let system = sbwb_ai::prompt::system(instructions.as_deref());
+    let system =
+        sbwb_ai::prompt::system_with(instructions.as_deref(), remove_quotes.unwrap_or(false));
     let guard = state
         .project
         .lock()
@@ -531,6 +540,9 @@ pub struct AiRunRequest {
     /// Run the page-break check instead of proofreading each page.
     #[serde(default)]
     pub join_pages: bool,
+    /// Add the rule to remove unnecessary quotation marks to the prompt.
+    #[serde(default)]
+    pub remove_quotes: bool,
     /// The user ticked the consent box on the card that listed the payload.
     pub consent: bool,
 }
@@ -576,7 +588,7 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
     let system = if req.join_pages {
         sbwb_ai::prompt::join_system()
     } else {
-        sbwb_ai::prompt::system(instructions)
+        sbwb_ai::prompt::system_with(instructions, req.remove_quotes)
     };
     // the page-break check's requests, from the words as they are now
     let joins = if req.join_pages {
@@ -639,7 +651,7 @@ pub fn ai_run(app: AppHandle, state: State<'_, AppState>, req: AiRunRequest) -> 
         provider: provider.id().into(),
         model: req.model.clone(),
         pages: pages.clone(),
-        consent: serde_json::json!({ "payload": if req.join_pages { serde_json::json!(["two sentences from each side of every page break"]) } else { serde_json::json!(["saved words with ids", "page numbers"]) }, "max_requests": req.max_requests, "max_input_chars": req.max_input_chars, "custom_prompt": custom_prompt, "join_pages": req.join_pages, "confirmed": true }),
+        consent: serde_json::json!({ "payload": if req.join_pages { serde_json::json!(["two sentences from each side of every page break"]) } else { serde_json::json!(["saved words with ids", "page numbers"]) }, "max_requests": req.max_requests, "max_input_chars": req.max_input_chars, "custom_prompt": custom_prompt, "remove_quotes": req.remove_quotes && !req.join_pages, "join_pages": req.join_pages, "confirmed": true }),
         requests: 0,
         chars_sent: 0,
         input_tokens: None,

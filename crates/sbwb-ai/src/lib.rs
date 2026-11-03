@@ -352,6 +352,23 @@ mod tests {
     }
 
     #[test]
+    fn a_word_without_its_stray_quote_is_a_word_level_correction() {
+        let p = PagePayload {
+            page_number: 3,
+            words: vec!["“The".into(), "king’s”".into(), "”".into()],
+        };
+        let reply = r#"{"suggestions":[
+  {"id":1,"before":"king’s”","after":"king’s","reason":"unmatched closing quote"},
+  {"id":2,"before":"”","after":"","reason":"stray quote"}
+]}"#;
+        let (ok, rejected) = validate_reply(&p, reply);
+        assert_eq!(ok.len(), 1);
+        assert_eq!(ok[0].after, "king’s");
+        // a word cannot be emptied: a quote standing alone stays
+        assert_eq!(rejected.len(), 1);
+    }
+
+    #[test]
     fn budget_blocks_before_sending() {
         let conn = Connection {
             provider: Provider::OpenAi,
@@ -390,6 +407,12 @@ mod tests {
         assert!(!custom.contains(prompt::INSTRUCTIONS));
         assert!(custom.ends_with(prompt::RULES));
         assert_eq!(prompt::system(Some("   ")), default);
+        // the quote rule sits between the instructions and the rules
+        let quotes = prompt::system_with(Some("Only fix long s read as f."), true);
+        assert!(quotes.starts_with("Only fix long s read as f."));
+        assert!(quotes.contains(prompt::REMOVE_QUOTES));
+        assert!(quotes.ends_with(prompt::RULES));
+        assert!(!default.contains(prompt::REMOVE_QUOTES));
         assert_eq!(
             prompt::extract_json("text ```json {\"a\":1} ``` more"),
             "{\"a\":1}"
