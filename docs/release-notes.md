@@ -1,5 +1,16 @@
 # Release notes
 
+## 0.5.1 (2026-11-03)
+
+### AI proofreading
+
+- **Remove unnecessary quotes**: a checkbox under Prompt in the AI tab adds
+  a rule after the instructions, whether they are the default ones or your
+  own: suggest each word without a quotation mark that is OCR noise or
+  matches no other quote, and keep real quotes and apostrophes. "View or
+  edit" shows the rule, and the card before Send lists it. A quote mark
+  standing alone as a word is not removed; delete it in the transcript.
+
 ## 0.5.0 (2026-11-01)
 
 Opening a 0.4.0 project upgrades its file (schema 10 → 11) after saving a
